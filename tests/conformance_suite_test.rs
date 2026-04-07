@@ -17,25 +17,16 @@ use std::collections::BTreeMap;
 /// Deserialized Istanbul reference data (from generate-reference.mjs output).
 #[derive(Debug, Deserialize)]
 struct IstanbulReference {
-    #[expect(
-        dead_code,
-        reason = "deserialized from JSON for structural completeness"
-    )]
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
     path: String,
     statements: usize,
     functions: usize,
     branches: usize,
     #[serde(rename = "statementMap")]
-    #[expect(
-        dead_code,
-        reason = "deserialized from JSON for structural completeness"
-    )]
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
     statement_map: BTreeMap<String, serde_json::Value>,
     #[serde(rename = "fnMap")]
-    #[expect(
-        dead_code,
-        reason = "deserialized from JSON for structural completeness"
-    )]
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
     fn_map: BTreeMap<String, IstanbulFn>,
     #[serde(rename = "branchMap")]
     branch_map: BTreeMap<String, IstanbulBranch>,
@@ -43,15 +34,9 @@ struct IstanbulReference {
 
 #[derive(Debug, Deserialize)]
 struct IstanbulFn {
-    #[expect(
-        dead_code,
-        reason = "deserialized from JSON for structural completeness"
-    )]
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
     name: String,
-    #[expect(
-        dead_code,
-        reason = "deserialized from JSON for structural completeness"
-    )]
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
     line: u32,
 }
 
@@ -59,10 +44,7 @@ struct IstanbulFn {
 struct IstanbulBranch {
     #[serde(rename = "type")]
     branch_type: String,
-    #[expect(
-        dead_code,
-        reason = "deserialized from JSON for structural completeness"
-    )]
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
     line: u32,
     #[serde(rename = "locationCount")]
     location_count: usize,
@@ -149,11 +131,8 @@ macro_rules! conformance_test {
                     .collect();
                 our_types.sort();
 
-                let mut istanbul_types: Vec<&str> = reference
-                    .branch_map
-                    .values()
-                    .map(|b| b.branch_type.as_str())
-                    .collect();
+                let mut istanbul_types: Vec<&str> =
+                    reference.branch_map.values().map(|b| b.branch_type.as_str()).collect();
                 istanbul_types.sort();
 
                 assert_eq!(
@@ -169,18 +148,11 @@ macro_rules! conformance_test {
                 let result = instrument_fixture(concat!($fixture, ".js"));
 
                 // Compare location counts for each Istanbul-standard branch
-                let our_branches: Vec<usize> = result
-                    .coverage_map
-                    .branch_map
-                    .values()
-                    .map(|b| b.locations.len())
-                    .collect();
+                let our_branches: Vec<usize> =
+                    result.coverage_map.branch_map.values().map(|b| b.locations.len()).collect();
 
-                let istanbul_branches: Vec<usize> = reference
-                    .branch_map
-                    .values()
-                    .map(|b| b.location_count)
-                    .collect();
+                let istanbul_branches: Vec<usize> =
+                    reference.branch_map.values().map(|b| b.location_count).collect();
 
                 assert_eq!(
                     our_branches, istanbul_branches,
@@ -217,17 +189,9 @@ macro_rules! conformance_test {
 
                 // Required Istanbul fields
                 assert!(json["path"].is_string(), "{}: missing path", $fixture);
-                assert!(
-                    json["statementMap"].is_object(),
-                    "{}: missing statementMap",
-                    $fixture
-                );
+                assert!(json["statementMap"].is_object(), "{}: missing statementMap", $fixture);
                 assert!(json["fnMap"].is_object(), "{}: missing fnMap", $fixture);
-                assert!(
-                    json["branchMap"].is_object(),
-                    "{}: missing branchMap",
-                    $fixture
-                );
+                assert!(json["branchMap"].is_object(), "{}: missing branchMap", $fixture);
                 assert!(json["s"].is_object(), "{}: missing s", $fixture);
                 assert!(json["f"].is_object(), "{}: missing f", $fixture);
                 assert!(json["b"].is_object(), "{}: missing b", $fixture);
@@ -257,11 +221,8 @@ macro_rules! conformance_test {
             fn output_is_valid_js() {
                 let result = instrument_fixture(concat!($fixture, ".js"));
                 // Strip preamble and verify the rest can be re-parsed
-                let code = result
-                    .code
-                    .find('\n')
-                    .map(|i| &result.code[i + 1..])
-                    .unwrap_or(&result.code);
+                let code =
+                    result.code.find('\n').map(|i| &result.code[i + 1..]).unwrap_or(&result.code);
                 let allocator = oxc_allocator::Allocator::default();
                 let source_type =
                     oxc_span::SourceType::from_path(concat!($fixture, ".js")).unwrap_or_default();
@@ -270,11 +231,7 @@ macro_rules! conformance_test {
                     parsed.errors.is_empty(),
                     "{}: instrumented code has parse errors: {:?}",
                     $fixture,
-                    parsed
-                        .errors
-                        .iter()
-                        .map(|e| e.to_string())
-                        .collect::<Vec<_>>()
+                    parsed.errors.iter().map(|e| e.to_string()).collect::<Vec<_>>()
                 );
             }
         }

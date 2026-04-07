@@ -1,2 +1,5 @@
 # Maximum nesting depth before clippy::excessive_nesting fires.
 excessive-nesting-threshold = 7
+
+# Don't break public API compatibility checks (we're pre-1.0)
+avoid-breaking-exported-api = false

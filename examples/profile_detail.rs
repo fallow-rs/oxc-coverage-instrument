@@ -34,10 +34,7 @@ fn main() {
     let json_avg = start.elapsed().as_micros() as f64 / f64::from(iterations);
 
     eprintln!("Full pipeline:     {full_avg:.1}µs");
-    eprintln!(
-        "JSON serialize:    {json_avg:.1}µs ({:.0}%)",
-        json_avg / full_avg * 100.0
-    );
+    eprintln!("JSON serialize:    {json_avg:.1}µs ({:.0}%)", json_avg / full_avg * 100.0);
     eprintln!(
         "Rest (parse+sem+traverse+codegen): {:.1}µs ({:.0}%)",
         full_avg - json_avg,
@@ -47,8 +44,5 @@ fn main() {
     // Coverage map size
     let json = serde_json::to_string(&result.coverage_map).unwrap();
     eprintln!("\nCoverage map JSON: {} bytes", json.len());
-    eprintln!(
-        "Preamble overhead: {:.1}x of source",
-        json.len() as f64 / source.len() as f64
-    );
+    eprintln!("Preamble overhead: {:.1}x of source", json.len() as f64 / source.len() as f64);
 }

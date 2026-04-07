@@ -103,15 +103,6 @@ impl FileCoverage {
             .map(|(k, entry)| (k.clone(), vec![0; entry.locations.len()]))
             .collect();
 
-        Self {
-            path,
-            statement_map,
-            fn_map,
-            branch_map,
-            s,
-            f,
-            b,
-            input_source_map: None,
-        }
+        Self { path, statement_map, fn_map, branch_map, s, f, b, input_source_map: None }
     }
 }

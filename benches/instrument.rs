@@ -41,10 +41,7 @@ fn bench_instrument_fixtures(c: &mut Criterion) {
 fn bench_instrument_with_source_map(c: &mut Criterion) {
     let source = read_fixture("medium-app.js");
     let opts_no_sm = InstrumentOptions::default();
-    let opts_sm = InstrumentOptions {
-        source_map: true,
-        ..InstrumentOptions::default()
-    };
+    let opts_sm = InstrumentOptions { source_map: true, ..InstrumentOptions::default() };
 
     let mut group = c.benchmark_group("source_map");
 
@@ -65,21 +62,15 @@ fn bench_instrument_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("scaling");
 
     for &count in &[10, 50, 100, 500] {
-        let source: String = (0..count)
-            .map(|i| base.replace('N', &i.to_string()))
-            .collect();
+        let source: String = (0..count).map(|i| base.replace('N', &i.to_string())).collect();
         let bytes = source.len();
 
         group.throughput(Throughput::Bytes(bytes as u64));
-        group.bench_with_input(
-            BenchmarkId::new("functions", count),
-            &source,
-            |b, source| {
-                b.iter(|| {
-                    instrument(source, "synthetic.js", &InstrumentOptions::default()).unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("functions", count), &source, |b, source| {
+            b.iter(|| {
+                instrument(source, "synthetic.js", &InstrumentOptions::default()).unwrap();
+            });
+        });
     }
     group.finish();
 }

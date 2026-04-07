@@ -23,11 +23,7 @@ fn validate_coverage_map(result: &oxc_coverage_instrument::InstrumentResult, nam
     let cm = &result.coverage_map;
 
     // Hit counts match map sizes
-    assert_eq!(
-        cm.s.len(),
-        cm.statement_map.len(),
-        "{name}: s count mismatch"
-    );
+    assert_eq!(cm.s.len(), cm.statement_map.len(), "{name}: s count mismatch");
     assert_eq!(cm.f.len(), cm.fn_map.len(), "{name}: f count mismatch");
     assert_eq!(cm.b.len(), cm.branch_map.len(), "{name}: b count mismatch");
 
@@ -56,19 +52,13 @@ fn validate_coverage_map(result: &oxc_coverage_instrument::InstrumentResult, nam
     assert_eq!(parsed["path"], name, "{name}: path mismatch in JSON");
 
     // Istanbul required fields
-    assert!(
-        parsed["statementMap"].is_object(),
-        "{name}: missing statementMap"
-    );
+    assert!(parsed["statementMap"].is_object(), "{name}: missing statementMap");
     assert!(parsed["fnMap"].is_object(), "{name}: missing fnMap");
 }
 
 fn validate_output_reparseable(result: &oxc_coverage_instrument::InstrumentResult, name: &str) {
     // Strip the preamble (first line) and verify the rest can be parsed
-    let code = result
-        .code
-        .find('\n')
-        .map_or(&result.code as &str, |i| &result.code[i + 1..]);
+    let code = result.code.find('\n').map_or(&result.code as &str, |i| &result.code[i + 1..]);
 
     let allocator = oxc_allocator::Allocator::default();
     let source_type = oxc_span::SourceType::from_path(name).unwrap_or_default();
@@ -77,11 +67,7 @@ fn validate_output_reparseable(result: &oxc_coverage_instrument::InstrumentResul
     assert!(
         parsed.errors.is_empty(),
         "{name}: instrumented code has parse errors: {:?}",
-        parsed
-            .errors
-            .iter()
-            .map(|e| format!("{e}"))
-            .collect::<Vec<_>>()
+        parsed.errors.iter().map(|e| format!("{e}")).collect::<Vec<_>>()
     );
 }
 
@@ -103,21 +89,13 @@ fn benchmark_react_hooks() {
     );
 
     // Should have if/else branches
-    let if_branches: usize = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "if")
-        .count();
+    let if_branches: usize =
+        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "if").count();
     assert!(if_branches >= 2, "Expected at least 2 if-branches");
 
     // Should have nullish coalescing branches (from ?? patterns)
-    let binary_branches: usize = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "binary-expr")
-        .count();
+    let binary_branches: usize =
+        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "binary-expr").count();
     assert!(binary_branches >= 1, "Expected nullish coalescing branches");
 }
 
@@ -153,31 +131,19 @@ fn benchmark_typescript_advanced() {
     validate_output_reparseable(&result, "typescript-advanced.ts");
 
     // Should have class methods
-    let fn_names: Vec<&str> = result
-        .coverage_map
-        .fn_map
-        .values()
-        .map(|f| f.name.as_str())
-        .collect();
+    let fn_names: Vec<&str> =
+        result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
     assert!(fn_names.contains(&"on"), "Missing 'on' method");
     assert!(fn_names.contains(&"emit"), "Missing 'emit' method");
 
     // Should have switch branches (for discriminated union)
-    let switch_branches: usize = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "switch")
-        .count();
+    let switch_branches: usize =
+        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "switch").count();
     assert!(switch_branches >= 1, "Expected switch branch for Shape");
 
     // Should have ternary branches
-    let cond_branches: usize = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "cond-expr")
-        .count();
+    let cond_branches: usize =
+        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "cond-expr").count();
     assert!(cond_branches >= 1, "Expected ternary branches");
 }
 
@@ -213,46 +179,24 @@ fn benchmark_pragmas() {
     validate_coverage_map(&result, "pragmas.js");
     validate_output_reparseable(&result, "pragmas.js");
 
-    let fn_names: Vec<&str> = result
-        .coverage_map
-        .fn_map
-        .values()
-        .map(|f| f.name.as_str())
-        .collect();
+    let fn_names: Vec<&str> =
+        result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
 
     // alwaysCounted should be instrumented
-    assert!(
-        fn_names.contains(&"alwaysCounted"),
-        "alwaysCounted should be in fn_map"
-    );
+    assert!(fn_names.contains(&"alwaysCounted"), "alwaysCounted should be in fn_map");
 
     // ignoredFunction should NOT be instrumented (istanbul ignore next)
-    assert!(
-        !fn_names.contains(&"ignoredFunction"),
-        "ignoredFunction should NOT be in fn_map"
-    );
+    assert!(!fn_names.contains(&"ignoredFunction"), "ignoredFunction should NOT be in fn_map");
 
     // v8Ignored should NOT be instrumented
-    assert!(
-        !fn_names.contains(&"v8Ignored"),
-        "v8Ignored should NOT be in fn_map"
-    );
+    assert!(!fn_names.contains(&"v8Ignored"), "v8Ignored should NOT be in fn_map");
 
     // c8Ignored should NOT be instrumented
-    assert!(
-        !fn_names.contains(&"c8Ignored"),
-        "c8Ignored should NOT be in fn_map"
-    );
+    assert!(!fn_names.contains(&"c8Ignored"), "c8Ignored should NOT be in fn_map");
 
     // withIgnoredBranch and withIgnoredElse should still be instrumented as functions
-    assert!(
-        fn_names.contains(&"withIgnoredBranch"),
-        "withIgnoredBranch should be in fn_map"
-    );
-    assert!(
-        fn_names.contains(&"withIgnoredElse"),
-        "withIgnoredElse should be in fn_map"
-    );
+    assert!(fn_names.contains(&"withIgnoredBranch"), "withIgnoredBranch should be in fn_map");
+    assert!(fn_names.contains(&"withIgnoredElse"), "withIgnoredElse should be in fn_map");
 }
 
 // ---------------------------------------------------------------------------
@@ -262,21 +206,12 @@ fn benchmark_pragmas() {
 #[test]
 fn benchmark_source_map_output() {
     let source = read_fixture("typescript-advanced.ts");
-    let opts = InstrumentOptions {
-        source_map: true,
-        ..InstrumentOptions::default()
-    };
+    let opts = InstrumentOptions { source_map: true, ..InstrumentOptions::default() };
     let result = instrument(&source, "typescript-advanced.ts", &opts).unwrap();
 
-    let sm = result
-        .source_map
-        .as_ref()
-        .expect("Source map should be present");
+    let sm = result.source_map.as_ref().expect("Source map should be present");
     let parsed: serde_json::Value = serde_json::from_str(sm).unwrap();
     assert_eq!(parsed["version"], 3);
     assert!(parsed["mappings"].is_string());
-    assert!(
-        parsed["sources"].is_array(),
-        "Source map should have sources array"
-    );
+    assert!(parsed["sources"].is_array(), "Source map should have sources array");
 }

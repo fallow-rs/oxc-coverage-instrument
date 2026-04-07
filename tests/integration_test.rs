@@ -96,11 +96,7 @@ fn class_method() {
 fn anonymous_function() {
     let result = instrument_js("setTimeout(function() { console.log('hi'); }, 100);");
     assert_eq!(result.coverage_map.fn_map.len(), 1);
-    assert!(
-        result.coverage_map.fn_map["0"]
-            .name
-            .starts_with("(anonymous_")
-    );
+    assert!(result.coverage_map.fn_map["0"].name.starts_with("(anonymous_"));
 }
 
 #[test]
@@ -170,30 +166,21 @@ fn branch_switch() {
 fn branch_logical_and() {
     let result = instrument_js("const x = a && b;");
     assert_eq!(result.coverage_map.branch_map.len(), 1);
-    assert_eq!(
-        result.coverage_map.branch_map["0"].branch_type,
-        "binary-expr"
-    );
+    assert_eq!(result.coverage_map.branch_map["0"].branch_type, "binary-expr");
 }
 
 #[test]
 fn branch_logical_or() {
     let result = instrument_js("const x = a || b;");
     assert_eq!(result.coverage_map.branch_map.len(), 1);
-    assert_eq!(
-        result.coverage_map.branch_map["0"].branch_type,
-        "binary-expr"
-    );
+    assert_eq!(result.coverage_map.branch_map["0"].branch_type, "binary-expr");
 }
 
 #[test]
 fn branch_nullish_coalescing() {
     let result = instrument_js("const x = a ?? b;");
     assert_eq!(result.coverage_map.branch_map.len(), 1);
-    assert_eq!(
-        result.coverage_map.branch_map["0"].branch_type,
-        "binary-expr"
-    );
+    assert_eq!(result.coverage_map.branch_map["0"].branch_type, "binary-expr");
     assert!(result.code.contains(".b[0][0]"));
     assert!(result.code.contains(".b[0][1]"));
 }
@@ -218,24 +205,16 @@ fn branch_nullish_assignment() {
 #[test]
 fn branch_logical_or_assignment() {
     let result = instrument_js("let x = 0; x ||= 'default';");
-    let binary_branch_count = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "binary-expr")
-        .count();
+    let binary_branch_count =
+        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "binary-expr").count();
     assert_eq!(binary_branch_count, 1);
 }
 
 #[test]
 fn branch_logical_and_assignment() {
     let result = instrument_js("let x = 1; x &&= doSomething();");
-    let binary_branch_count = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "binary-expr")
-        .count();
+    let binary_branch_count =
+        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "binary-expr").count();
     assert_eq!(binary_branch_count, 1);
 }
 
@@ -282,12 +261,8 @@ fn pragma_istanbul_ignore_next_function() {
         "/* istanbul ignore next */\nfunction ignored() { return 1; }\nfunction counted() { return 2; }",
     );
     // Only 'counted' should be instrumented as a function
-    let fn_names: Vec<&str> = result
-        .coverage_map
-        .fn_map
-        .values()
-        .map(|f| f.name.as_str())
-        .collect();
+    let fn_names: Vec<&str> =
+        result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
     assert!(fn_names.contains(&"counted"));
     // 'ignored' should not have a counter
     assert!(!fn_names.contains(&"ignored"));
@@ -299,10 +274,7 @@ fn pragma_istanbul_ignore_next_function() {
 
 #[test]
 fn source_map_generation() {
-    let opts = InstrumentOptions {
-        source_map: true,
-        ..InstrumentOptions::default()
-    };
+    let opts = InstrumentOptions { source_map: true, ..InstrumentOptions::default() };
     let result = instrument("function f() { return 1; }", "test.js", &opts).unwrap();
     assert!(result.source_map.is_some());
     let sm = result.source_map.unwrap();
@@ -320,10 +292,7 @@ fn source_map_disabled_by_default() {
 #[test]
 fn source_map_accounts_for_preamble_offset() {
     let source = "function f() {\n  return 1;\n}";
-    let opts = InstrumentOptions {
-        source_map: true,
-        ..InstrumentOptions::default()
-    };
+    let opts = InstrumentOptions { source_map: true, ..InstrumentOptions::default() };
     let result = instrument(source, "test.js", &opts).unwrap();
     let sm_json = result.source_map.as_ref().unwrap();
     let sm = oxc_sourcemap::SourceMap::from_json_string(sm_json).unwrap();
@@ -332,10 +301,7 @@ fn source_map_accounts_for_preamble_offset() {
     // have a generated line >= 1 (0-indexed), not 0.
     // This verifies the preamble offset was applied.
     let tokens: Vec<_> = sm.get_tokens().collect();
-    assert!(
-        !tokens.is_empty(),
-        "Source map should have at least one mapping"
-    );
+    assert!(!tokens.is_empty(), "Source map should have at least one mapping");
     // First token's generated line should be >= 1 (after preamble)
     let first_gen_line = tokens[0].get_dst_line();
     assert!(
@@ -392,12 +358,8 @@ fn hit_counts_initialized_to_zero() {
 #[test]
 fn statement_map_keys_are_sequential_strings() {
     let result = instrument_js("const a = 1;\nconst b = 2;\nconst c = 3;");
-    let keys: Vec<usize> = result
-        .coverage_map
-        .statement_map
-        .keys()
-        .map(|k| k.parse::<usize>().unwrap())
-        .collect();
+    let keys: Vec<usize> =
+        result.coverage_map.statement_map.keys().map(|k| k.parse::<usize>().unwrap()).collect();
     let mut sorted = keys.clone();
     sorted.sort_unstable();
     assert_eq!(keys, sorted);
@@ -468,12 +430,8 @@ fn nested_functions() {
 fn nested_if_else() {
     let result = instrument_js("if (a) { if (b) { x(); } else { y(); } } else { z(); }");
     // Should have 2 if-branches
-    let if_branch_count = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "if")
-        .count();
+    let if_branch_count =
+        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "if").count();
     assert_eq!(if_branch_count, 2);
 }
 
@@ -507,12 +465,8 @@ fn typescript_source() {
 #[test]
 fn jsx_source() {
     let opts = InstrumentOptions::default();
-    let result = instrument(
-        "function App() { return <div>Hello</div>; }",
-        "test.jsx",
-        &opts,
-    )
-    .unwrap();
+    let result =
+        instrument("function App() { return <div>Hello</div>; }", "test.jsx", &opts).unwrap();
     assert_eq!(result.coverage_map.fn_map.len(), 1);
 }
 
@@ -557,12 +511,8 @@ fn pragma_ignore_next_arrow_function() {
     let result = instrument_js(
         "/* istanbul ignore next */\nconst ignored = () => 1;\nconst counted = () => 2;",
     );
-    let fn_names: Vec<&str> = result
-        .coverage_map
-        .fn_map
-        .values()
-        .map(|f| f.name.as_str())
-        .collect();
+    let fn_names: Vec<&str> =
+        result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
     assert!(fn_names.contains(&"counted"));
     assert!(!fn_names.contains(&"ignored"));
 }
@@ -621,12 +571,8 @@ fn known_pragmas_not_in_unhandled() {
 fn pragma_v8_ignore_next() {
     let result =
         instrument_js("/* v8 ignore next */\nfunction ignored() {}\nfunction counted() {}");
-    let fn_names: Vec<&str> = result
-        .coverage_map
-        .fn_map
-        .values()
-        .map(|f| f.name.as_str())
-        .collect();
+    let fn_names: Vec<&str> =
+        result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
     assert!(!fn_names.contains(&"ignored"));
     assert!(fn_names.contains(&"counted"));
 }
@@ -677,10 +623,7 @@ fn source_map_composed_with_input_source_map() {
     // The composed source map should reference the original TS file, not test.js
     let sources = sm["sources"].as_array().unwrap();
     let has_original = sources.iter().any(|s| s.as_str() == Some("original.ts"));
-    assert!(
-        has_original,
-        "Composed source map should reference original.ts, got: {sources:?}"
-    );
+    assert!(has_original, "Composed source map should reference original.ts, got: {sources:?}");
 }
 
 #[test]
@@ -706,12 +649,7 @@ fn invalid_coverage_variable_returns_error() {
     };
     let result = instrument("const x = 1;", "test.js", &opts);
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("invalid coverage variable")
-    );
+    assert!(result.unwrap_err().to_string().contains("invalid coverage variable"));
 }
 
 #[test]
@@ -737,10 +675,7 @@ fn async_function_declaration() {
     // decl_span should NOT use hardcoded +8 — verify it covers "async function fetchData"
     let decl = &result.coverage_map.fn_map["0"].decl;
     // The declaration should span from "async" (col 0) to at least past "fetchData"
-    assert!(
-        decl.end.column > 8,
-        "decl_span should extend past 'function' for async"
-    );
+    assert!(decl.end.column > 8, "decl_span should extend past 'function' for async");
 }
 
 #[test]
@@ -757,12 +692,8 @@ fn async_arrow_function() {
 #[test]
 fn destructuring_default_creates_branch() {
     let result = instrument_js("const { x = 1, y = 2 } = obj;");
-    let default_count = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "default-arg")
-        .count();
+    let default_count =
+        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "default-arg").count();
     assert_eq!(default_count, 2);
 }
 
@@ -787,12 +718,8 @@ fn switch_fall_through_cases() {
     let result = instrument_js(
         "function f(x) { switch(x) { case 1: case 2: return 'a'; case 3: return 'b'; } }",
     );
-    let switch_branches: Vec<_> = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "switch")
-        .collect();
+    let switch_branches: Vec<_> =
+        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "switch").collect();
     assert_eq!(switch_branches.len(), 1);
     // 3 cases
     assert_eq!(switch_branches[0].locations.len(), 3);
@@ -815,16 +742,10 @@ fn unknown_extension_treated_as_js() {
 
 #[test]
 fn source_map_with_ignore_file() {
-    let opts = InstrumentOptions {
-        source_map: true,
-        ..InstrumentOptions::default()
-    };
-    let result = instrument(
-        "/* istanbul ignore file */\nfunction f() { return 1; }",
-        "test.js",
-        &opts,
-    )
-    .unwrap();
+    let opts = InstrumentOptions { source_map: true, ..InstrumentOptions::default() };
+    let result =
+        instrument("/* istanbul ignore file */\nfunction f() { return 1; }", "test.js", &opts)
+            .unwrap();
     // Ignored file returns no source map even when requested
     assert!(result.source_map.is_none());
 }

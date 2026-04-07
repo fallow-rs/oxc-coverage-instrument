@@ -3,10 +3,7 @@
 //! Exposes the `instrument` function to JavaScript via napi-rs.
 
 // napi-derive generates code that triggers needless_pass_by_value
-#![expect(
-    clippy::needless_pass_by_value,
-    reason = "napi function signatures require owned types"
-)]
+#![expect(clippy::needless_pass_by_value, reason = "napi function signatures require owned types")]
 
 use napi_derive::napi;
 
@@ -60,9 +57,7 @@ pub fn instrument(
 ) -> napi::Result<InstrumentResult> {
     let opts = options.map_or_else(oxc_coverage_instrument::InstrumentOptions::default, |o| {
         oxc_coverage_instrument::InstrumentOptions {
-            coverage_variable: o
-                .coverage_variable
-                .unwrap_or_else(|| "__coverage__".to_string()),
+            coverage_variable: o.coverage_variable.unwrap_or_else(|| "__coverage__".to_string()),
             source_map: o.source_map.unwrap_or(false),
             input_source_map: o.input_source_map,
         }
@@ -77,11 +72,7 @@ pub fn instrument(
     let unhandled_pragmas = result
         .unhandled_pragmas
         .into_iter()
-        .map(|p| UnhandledPragma {
-            comment: p.comment,
-            line: p.line,
-            column: p.column,
-        })
+        .map(|p| UnhandledPragma { comment: p.comment, line: p.line, column: p.column })
         .collect();
 
     Ok(InstrumentResult {

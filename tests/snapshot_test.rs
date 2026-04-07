@@ -87,10 +87,7 @@ fn snapshot_simple_function_code() {
 #[test]
 fn snapshot_arrow_expression_body_code() {
     let result = instrument_js("const double = (x) => x * 2;");
-    assert_snapshot!(
-        "arrow_expression_body_code",
-        code_without_preamble(&result.code)
-    );
+    assert_snapshot!("arrow_expression_body_code", code_without_preamble(&result.code));
 }
 
 #[test]
@@ -110,10 +107,7 @@ fn snapshot_ternary_code() {
 #[test]
 fn snapshot_logical_expression_code() {
     let result = instrument_js("const x = a || b && c;");
-    assert_snapshot!(
-        "logical_expression_code",
-        code_without_preamble(&result.code)
-    );
+    assert_snapshot!("logical_expression_code", code_without_preamble(&result.code));
 }
 
 #[test]
@@ -136,9 +130,6 @@ class Calculator {
 
 const result = greet('world') || double(21);";
     let result = instrument_js(source);
-    assert_snapshot!(
-        "comprehensive_example_code",
-        code_without_preamble(&result.code)
-    );
+    assert_snapshot!("comprehensive_example_code", code_without_preamble(&result.code));
     assert_json_snapshot!("comprehensive_example_coverage_map", result.coverage_map);
 }

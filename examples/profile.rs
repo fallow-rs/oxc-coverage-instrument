@@ -71,10 +71,7 @@ fn main() {
     let full_avg = full_time.as_micros() as f64 / f64::from(iterations);
 
     eprintln!("Phase breakdown:");
-    eprintln!(
-        "  Parse:         {parse_avg:>8.1}µs ({:.0}%)",
-        parse_avg / full_avg * 100.0
-    );
+    eprintln!("  Parse:         {parse_avg:>8.1}µs ({:.0}%)", parse_avg / full_avg * 100.0);
     eprintln!(
         "  + Semantic:    {:>8.1}µs ({:.0}% incremental)",
         semantic_avg,

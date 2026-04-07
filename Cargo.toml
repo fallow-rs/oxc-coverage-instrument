@@ -2,11 +2,21 @@
 members = [".", "cli", "napi"]
 resolver = "3"
 
+[workspace.package]
+authors = ["Bart Waardenburg <bart@fallow.tools>"]
+edition = "2024"
+homepage = "https://github.com/fallow-rs/oxc-coverage-instrument"
+keywords = ["oxc", "istanbul", "coverage", "javascript", "typescript"]
+license = "MIT"
+repository = "https://github.com/fallow-rs/oxc-coverage-instrument"
+rust-version = "1.85"
+
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
 unused_unsafe = "warn"
 non_ascii_idents = "warn"
 unit_bindings = "warn"
+tail_expr_drop_order = "warn"
 
 [workspace.lints.clippy]
 # Lint groups (priority -1 so individual overrides take precedence)
@@ -14,17 +24,24 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 
-# Restriction lints
+# Restriction lints — matching Oxc's standard
 dbg_macro = "warn"
 todo = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
+clone_on_ref_ptr = "warn"
+exit = "warn"
+get_unwrap = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
 undocumented_unsafe_blocks = "warn"
 unnecessary_safety_comment = "warn"
 unused_result_ok = "warn"
 allow_attributes_without_reason = "warn"
 unimplemented = "warn"
 excessive_nesting = "warn"
+self_named_module_files = "warn"
+rest_pat_in_fully_bound_structs = "warn"
 
 # Allow pedantic lints that are too noisy
 module_name_repetitions = "allow"
@@ -54,13 +71,15 @@ use_self = "allow"
 [package]
 name = "oxc_coverage_instrument"
 version = "0.2.0"
-edition = "2024"
+authors.workspace = true
+edition.workspace = true
 description = "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST"
-license = "MIT"
-repository = "https://github.com/fallow-rs/oxc-coverage-instrument"
-keywords = ["oxc", "istanbul", "coverage", "javascript", "typescript"]
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 categories = ["development-tools::testing", "web-programming"]
-rust-version = "1.85"
 
 [lints]
 workspace = true
@@ -90,7 +109,8 @@ harness = false
 debug = false
 
 [profile.release]
-lto = true
+opt-level = 3
+lto = "fat"
 codegen-units = 1
 strip = "symbols"
 panic = "abort"

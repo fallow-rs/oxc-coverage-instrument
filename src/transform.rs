@@ -99,15 +99,9 @@ impl CoverageTransform {
     }
 
     fn offset_to_position(&self, offset: u32) -> Position {
-        let line = self
-            .line_offsets
-            .partition_point(|&o| o <= offset)
-            .saturating_sub(1);
+        let line = self.line_offsets.partition_point(|&o| o <= offset).saturating_sub(1);
         let col = offset - self.line_offsets[line];
-        Position {
-            line: (line + 1) as u32,
-            column: col,
-        }
+        Position { line: (line + 1) as u32, column: col }
     }
 
     fn add_function(&mut self, name: String, decl_span: Span, body_span: Span) -> usize {
@@ -147,10 +141,7 @@ impl CoverageTransform {
                 loc,
                 line,
                 branch_type: branch_type.to_string(),
-                locations: locations
-                    .iter()
-                    .map(|s| self.span_to_location(*s))
-                    .collect(),
+                locations: locations.iter().map(|s| self.span_to_location(*s)).collect(),
             },
         );
         id_num
@@ -191,8 +182,7 @@ fn build_counter_expr<'a>(
 
     let ct = alloc_str(counter_type, ctx);
     let member =
-        ctx.ast
-            .member_expression_static(SPAN, call, ctx.ast.identifier_name(SPAN, ct), false);
+        ctx.ast.member_expression_static(SPAN, call, ctx.ast.identifier_name(SPAN, ct), false);
     let member_expr = Expression::from(member);
 
     let computed = ctx.ast.member_expression_computed(
@@ -208,8 +198,7 @@ fn build_counter_expr<'a>(
     );
 
     let target = SimpleAssignmentTarget::from(computed);
-    ctx.ast
-        .expression_update(SPAN, UpdateOperator::Increment, true, target)
+    ctx.ast.expression_update(SPAN, UpdateOperator::Increment, true, target)
 }
 
 /// Build a branch counter expression: `cov_fn().b[branch_id][path_idx]++`
@@ -230,8 +219,7 @@ fn build_branch_counter_expr<'a>(
     );
 
     let member =
-        ctx.ast
-            .member_expression_static(SPAN, call, ctx.ast.identifier_name(SPAN, "b"), false);
+        ctx.ast.member_expression_static(SPAN, call, ctx.ast.identifier_name(SPAN, "b"), false);
     let member_expr = Expression::from(member);
 
     let computed1 = ctx.ast.member_expression_computed(
@@ -260,8 +248,7 @@ fn build_branch_counter_expr<'a>(
     );
 
     let target = SimpleAssignmentTarget::from(computed2);
-    ctx.ast
-        .expression_update(SPAN, UpdateOperator::Increment, true, target)
+    ctx.ast.expression_update(SPAN, UpdateOperator::Increment, true, target)
 }
 
 /// Build a counter expression statement: `cov_fn().type[id]++;`
@@ -323,18 +310,14 @@ pub fn generate_cov_fn_name(file_path: &str) -> String {
 
 /// Create a dummy expression for `mem::replace` operations.
 fn dummy_expr<'a>(ctx: &TraverseCtx<'a, CoverageState>) -> Expression<'a> {
-    ctx.ast
-        .expression_numeric_literal(SPAN, 0.0, None, oxc_syntax::number::NumberBase::Decimal)
+    ctx.ast.expression_numeric_literal(SPAN, 0.0, None, oxc_syntax::number::NumberBase::Decimal)
 }
 
 /// Check if the parent of the current node is a logical expression.
 /// Used to detect chained logical expressions (e.g., `a && b || c`).
 fn is_parent_logical(ctx: &TraverseCtx<'_, CoverageState>) -> bool {
     use oxc_traverse::Ancestor;
-    matches!(
-        ctx.parent(),
-        Ancestor::LogicalExpressionLeft(_) | Ancestor::LogicalExpressionRight(_)
-    )
+    matches!(ctx.parent(), Ancestor::LogicalExpressionLeft(_) | Ancestor::LogicalExpressionRight(_))
 }
 
 /// Collect all leaf operand spans from a chained logical expression.
@@ -447,10 +430,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
             return;
         }
 
-        let name = self
-            .pending_name
-            .take()
-            .unwrap_or_else(|| format!("(anonymous_{})", self.fn_counter));
+        let name =
+            self.pending_name.take().unwrap_or_else(|| format!("(anonymous_{})", self.fn_counter));
         let fn_id = self.add_function(
             name,
             Span::new(arrow.span.start, arrow.span.start + 1),
@@ -543,10 +524,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
     ) {
         let span = stmt.span();
         // Skip blocks, empty statements, and injected nodes (which have SPAN = 0:0)
-        if matches!(
-            stmt,
-            Statement::BlockStatement(_) | Statement::EmptyStatement(_)
-        ) || (span.start == 0 && span.end == 0)
+        if matches!(stmt, Statement::BlockStatement(_) | Statement::EmptyStatement(_))
+            || (span.start == 0 && span.end == 0)
         {
             return;
         }

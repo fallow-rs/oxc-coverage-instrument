@@ -71,8 +71,7 @@ pub struct UnhandledPragma {
 fn is_valid_js_identifier(s: &str) -> bool {
     !s.is_empty()
         && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
 /// Instrument a JavaScript/TypeScript source file for coverage collection.
@@ -103,9 +102,7 @@ pub fn instrument(
     options: &InstrumentOptions,
 ) -> Result<InstrumentResult, InstrumentError> {
     if !is_valid_js_identifier(&options.coverage_variable) {
-        return Err(InstrumentError::InvalidCoverageVariable(
-            options.coverage_variable.clone(),
-        ));
+        return Err(InstrumentError::InvalidCoverageVariable(options.coverage_variable.clone()));
     }
 
     let allocator = Allocator::default();
@@ -115,12 +112,7 @@ pub fn instrument(
 
     if !parsed.errors.is_empty() {
         return Err(InstrumentError::ParseError(
-            parsed
-                .errors
-                .iter()
-                .map(|e| format!("{e}"))
-                .collect::<Vec<_>>()
-                .join("; "),
+            parsed.errors.iter().map(|e| format!("{e}")).collect::<Vec<_>>().join("; "),
         ));
     }
 
@@ -154,13 +146,7 @@ pub fn instrument(
     let mut transform = CoverageTransform::new(source, cov_fn_name.clone());
     let state = CoverageState { pragmas };
 
-    let scoping = traverse_mut(
-        &mut transform,
-        &allocator,
-        &mut parsed.program,
-        scoping,
-        state,
-    );
+    let scoping = traverse_mut(&mut transform, &allocator, &mut parsed.program, scoping, state);
 
     // Build coverage map from collected metadata
     let mut coverage_map = FileCoverage::from_maps(
@@ -182,11 +168,7 @@ pub fn instrument(
 
     // Phase 3: Emit instrumented code via codegen
     let codegen_options = CodegenOptions {
-        source_map_path: if options.source_map {
-            Some(PathBuf::from(filename))
-        } else {
-            None
-        },
+        source_map_path: if options.source_map { Some(PathBuf::from(filename)) } else { None },
         ..CodegenOptions::default()
     };
 
@@ -221,12 +203,7 @@ pub fn instrument(
         offset_sm.to_json_string()
     });
 
-    Ok(InstrumentResult {
-        code,
-        coverage_map,
-        source_map: source_map_json,
-        unhandled_pragmas,
-    })
+    Ok(InstrumentResult { code, coverage_map, source_map: source_map_json, unhandled_pragmas })
 }
 
 /// Compose two source maps: for each mapping in `output_sm` (instrumented → intermediate),

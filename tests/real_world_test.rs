@@ -12,25 +12,13 @@ fn default_opts() -> InstrumentOptions {
 fn assert_valid_instrumentation(source: &str, filename: &str) {
     let result = instrument(source, filename, &default_opts()).unwrap();
     // Verify code is not empty
-    assert!(
-        !result.code.is_empty(),
-        "Instrumented code should not be empty"
-    );
+    assert!(!result.code.is_empty(), "Instrumented code should not be empty");
     // Verify coverage map has a path
     assert_eq!(result.coverage_map.path, filename);
     // Verify hit counts match map sizes
-    assert_eq!(
-        result.coverage_map.s.len(),
-        result.coverage_map.statement_map.len()
-    );
-    assert_eq!(
-        result.coverage_map.f.len(),
-        result.coverage_map.fn_map.len()
-    );
-    assert_eq!(
-        result.coverage_map.b.len(),
-        result.coverage_map.branch_map.len()
-    );
+    assert_eq!(result.coverage_map.s.len(), result.coverage_map.statement_map.len());
+    assert_eq!(result.coverage_map.f.len(), result.coverage_map.fn_map.len());
+    assert_eq!(result.coverage_map.b.len(), result.coverage_map.branch_map.len());
     // Verify branch hit count arrays match location counts
     for (id, entry) in &result.coverage_map.branch_map {
         let hit_counts = &result.coverage_map.b[id];

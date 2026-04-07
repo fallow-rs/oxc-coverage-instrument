@@ -59,9 +59,8 @@ impl PragmaMap {
                             .filter(|&c| c == '\n')
                             .count() as u32
                             + 1;
-                        let line_start = source[..comment.span.start as usize]
-                            .rfind('\n')
-                            .map_or(0, |p| p + 1);
+                        let line_start =
+                            source[..comment.span.start as usize].rfind('\n').map_or(0, |p| p + 1);
                         let column = comment.span.start as usize - line_start;
                         unhandled.push(UnhandledPragma {
                             comment: comment_text,
@@ -73,13 +72,7 @@ impl PragmaMap {
             }
         }
 
-        (
-            Self {
-                ignores,
-                ignore_file,
-            },
-            unhandled,
-        )
+        (Self { ignores, ignore_file }, unhandled)
     }
 
     /// Get the ignore type for a given token start offset.

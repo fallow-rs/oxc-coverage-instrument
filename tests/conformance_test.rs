@@ -12,55 +12,13 @@ fn instrument_js(source: &str, filename: &str) -> oxc_coverage_instrument::Instr
 
 // Istanbul reference data (from running scripts/compare-istanbul.mjs)
 // Format: (name, source, istanbul_stmts, istanbul_fns, istanbul_branches, istanbul_branch_types)
-type IstanbulRef = (
-    &'static str,
-    &'static str,
-    usize,
-    usize,
-    usize,
-    &'static [&'static str],
-);
+type IstanbulRef = (&'static str, &'static str, usize, usize, usize, &'static [&'static str]);
 const ISTANBUL_REFERENCE: &[IstanbulRef] = &[
-    (
-        "simple_function",
-        "function add(a, b) { return a + b; }",
-        1,
-        1,
-        0,
-        &[],
-    ),
-    (
-        "arrow_expression",
-        "const double = (x) => x * 2;",
-        2,
-        1,
-        0,
-        &[],
-    ),
-    (
-        "arrow_block",
-        "const add = (a, b) => { return a + b; };",
-        2,
-        1,
-        0,
-        &[],
-    ),
-    (
-        "if_else",
-        "function f(x) { if (x > 0) { return 1; } else { return -1; } }",
-        3,
-        1,
-        1,
-        &["if"],
-    ),
-    (
-        "ternary",
-        "function f(x) { return x > 0 ? 1 : -1; }",
-        1,
-        1,
-        1,
-        &["cond-expr"],
-    ),
+    ("simple_function", "function add(a, b) { return a + b; }", 1, 1, 0, &[]),
+    ("arrow_expression", "const double = (x) => x * 2;", 2, 1, 0, &[]),
+    ("arrow_block", "const add = (a, b) => { return a + b; };", 2, 1, 0, &[]),
+    ("if_else", "function f(x) { if (x > 0) { return 1; } else { return -1; } }", 3, 1, 1, &["if"]),
+    ("ternary", "function f(x) { return x > 0 ? 1 : -1; }", 1, 1, 1, &["cond-expr"]),
     (
         "switch",
         "function f(x) { switch(x) { case 1: return \"one\"; case 2: return \"two\"; default: return \"other\"; } }",
@@ -69,22 +27,8 @@ const ISTANBUL_REFERENCE: &[IstanbulRef] = &[
         1,
         &["switch"],
     ),
-    (
-        "logical_and_or",
-        "function f(a, b) { return a && b || false; }",
-        1,
-        1,
-        1,
-        &["binary-expr"],
-    ),
-    (
-        "nullish_coalescing",
-        "function f(a, b) { return a ?? b; }",
-        1,
-        1,
-        1,
-        &["binary-expr"],
-    ),
+    ("logical_and_or", "function f(a, b) { return a && b || false; }", 1, 1, 1, &["binary-expr"]),
+    ("nullish_coalescing", "function f(a, b) { return a ?? b; }", 1, 1, 1, &["binary-expr"]),
     (
         "for_loop",
         "function f(arr) { for (let i = 0; i < arr.length; i++) { console.log(arr[i]); } }",
@@ -93,30 +37,9 @@ const ISTANBUL_REFERENCE: &[IstanbulRef] = &[
         0,
         &[],
     ),
-    (
-        "for_of",
-        "function f(arr) { for (const item of arr) { console.log(item); } }",
-        2,
-        1,
-        0,
-        &[],
-    ),
-    (
-        "while_loop",
-        "function f() { let i = 0; while (i < 10) { i++; } return i; }",
-        4,
-        1,
-        0,
-        &[],
-    ),
-    (
-        "do_while",
-        "function f() { let i = 0; do { i++; } while (i < 10); return i; }",
-        4,
-        1,
-        0,
-        &[],
-    ),
+    ("for_of", "function f(arr) { for (const item of arr) { console.log(item); } }", 2, 1, 0, &[]),
+    ("while_loop", "function f() { let i = 0; while (i < 10) { i++; } return i; }", 4, 1, 0, &[]),
+    ("do_while", "function f() { let i = 0; do { i++; } while (i < 10); return i; }", 4, 1, 0, &[]),
     (
         "class_methods",
         "class Calc { add(a, b) { return a + b; } sub(a, b) { return a - b; } }",
@@ -245,12 +168,7 @@ fn conformance_statement_counts_reasonable() {
 fn conformance_exact_field_set() {
     let result = instrument_js("function f() { return 1; }", "test.js");
     let json = serde_json::to_value(&result.coverage_map).unwrap();
-    let keys: Vec<&str> = json
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(|k| k.as_str())
-        .collect();
+    let keys: Vec<&str> = json.as_object().unwrap().keys().map(|k| k.as_str()).collect();
 
     // Must have all Istanbul fields
     for field in &["path", "statementMap", "fnMap", "branchMap", "s", "f", "b"] {
@@ -262,14 +180,8 @@ fn conformance_exact_field_set() {
         json.get("_coverageSchema").is_none(),
         "Should not include _coverageSchema (Istanbul v7 doesn't)"
     );
-    assert!(
-        json.get("hash").is_none(),
-        "Should not include hash (Istanbul v7 doesn't)"
-    );
-    assert!(
-        json.get("inputSourceMap").is_none(),
-        "Should not include inputSourceMap"
-    );
+    assert!(json.get("hash").is_none(), "Should not include hash (Istanbul v7 doesn't)");
+    assert!(json.get("inputSourceMap").is_none(), "Should not include inputSourceMap");
 }
 
 /// Test that the coverage map serializes to valid Istanbul-consumable JSON.
@@ -281,10 +193,7 @@ fn conformance_json_format() {
 
         // Must have the Istanbul-required fields
         assert!(json["path"].is_string(), "{name}: missing path");
-        assert!(
-            json["statementMap"].is_object(),
-            "{name}: missing statementMap"
-        );
+        assert!(json["statementMap"].is_object(), "{name}: missing statementMap");
         assert!(json["fnMap"].is_object(), "{name}: missing fnMap");
         assert!(json["branchMap"].is_object(), "{name}: missing branchMap");
         assert!(json["s"].is_object(), "{name}: missing s");
@@ -293,34 +202,16 @@ fn conformance_json_format() {
 
         // Branch map entries must have 'type' (not 'branch_type')
         for (id, entry) in json["branchMap"].as_object().unwrap() {
-            assert!(
-                entry["type"].is_string(),
-                "{name}: branchMap[{id}] missing 'type'"
-            );
-            assert!(
-                entry["locations"].is_array(),
-                "{name}: branchMap[{id}] missing 'locations'"
-            );
+            assert!(entry["type"].is_string(), "{name}: branchMap[{id}] missing 'type'");
+            assert!(entry["locations"].is_array(), "{name}: branchMap[{id}] missing 'locations'");
         }
 
         // Function map entries must have name, line, decl, loc
         for (id, entry) in json["fnMap"].as_object().unwrap() {
-            assert!(
-                entry["name"].is_string(),
-                "{name}: fnMap[{id}] missing 'name'"
-            );
-            assert!(
-                entry["line"].is_number(),
-                "{name}: fnMap[{id}] missing 'line'"
-            );
-            assert!(
-                entry["decl"].is_object(),
-                "{name}: fnMap[{id}] missing 'decl'"
-            );
-            assert!(
-                entry["loc"].is_object(),
-                "{name}: fnMap[{id}] missing 'loc'"
-            );
+            assert!(entry["name"].is_string(), "{name}: fnMap[{id}] missing 'name'");
+            assert!(entry["line"].is_number(), "{name}: fnMap[{id}] missing 'line'");
+            assert!(entry["decl"].is_object(), "{name}: fnMap[{id}] missing 'decl'");
+            assert!(entry["loc"].is_object(), "{name}: fnMap[{id}] missing 'loc'");
         }
     }
 }
