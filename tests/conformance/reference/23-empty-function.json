@@ -1,0 +1,39 @@
+{
+  "path": "23-empty-function.js",
+  "statements": 0,
+  "functions": 1,
+  "branches": 0,
+  "statementMap": {},
+  "fnMap": {
+    "0": {
+      "name": "f",
+      "line": 1,
+      "decl": {
+        "start": {
+          "line": 1,
+          "column": 9
+        },
+        "end": {
+          "line": 1,
+          "column": 10
+        }
+      },
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 13
+        },
+        "end": {
+          "line": 1,
+          "column": 15
+        }
+      }
+    }
+  },
+  "branchMap": {},
+  "s": {},
+  "f": {
+    "0": 0
+  },
+  "b": {}
+}

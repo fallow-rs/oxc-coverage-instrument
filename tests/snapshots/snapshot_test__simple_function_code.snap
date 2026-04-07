@@ -1,0 +1,10 @@
+---
+source: tests/snapshot_test.rs
+expression: code_without_preamble(&result.code)
+---
+++cov_18ab365425().s[0];
+function add(a, b) {
+	++cov_18ab365425().f[0];
+	++cov_18ab365425().s[1];
+	return a + b;
+}

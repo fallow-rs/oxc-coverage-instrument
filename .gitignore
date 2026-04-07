@@ -1,1 +1,5 @@
 /target
+.claude/
+node_modules/
+package.json
+package-lock.json

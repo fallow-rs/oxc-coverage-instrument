@@ -1,0 +1,2 @@
+# Maximum nesting depth before clippy::excessive_nesting fires.
+excessive-nesting-threshold = 7

@@ -1,0 +1,100 @@
+---
+source: tests/snapshot_test.rs
+expression: result.coverage_map
+---
+{
+  "path": "test.js",
+  "statementMap": {
+    "0": {
+      "start": {
+        "line": 1,
+        "column": 0
+      },
+      "end": {
+        "line": 4,
+        "column": 1
+      }
+    },
+    "1": {
+      "start": {
+        "line": 2,
+        "column": 14
+      },
+      "end": {
+        "line": 2,
+        "column": 27
+      }
+    },
+    "2": {
+      "start": {
+        "line": 3,
+        "column": 14
+      },
+      "end": {
+        "line": 3,
+        "column": 27
+      }
+    }
+  },
+  "fnMap": {
+    "0": {
+      "name": "add",
+      "line": 2,
+      "decl": {
+        "start": {
+          "line": 2,
+          "column": 5
+        },
+        "end": {
+          "line": 2,
+          "column": 13
+        }
+      },
+      "loc": {
+        "start": {
+          "line": 2,
+          "column": 12
+        },
+        "end": {
+          "line": 2,
+          "column": 29
+        }
+      }
+    },
+    "1": {
+      "name": "sub",
+      "line": 3,
+      "decl": {
+        "start": {
+          "line": 3,
+          "column": 5
+        },
+        "end": {
+          "line": 3,
+          "column": 13
+        }
+      },
+      "loc": {
+        "start": {
+          "line": 3,
+          "column": 12
+        },
+        "end": {
+          "line": 3,
+          "column": 29
+        }
+      }
+    }
+  },
+  "branchMap": {},
+  "s": {
+    "0": 0,
+    "1": 0,
+    "2": 0
+  },
+  "f": {
+    "0": 0,
+    "1": 0
+  },
+  "b": {}
+}

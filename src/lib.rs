@@ -29,8 +29,9 @@
 //! tools, so they match consistently across the ecosystem.
 
 mod instrument;
+mod pragma;
+mod transform;
 mod types;
-mod visitor;
 
 pub use instrument::{
     InstrumentError, InstrumentOptions, InstrumentResult, UnhandledPragma, instrument,

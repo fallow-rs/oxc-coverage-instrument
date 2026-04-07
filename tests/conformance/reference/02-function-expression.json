@@ -1,0 +1,63 @@
+{
+  "path": "02-function-expression.js",
+  "statements": 2,
+  "functions": 1,
+  "branches": 0,
+  "statementMap": {
+    "0": {
+      "start": {
+        "line": 1,
+        "column": 10
+      },
+      "end": {
+        "line": 3,
+        "column": 1
+      }
+    },
+    "1": {
+      "start": {
+        "line": 2,
+        "column": 2
+      },
+      "end": {
+        "line": 2,
+        "column": 15
+      }
+    }
+  },
+  "fnMap": {
+    "0": {
+      "name": "(anonymous_0)",
+      "line": 1,
+      "decl": {
+        "start": {
+          "line": 1,
+          "column": 10
+        },
+        "end": {
+          "line": 1,
+          "column": 11
+        }
+      },
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 23
+        },
+        "end": {
+          "line": 3,
+          "column": 1
+        }
+      }
+    }
+  },
+  "branchMap": {},
+  "s": {
+    "0": 0,
+    "1": 0
+  },
+  "f": {
+    "0": 0
+  },
+  "b": {}
+}

@@ -1,0 +1,9 @@
+[files]
+extend-exclude = [
+    "node_modules",
+    "target",
+    "Cargo.lock",
+    "package-lock.json",
+    "tests/conformance/reference",
+    "tests/snapshots",
+]

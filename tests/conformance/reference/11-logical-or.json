@@ -1,0 +1,95 @@
+{
+  "path": "11-logical-or.js",
+  "statements": 1,
+  "functions": 1,
+  "branches": 1,
+  "statementMap": {
+    "0": {
+      "start": {
+        "line": 2,
+        "column": 2
+      },
+      "end": {
+        "line": 2,
+        "column": 16
+      }
+    }
+  },
+  "fnMap": {
+    "0": {
+      "name": "f",
+      "line": 1,
+      "decl": {
+        "start": {
+          "line": 1,
+          "column": 9
+        },
+        "end": {
+          "line": 1,
+          "column": 10
+        }
+      },
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 17
+        },
+        "end": {
+          "line": 3,
+          "column": 1
+        }
+      }
+    }
+  },
+  "branchMap": {
+    "0": {
+      "type": "binary-expr",
+      "line": 2,
+      "loc": {
+        "start": {
+          "line": 2,
+          "column": 9
+        },
+        "end": {
+          "line": 2,
+          "column": 15
+        }
+      },
+      "locations": [
+        {
+          "start": {
+            "line": 2,
+            "column": 9
+          },
+          "end": {
+            "line": 2,
+            "column": 10
+          }
+        },
+        {
+          "start": {
+            "line": 2,
+            "column": 14
+          },
+          "end": {
+            "line": 2,
+            "column": 15
+          }
+        }
+      ],
+      "locationCount": 2
+    }
+  },
+  "s": {
+    "0": 0
+  },
+  "f": {
+    "0": 0
+  },
+  "b": {
+    "0": [
+      0,
+      0
+    ]
+  }
+}

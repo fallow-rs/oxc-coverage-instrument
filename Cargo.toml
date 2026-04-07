@@ -9,15 +9,81 @@ keywords = ["oxc", "istanbul", "coverage", "javascript", "typescript"]
 categories = ["development-tools::testing", "web-programming"]
 rust-version = "1.85"
 
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unused_unsafe = "warn"
+non_ascii_idents = "warn"
+unit_bindings = "warn"
+
+[lints.clippy]
+# Lint groups (priority -1 so individual overrides take precedence)
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+# Restriction lints
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+unused_result_ok = "warn"
+allow_attributes_without_reason = "warn"
+unimplemented = "warn"
+excessive_nesting = "warn"
+
+# Allow pedantic lints that are too noisy
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+cast_possible_wrap = "allow"
+too_many_lines = "allow"
+items_after_statements = "allow"
+single_match_else = "allow"
+if_not_else = "allow"
+redundant_closure_for_method_calls = "allow"
+similar_names = "allow"
+wildcard_imports = "allow"
+unnested_or_patterns = "allow"
+doc_markdown = "allow"
+too_long_first_doc_paragraph = "allow"
+struct_excessive_bools = "allow"
+fn_params_excessive_bools = "allow"
+option_if_let_else = "allow"
+missing_const_for_fn = "allow"
+use_self = "allow"
+
 [dependencies]
 oxc_allocator = "0.124"
 oxc_ast = "0.124"
-oxc_ast_visit = "0.124"
+oxc_codegen = "0.124"
 oxc_parser = "0.124"
 oxc_semantic = "0.124"
+oxc_sourcemap = "6.1"
 oxc_span = "0.124"
+oxc_syntax = "0.124"
+oxc_traverse = "0.124"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 insta = { version = "1", features = ["json"] }
+
+[[bench]]
+name = "instrument"
+harness = false
+
+[profile.dev]
+debug = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

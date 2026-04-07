@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "example binary — println/eprintln is the intended output mechanism"
+)]
 //! Runnable example: instrument a JS source string and print the output.
 //!
 //! Run with: `cargo run --example instrument`
@@ -6,7 +11,7 @@ use oxc_coverage_instrument::{InstrumentOptions, instrument};
 use std::collections::BTreeMap;
 
 fn main() {
-    let source = r#"
+    let source = r"
 function add(a, b) {
   if (a > 0) {
     return a + b;
@@ -28,7 +33,7 @@ class Calculator {
 }
 
 const result = add(1, 2) || multiply(3, 4);
-"#;
+";
 
     let result = instrument(source, "example.js", &InstrumentOptions::default()).unwrap();
 

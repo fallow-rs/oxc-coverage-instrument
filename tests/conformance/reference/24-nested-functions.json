@@ -1,0 +1,88 @@
+{
+  "path": "24-nested-functions.js",
+  "statements": 2,
+  "functions": 2,
+  "branches": 0,
+  "statementMap": {
+    "0": {
+      "start": {
+        "line": 3,
+        "column": 4
+      },
+      "end": {
+        "line": 3,
+        "column": 17
+      }
+    },
+    "1": {
+      "start": {
+        "line": 5,
+        "column": 2
+      },
+      "end": {
+        "line": 5,
+        "column": 22
+      }
+    }
+  },
+  "fnMap": {
+    "0": {
+      "name": "outer",
+      "line": 1,
+      "decl": {
+        "start": {
+          "line": 1,
+          "column": 9
+        },
+        "end": {
+          "line": 1,
+          "column": 14
+        }
+      },
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 18
+        },
+        "end": {
+          "line": 6,
+          "column": 1
+        }
+      }
+    },
+    "1": {
+      "name": "inner",
+      "line": 2,
+      "decl": {
+        "start": {
+          "line": 2,
+          "column": 11
+        },
+        "end": {
+          "line": 2,
+          "column": 16
+        }
+      },
+      "loc": {
+        "start": {
+          "line": 2,
+          "column": 20
+        },
+        "end": {
+          "line": 4,
+          "column": 3
+        }
+      }
+    }
+  },
+  "branchMap": {},
+  "s": {
+    "0": 0,
+    "1": 0
+  },
+  "f": {
+    "0": 0,
+    "1": 0
+  },
+  "b": {}
+}

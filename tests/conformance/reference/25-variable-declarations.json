@@ -1,0 +1,150 @@
+{
+  "path": "25-variable-declarations.js",
+  "statements": 6,
+  "functions": 1,
+  "branches": 1,
+  "statementMap": {
+    "0": {
+      "start": {
+        "line": 2,
+        "column": 12
+      },
+      "end": {
+        "line": 2,
+        "column": 13
+      }
+    },
+    "1": {
+      "start": {
+        "line": 3,
+        "column": 12
+      },
+      "end": {
+        "line": 3,
+        "column": 13
+      }
+    },
+    "2": {
+      "start": {
+        "line": 4,
+        "column": 10
+      },
+      "end": {
+        "line": 4,
+        "column": 15
+      }
+    },
+    "3": {
+      "start": {
+        "line": 5,
+        "column": 10
+      },
+      "end": {
+        "line": 5,
+        "column": 15
+      }
+    },
+    "4": {
+      "start": {
+        "line": 6,
+        "column": 12
+      },
+      "end": {
+        "line": 6,
+        "column": 35
+      }
+    },
+    "5": {
+      "start": {
+        "line": 7,
+        "column": 2
+      },
+      "end": {
+        "line": 7,
+        "column": 11
+      }
+    }
+  },
+  "fnMap": {
+    "0": {
+      "name": "f",
+      "line": 1,
+      "decl": {
+        "start": {
+          "line": 1,
+          "column": 9
+        },
+        "end": {
+          "line": 1,
+          "column": 10
+        }
+      },
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 13
+        },
+        "end": {
+          "line": 8,
+          "column": 1
+        }
+      }
+    }
+  },
+  "branchMap": {
+    "0": {
+      "type": "cond-expr",
+      "line": 6,
+      "loc": {
+        "start": {
+          "line": 6,
+          "column": 12
+        },
+        "end": {
+          "line": 6,
+          "column": 35
+        }
+      },
+      "locations": [
+        {
+          "start": {
+            "line": 6,
+            "column": 20
+          },
+          "end": {
+            "line": 6,
+            "column": 25
+          }
+        },
+        {
+          "start": {
+            "line": 6,
+            "column": 28
+          },
+          "end": {
+            "line": 6,
+            "column": 35
+          }
+        }
+      ],
+      "locationCount": 2
+    }
+  },
+  "s": {
+    "0": 0,
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "5": 0
+  },
+  "f": {
+    "0": 0
+  },
+  "b": {
+    "0": [
+      0,
+      0
+    ]
+  }
+}

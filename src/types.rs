@@ -4,13 +4,13 @@
 //! (`@istanbuljs/schema`). Produces `coverage-final.json` compatible
 //! output that Jest, Vitest, c8, nyc, and Codecov all consume.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Coverage data for a single file. Serializes to Istanbul's `coverage-final.json` format.
 ///
 /// The root `coverage-final.json` is a map of file paths to `FileCoverage` objects.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileCoverage {
     /// Absolute file path.
     pub path: String,
@@ -30,17 +30,22 @@ pub struct FileCoverage {
     /// Branch hit counts, keyed by the same IDs as `branch_map`.
     /// Each value is a Vec with one count per branch arm.
     pub b: BTreeMap<String, Vec<u32>>,
+    /// Input source map from a prior transformation (e.g., TypeScript → JS).
+    /// Stored so downstream tools can chain back to the original source.
+    /// Only present when `InstrumentOptions::input_source_map` was provided.
+    #[serde(rename = "inputSourceMap", skip_serializing_if = "Option::is_none")]
+    pub input_source_map: Option<serde_json::Value>,
 }
 
 /// A source location span with start and end positions.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Location {
     pub start: Position,
     pub end: Position,
 }
 
 /// A 1-based line, 0-based column position.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Position {
     /// 1-based line number.
     pub line: u32,
@@ -49,7 +54,7 @@ pub struct Position {
 }
 
 /// Function entry in the coverage map.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FnEntry {
     /// Function name. Anonymous functions use `"(anonymous_N)"`.
     pub name: String,
@@ -62,11 +67,13 @@ pub struct FnEntry {
 }
 
 /// Branch entry in the coverage map.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BranchEntry {
+    /// Overall location of the branch construct.
+    pub loc: Location,
     /// 1-based line where the branch starts.
     pub line: u32,
-    /// Branch type: `"if"`, `"switch"`, `"cond-expr"`, `"binary-expr"`.
+    /// Branch type: `"if"`, `"switch"`, `"cond-expr"`, `"binary-expr"`, `"default-arg"`.
     #[serde(rename = "type")]
     pub branch_type: String,
     /// One location per branch arm.
@@ -96,6 +103,7 @@ impl FileCoverage {
             s,
             f,
             b,
+            input_source_map: None,
         }
     }
 }
