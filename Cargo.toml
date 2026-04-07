@@ -1,0 +1,24 @@
+[package]
+name = "oxc_coverage_instrument"
+version = "0.1.0"
+edition = "2024"
+description = "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST"
+license = "MIT"
+repository = "https://github.com/fallow-rs/oxc-coverage-instrument"
+keywords = ["oxc", "istanbul", "coverage", "javascript", "typescript"]
+categories = ["development-tools::testing", "web-programming"]
+rust-version = "1.85"
+
+[dependencies]
+oxc_allocator = ">=0.122"
+oxc_ast = ">=0.122"
+oxc_ast_visit = ">=0.122"
+oxc_codegen = ">=0.122"
+oxc_parser = ">=0.122"
+oxc_semantic = ">=0.122"
+oxc_span = ">=0.122"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+insta = { version = "1", features = ["json"] }
