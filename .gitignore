@@ -1,5 +1,12 @@
 /target
 .claude/
 node_modules/
-package.json
-package-lock.json
+/package.json
+/package-lock.json
+
+# napi build artifacts
+*.node
+napi/index.js
+napi/index.d.ts
+napi/node_modules/
+napi/package-lock.json
