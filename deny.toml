@@ -1,7 +1,5 @@
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "warn"
+version = 2
 
 [licenses]
 allow = [
