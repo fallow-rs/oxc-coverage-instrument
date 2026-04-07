@@ -7,24 +7,38 @@
 [![docs.rs](https://docs.rs/oxc_coverage_instrument/badge.svg)](https://docs.rs/oxc_coverage_instrument)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Istanbul-compatible JavaScript/TypeScript coverage instrumentation, built on the [Oxc](https://oxc.rs) parser.
-
-Takes JS/TS source, parses it with `oxc_parser`, identifies statements, functions, and branches, injects `__coverage__` counter expressions, and produces an Istanbul-compatible coverage map (`coverage-final.json` format).
+Istanbul-compatible JavaScript/TypeScript coverage instrumentation, built on the [Oxc](https://oxc.rs) parser. **58x faster** than `istanbul-lib-instrument`.
 
 ## Why
 
-[`swc-coverage-instrument`](https://github.com/kwonoj/swc-plugin-coverage-instrument) fills this role for SWC (~407K monthly npm downloads, mostly via Next.js/Jest). There is no equivalent for the Oxc ecosystem. Any tool built on `oxc_parser` that needs coverage instrumentation currently has to pull in SWC or Babel.
+[`swc-coverage-instrument`](https://github.com/kwonoj/swc-plugin-coverage-instrument) fills this role for SWC. There is no equivalent for the Oxc ecosystem. Any tool built on `oxc_parser` that needs coverage instrumentation currently has to pull in SWC or Babel.
 
-This crate fills that gap. Function names come from the same Oxc parser, so they are consistent with other Oxc-based tools analyzing the same source.
+This crate fills that gap. AST-level instrumentation via `oxc_traverse` + `oxc_codegen` produces correct Istanbul-compatible output, verified against the canonical `istanbul-lib-instrument` on 25 shared fixtures.
 
 ## Install
 
+### Rust
+
 ```toml
 [dependencies]
-oxc_coverage_instrument = "0.1"
+oxc_coverage_instrument = "0.2"
+```
+
+### Node.js
+
+```bash
+npm install oxc-coverage-instrument
+```
+
+### CLI
+
+```bash
+cargo install oxc-coverage-instrument-cli
 ```
 
 ## Usage
+
+### Rust
 
 ```rust
 use oxc_coverage_instrument::{instrument, InstrumentOptions};
@@ -34,123 +48,139 @@ let result = instrument(source, "add.js", &InstrumentOptions::default()).unwrap(
 
 // Istanbul-compatible coverage map
 assert_eq!(result.coverage_map.fn_map["0"].name, "add");
-assert_eq!(result.coverage_map.statement_map.len(), 1);
 
 // Instrumented source with counters injected
 println!("{}", result.code);
 ```
 
-Run the included example to see full output:
+### Node.js
+
+```javascript
+import { instrument } from 'oxc-coverage-instrument';
+
+const result = instrument(source, 'file.js', {
+  coverageVariable: '__coverage__',  // optional
+  sourceMap: true,                    // optional
+});
+
+result.code;                          // instrumented source
+const coverageMap = JSON.parse(result.coverageMap);  // Istanbul format
+result.sourceMap;                     // source map JSON (if enabled)
+```
+
+### CLI
 
 ```bash
-cargo run --example instrument
+# Print instrumented code to stdout
+oxc-coverage-instrument src/app.js
+
+# Write to file
+oxc-coverage-instrument src/app.js -o dist/app.js
+
+# Print coverage map only
+oxc-coverage-instrument src/app.js --coverage-map
+
+# With source map
+oxc-coverage-instrument src/app.js -o dist/app.js --source-map
+```
+
+### Vite plugin example
+
+```javascript
+import { instrument } from 'oxc-coverage-instrument';
+
+export function coveragePlugin() {
+  return {
+    name: 'coverage-instrument',
+    transform(code, id) {
+      if (process.env.COVERAGE && /\.[jt]sx?$/.test(id) && !id.includes('node_modules')) {
+        const result = instrument(code, id, { sourceMap: true });
+        return { code: result.code, map: JSON.parse(result.sourceMap) };
+      }
+    },
+  };
+}
+```
+
+### Reading existing coverage data
+
+```rust
+use oxc_coverage_instrument::{parse_coverage_map, FileCoverage};
+
+// Parse a coverage-final.json file
+let json = std::fs::read_to_string("coverage-final.json").unwrap();
+let map = parse_coverage_map(&json).unwrap();
+
+for (path, coverage) in &map {
+    println!("{}: {} statements, {} functions, {} branches",
+        path, coverage.s.len(), coverage.f.len(), coverage.b.len());
+}
 ```
 
 ## What it tracks
 
 | Dimension | What gets a counter |
 |:----------|:-------------------|
-| Statements | Every executable statement (variable declarations, return, throw, expression statements) |
-| Functions | Declarations, expressions, arrow functions, class methods |
-| Branches | `if`/`else`, ternary `? :`, `switch` cases, logical `&&`/`\|\|` |
+| **Statements** | Every executable statement |
+| **Functions** | Declarations, expressions, arrows, class methods |
+| **Branches** | `if`/`else`, ternary, `switch`, `&&`/`\|\|`/`??`, `??=`/`\|\|=`/`&&=`, `default-arg` |
+| **Loops** | `for`/`for-in`/`for-of`/`while`/`do-while` (body entry vs skip) |
+| **Pragmas** | `istanbul ignore next/if/else/file`, `v8 ignore`, `c8 ignore` |
 
-## Output format
+## Istanbul conformance
 
-The coverage map serializes to Istanbul's `coverage-final.json` format. This is the same format consumed by Jest, Vitest, c8, nyc, Codecov, and most JS coverage tools.
+Verified against `istanbul-lib-instrument` on 25 shared fixtures covering all branch types, function forms, and edge cases. 175 automated conformance checks validate:
 
-```json
-{
-  "example.js": {
-    "path": "example.js",
-    "statementMap": {
-      "0": { "start": { "line": 1, "column": 0 }, "end": { "line": 1, "column": 36 } }
-    },
-    "fnMap": {
-      "0": { "name": "add", "line": 1, "decl": { ... }, "loc": { ... } }
-    },
-    "branchMap": {},
-    "s": { "0": 0 },
-    "f": { "0": 0 },
-    "b": {}
-  }
-}
-```
+- Function counts and names match exactly
+- Branch counts, types, and location counts match exactly
+- Statement counts within tolerance
+- JSON structure matches Istanbul's field set
+- Instrumented output re-parses as valid JS
 
-## API
+## Performance
 
-### `instrument(source, filename, options) -> Result<InstrumentResult, InstrumentError>`
+| Tool | Throughput | Relative |
+|:-----|:-----------|:---------|
+| **oxc-coverage-instrument** | **50-67 MiB/s** | **58x faster** |
+| istanbul-lib-instrument | 1.1 MiB/s | baseline |
 
-Main entry point. Parses and instruments a single source file.
-
-**`InstrumentOptions`**
-
-| Field | Type | Default | Description |
-|:------|:-----|:--------|:------------|
-| `coverage_variable` | `String` | `"__coverage__"` | Name of the global coverage object |
-| `input_source_map` | `Option<String>` | `None` | Reserved for future source map support |
-
-**`InstrumentResult`**
-
-| Field | Type | Description |
-|:------|:-----|:------------|
-| `code` | `String` | Instrumented source with coverage counters |
-| `coverage_map` | `FileCoverage` | Istanbul-compatible coverage data |
-| `source_map` | `Option<String>` | Always `None` (source map support planned) |
-| `unhandled_pragmas` | `Vec<UnhandledPragma>` | Coverage pragma comments that were not processed |
-
-### Coverage types
-
-All types derive `Serialize` and produce Istanbul-compatible JSON:
-
-- `FileCoverage` -- per-file coverage data (statement/function/branch maps + hit counts)
-- `FnEntry` -- function name, declaration span, body span
-- `BranchEntry` -- branch type, location spans per arm
-- `Location` / `Position` -- 1-based line, 0-based column source positions
+From Node.js (via napi): **~19 MiB/s** (18x faster than Istanbul).
 
 ## Architecture
 
 ```
-source code
+source code (JS/TS)
     |
     v
-oxc_parser::Parser    -- parse to AST
+oxc_parser          -- parse to AST
     |
     v
-CoverageVisitor       -- walk AST, collect statement/function/branch spans
+SemanticBuilder     -- build scope tree
     |
     v
-FileCoverage          -- Istanbul-compatible coverage map
+CoverageTransform   -- traverse AST, inject ++cov().s[N] counters
     |
     v
-inject_counters()     -- insert __coverage__.s[N]++ / .f[N]++ / .b[N][M]++
+oxc_codegen         -- emit instrumented code + source map
     |
     v
 instrumented code + coverage map
 ```
 
-The coverage map is produced from a read-only AST walk (`Visit` trait). Counter injection currently operates at the source text level. Future versions will use `Traverse` for AST-level mutation followed by `oxc_codegen` for emission, which handles edge cases (arrow expressions, template literals) more reliably.
-
-## Known limitations
-
-- **Source-level injection**: counter insertion operates on source text, not AST nodes. This causes incorrect output for some arrow function expressions (e.g., `const f = (x) => x * 2` may produce concatenated counters). AST-level mutation via `Traverse` + `oxc_codegen` is the fix, planned for v0.2.0.
-- **No source map support**: instrumented output does not include source maps. Line numbers in coverage reports will be shifted for TypeScript files. Planned for v0.2.0.
-- **No pragma handling**: `/* istanbul ignore next */`, `/* istanbul ignore else */`, and `/* v8 ignore next */` comments are not yet processed. The `unhandled_pragmas` field in `InstrumentResult` is reserved for surfacing these. Planned for v0.2.0.
-- **No branch coverage for `??` or `?.`**: nullish coalescing and optional chaining are not yet tracked as branches.
-
 ## Related projects
 
-| Project | Language | AST | Notes |
-|:--------|:---------|:----|:------|
-| [`istanbul-lib-instrument`](https://github.com/istanbuljs/istanbuljs) | JavaScript | Babel | The original Istanbul instrumenter |
-| [`swc-coverage-instrument`](https://github.com/kwonoj/swc-plugin-coverage-instrument) | Rust | SWC | SWC equivalent (~407K monthly npm downloads) |
-| [`istanbul-oxide`](https://crates.io/crates/istanbul-oxide) | Rust | None | Istanbul data types crate (from the SWC project) |
-| **this crate** | Rust | Oxc | First Oxc-native coverage instrumenter |
+| Project | AST | Notes |
+|:--------|:----|:------|
+| [`istanbul-lib-instrument`](https://github.com/istanbuljs/istanbuljs) | Babel | The canonical Istanbul instrumenter |
+| [`swc-coverage-instrument`](https://github.com/kwonoj/swc-plugin-coverage-instrument) | SWC | SWC equivalent (~407K monthly npm downloads) |
+| **this crate** | Oxc | First Oxc-native coverage instrumenter, 58x faster |
 
 ## Compatibility
 
-- **Minimum Rust version**: 1.85 (2024 edition)
-- **Oxc version**: currently targets oxc 0.124.x. Oxc does not guarantee stability between minor versions, so this crate pins to a specific minor range and tracks new oxc releases.
-- **Istanbul format**: targets the `coverage-final.json` schema used by Istanbul v3+.
+- **Rust**: 1.85+ (2024 edition)
+- **Oxc**: 0.124.x
+- **Istanbul**: `coverage-final.json` v3+ format
+- **Node.js**: 18+ (via napi-rs)
 
 ## License
 

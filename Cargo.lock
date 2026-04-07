@@ -619,6 +619,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
+name = "oxc-coverage-instrument-cli"
+version = "0.2.0"
+dependencies = [
+ "oxc_coverage_instrument",
+ "serde_json",
+]
+
+[[package]]
 name = "oxc-miette"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,18 @@
+[package]
+name = "oxc-coverage-instrument-cli"
+version = "0.2.0"
+edition = "2024"
+description = "CLI for Istanbul-compatible coverage instrumentation using Oxc"
+license = "MIT"
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "oxc-coverage-instrument"
+path = "src/main.rs"
+
+[dependencies]
+oxc_coverage_instrument = { path = ".." }
+serde_json = "1"

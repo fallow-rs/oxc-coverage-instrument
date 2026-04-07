@@ -81,6 +81,14 @@ pub struct BranchEntry {
 }
 
 impl FileCoverage {
+    /// Deserialize a `FileCoverage` from a JSON string.
+    ///
+    /// Parses Istanbul-compatible `coverage-final.json` format.
+    /// The input should be a single file's coverage object (not the root map).
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+
     /// Create a new `FileCoverage` with empty hit counts initialized from the maps.
     pub(crate) fn from_maps(
         path: String,

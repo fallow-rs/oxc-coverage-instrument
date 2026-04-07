@@ -37,3 +37,23 @@ pub use instrument::{
     InstrumentError, InstrumentOptions, InstrumentResult, UnhandledPragma, instrument,
 };
 pub use types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
+
+/// Parse a `coverage-final.json` string into a map of file paths to coverage data.
+///
+/// This is the inverse of instrumentation — it reads existing coverage data
+/// produced by any Istanbul-compatible tool (Jest, Vitest, c8, nyc, etc.).
+///
+/// # Example
+///
+/// ```
+/// use oxc_coverage_instrument::parse_coverage_map;
+///
+/// let json = r#"{"file.js": {"path": "file.js", "statementMap": {}, "fnMap": {}, "branchMap": {}, "s": {}, "f": {}, "b": {}}}"#;
+/// let map = parse_coverage_map(json).unwrap();
+/// assert!(map.contains_key("file.js"));
+/// ```
+pub fn parse_coverage_map(
+    json: &str,
+) -> Result<std::collections::BTreeMap<String, FileCoverage>, serde_json::Error> {
+    serde_json::from_str(json)
+}
