@@ -761,3 +761,54 @@ fn multiple_parse_errors_joined() {
     let msg = result.unwrap_err().to_string();
     assert!(msg.contains("parse error"));
 }
+
+// ---------------------------------------------------------------------------
+// Coverage map ingestion (parse_coverage_map / FileCoverage::from_json)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_coverage_map_roundtrip() {
+    use oxc_coverage_instrument::parse_coverage_map;
+
+    let result = instrument_js("function f() { if (true) { return 1; } return 0; }");
+    let mut root = std::collections::BTreeMap::new();
+    root.insert(result.coverage_map.path.clone(), &result.coverage_map);
+    let json = serde_json::to_string(&root).unwrap();
+
+    let parsed = parse_coverage_map(&json).unwrap();
+    assert!(parsed.contains_key("test.js"));
+    assert_eq!(parsed["test.js"].fn_map.len(), result.coverage_map.fn_map.len());
+}
+
+#[test]
+fn file_coverage_from_json_roundtrip() {
+    use oxc_coverage_instrument::FileCoverage;
+
+    let result = instrument_js("function f() { return 1; }");
+    let json = serde_json::to_string(&result.coverage_map).unwrap();
+    let parsed = FileCoverage::from_json(&json).unwrap();
+    assert_eq!(parsed.path, "test.js");
+    assert_eq!(parsed.fn_map.len(), result.coverage_map.fn_map.len());
+}
+
+#[test]
+fn parse_coverage_map_invalid_json() {
+    use oxc_coverage_instrument::parse_coverage_map;
+    assert!(parse_coverage_map("not json").is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Source map composition fallback (invalid input source map)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn source_map_with_invalid_input_still_works() {
+    let opts = InstrumentOptions {
+        source_map: true,
+        input_source_map: Some("not valid json".to_string()),
+        ..InstrumentOptions::default()
+    };
+    let result = instrument("function f() { return 1; }", "test.js", &opts).unwrap();
+    // Should still produce a source map (just not composed)
+    assert!(result.source_map.is_some());
+}
