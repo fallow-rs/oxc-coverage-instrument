@@ -240,44 +240,19 @@ fn branch_logical_and_assignment() {
 }
 
 // ---------------------------------------------------------------------------
-// Branch coverage: for loops
+// Loops: no branch entries (matching Istanbul)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn branch_for_loop() {
-    let result = instrument_js("for (let i = 0; i < 10; i++) { console.log(i); }");
-    // Should have a "for" branch
-    let for_branch_count = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "for")
-        .count();
-    assert_eq!(for_branch_count, 1);
-}
-
-#[test]
-fn branch_for_in_loop() {
-    let result = instrument_js("for (const key in obj) { console.log(key); }");
-    let for_branch_count = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "for")
-        .count();
-    assert_eq!(for_branch_count, 1);
-}
-
-#[test]
-fn branch_for_of_loop() {
-    let result = instrument_js("for (const item of arr) { console.log(item); }");
-    let for_branch_count = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "for")
-        .count();
-    assert_eq!(for_branch_count, 1);
+fn loops_do_not_create_branch_entries() {
+    let result = instrument_js(
+        "for (let i = 0; i < 10; i++) { x(); } for (const k in o) { y(); } for (const v of a) { z(); } while (true) { break; } do { w(); } while (false);",
+    );
+    // Istanbul does NOT create branch entries for loops — only statement counters
+    assert!(
+        result.coverage_map.branch_map.is_empty(),
+        "Loops should not produce branch entries (matching Istanbul)"
+    );
 }
 
 // ---------------------------------------------------------------------------

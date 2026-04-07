@@ -124,7 +124,6 @@ for (path, coverage) in &map {
 | **Statements** | Every executable statement |
 | **Functions** | Declarations, expressions, arrows, class methods |
 | **Branches** | `if`/`else`, ternary, `switch`, `&&`/`\|\|`/`??`, `??=`/`\|\|=`/`&&=`, `default-arg` |
-| **Loops** | `for`/`for-in`/`for-of`/`while`/`do-while` (body entry vs skip) |
 | **Pragmas** | `istanbul ignore next/if/else/file`, `v8 ignore`, `c8 ignore` |
 
 ## Istanbul conformance

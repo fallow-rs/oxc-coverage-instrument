@@ -131,38 +131,15 @@ fn benchmark_while_loops() {
     validate_coverage_map(&result, "while-loops.js");
     validate_output_reparseable(&result, "while-loops.js");
 
-    // Should have while-loop branches
-    let while_branches: usize = result
+    // Loops do NOT produce branch entries (matching Istanbul behavior).
+    // Coverage is tracked via statement counters only.
+    let loop_branches: usize = result
         .coverage_map
         .branch_map
         .values()
-        .filter(|b| b.branch_type == "while")
+        .filter(|b| matches!(b.branch_type.as_str(), "for" | "while" | "do-while"))
         .count();
-    assert!(
-        while_branches >= 2,
-        "Expected at least 2 while-branches, got {while_branches}"
-    );
-
-    // Should have do-while branches
-    let do_while_branches: usize = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "do-while")
-        .count();
-    assert!(
-        do_while_branches >= 1,
-        "Expected at least 1 do-while branch, got {do_while_branches}"
-    );
-
-    // Should have for-await-of branches
-    let for_branches: usize = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "for")
-        .count();
-    assert!(for_branches >= 1, "Expected for-of branch");
+    assert_eq!(loop_branches, 0, "Loops should not produce branch entries");
 }
 
 // ---------------------------------------------------------------------------

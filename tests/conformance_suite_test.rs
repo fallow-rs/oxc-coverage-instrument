@@ -97,21 +97,7 @@ fn instrument_fixture(filename: &str) -> oxc_coverage_instrument::InstrumentResu
         .unwrap_or_else(|e| panic!("Instrumentation failed for {filename}: {e}"))
 }
 
-/// Filter our branch map to only Istanbul-standard branch types.
-fn istanbul_branch_types(
-    branch_map: &BTreeMap<String, oxc_coverage_instrument::BranchEntry>,
-) -> Vec<(&str, usize)> {
-    branch_map
-        .values()
-        .filter(|b| {
-            matches!(
-                b.branch_type.as_str(),
-                "if" | "switch" | "cond-expr" | "binary-expr" | "default-arg"
-            )
-        })
-        .map(|b| (b.branch_type.as_str(), b.locations.len()))
-        .collect()
-}
+// No filtering needed — all our branch types are Istanbul-standard.
 
 // ========================================================================
 // Test: Function counts match exactly
@@ -140,13 +126,12 @@ macro_rules! conformance_test {
             fn branch_count() {
                 let reference = load_reference(concat!($fixture));
                 let result = instrument_fixture(concat!($fixture, ".js"));
-                let our_istanbul_branches = istanbul_branch_types(&result.coverage_map.branch_map);
                 assert_eq!(
-                    our_istanbul_branches.len(),
+                    result.coverage_map.branch_map.len(),
                     reference.branches,
-                    "{}: istanbul-standard branch count mismatch (ours={}, istanbul={})",
+                    "{}: branch count mismatch (ours={}, istanbul={})",
                     $fixture,
-                    our_istanbul_branches.len(),
+                    result.coverage_map.branch_map.len(),
                     reference.branches
                 );
             }
@@ -160,12 +145,6 @@ macro_rules! conformance_test {
                     .coverage_map
                     .branch_map
                     .values()
-                    .filter(|b| {
-                        matches!(
-                            b.branch_type.as_str(),
-                            "if" | "switch" | "cond-expr" | "binary-expr" | "default-arg"
-                        )
-                    })
                     .map(|b| b.branch_type.as_str())
                     .collect();
                 our_types.sort();
@@ -194,12 +173,6 @@ macro_rules! conformance_test {
                     .coverage_map
                     .branch_map
                     .values()
-                    .filter(|b| {
-                        matches!(
-                            b.branch_type.as_str(),
-                            "if" | "switch" | "cond-expr" | "binary-expr" | "default-arg"
-                        )
-                    })
                     .map(|b| b.locations.len())
                     .collect();
 

@@ -293,23 +293,21 @@ pub fn generate_preamble_source(
     coverage: &FileCoverage,
     coverage_var: &str,
     cov_fn_name: &str,
-) -> String {
-    // Pre-allocate with a size hint based on coverage map complexity.
-    // Typical preamble is ~5x the number of map entries in bytes.
+) -> Result<String, serde_json::Error> {
     let estimated_size = 256
         + coverage.statement_map.len() * 80
         + coverage.fn_map.len() * 120
         + coverage.branch_map.len() * 120;
     let mut buf = String::with_capacity(estimated_size);
     let _ = write!(buf, "var {cov_fn_name} = (function () {{ var path = ");
-    buf.push_str(&serde_json::to_string(&coverage.path).unwrap_or_default());
+    buf.push_str(&serde_json::to_string(&coverage.path)?);
     let _ = write!(buf, "; var gcv = '{coverage_var}'; var coverageData = ");
-    buf.push_str(&serde_json::to_string(coverage).unwrap_or_default());
+    buf.push_str(&serde_json::to_string(coverage)?);
     let _ = writeln!(
         buf,
         "; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path]) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }});"
     );
-    buf
+    Ok(buf)
 }
 
 /// Generate a deterministic coverage function name from the file path.
@@ -716,70 +714,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         }
     }
 
-    fn enter_for_statement(
-        &mut self,
-        stmt: &mut ForStatement<'a>,
-        ctx: &mut TraverseCtx<'a, CoverageState>,
-    ) {
-        let body_span = stmt.body.span();
-        let empty_span = Span::new(stmt.span.end, stmt.span.end);
-        let branch_id = self.add_branch("for", stmt.span, &[body_span, empty_span]);
-
-        let cov_fn = self.cov_fn_name.as_str();
-        inject_branch_counter_into_statement(&mut stmt.body, cov_fn, branch_id, 0, ctx);
-    }
-
-    fn enter_for_in_statement(
-        &mut self,
-        stmt: &mut ForInStatement<'a>,
-        ctx: &mut TraverseCtx<'a, CoverageState>,
-    ) {
-        let body_span = stmt.body.span();
-        let empty_span = Span::new(stmt.span.end, stmt.span.end);
-        let branch_id = self.add_branch("for", stmt.span, &[body_span, empty_span]);
-
-        let cov_fn = self.cov_fn_name.as_str();
-        inject_branch_counter_into_statement(&mut stmt.body, cov_fn, branch_id, 0, ctx);
-    }
-
-    fn enter_for_of_statement(
-        &mut self,
-        stmt: &mut ForOfStatement<'a>,
-        ctx: &mut TraverseCtx<'a, CoverageState>,
-    ) {
-        let body_span = stmt.body.span();
-        let empty_span = Span::new(stmt.span.end, stmt.span.end);
-        let branch_id = self.add_branch("for", stmt.span, &[body_span, empty_span]);
-
-        let cov_fn = self.cov_fn_name.as_str();
-        inject_branch_counter_into_statement(&mut stmt.body, cov_fn, branch_id, 0, ctx);
-    }
-
-    fn enter_while_statement(
-        &mut self,
-        stmt: &mut WhileStatement<'a>,
-        ctx: &mut TraverseCtx<'a, CoverageState>,
-    ) {
-        let body_span = stmt.body.span();
-        let empty_span = Span::new(stmt.span.end, stmt.span.end);
-        let branch_id = self.add_branch("while", stmt.span, &[body_span, empty_span]);
-
-        let cov_fn = self.cov_fn_name.as_str();
-        inject_branch_counter_into_statement(&mut stmt.body, cov_fn, branch_id, 0, ctx);
-    }
-
-    fn enter_do_while_statement(
-        &mut self,
-        stmt: &mut DoWhileStatement<'a>,
-        ctx: &mut TraverseCtx<'a, CoverageState>,
-    ) {
-        let body_span = stmt.body.span();
-        let empty_span = Span::new(stmt.span.end, stmt.span.end);
-        let branch_id = self.add_branch("do-while", stmt.span, &[body_span, empty_span]);
-
-        let cov_fn = self.cov_fn_name.as_str();
-        inject_branch_counter_into_statement(&mut stmt.body, cov_fn, branch_id, 0, ctx);
-    }
+    // Note: Istanbul does NOT instrument for/while/do-while loops as branches.
+    // Loop coverage is tracked purely via statement counters on the body.
 
     fn enter_formal_parameter(
         &mut self,

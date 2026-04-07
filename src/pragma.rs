@@ -117,6 +117,9 @@ impl PragmaMap {
         if let Some(rest) = trimmed.strip_prefix("c8 ignore ") {
             return Some(Self::parse_ignore_kind(rest.trim_start(), trimmed));
         }
+        if let Some(rest) = trimmed.strip_prefix("c8 ignore\t") {
+            return Some(Self::parse_ignore_kind(rest.trim_start(), trimmed));
+        }
 
         None
     }

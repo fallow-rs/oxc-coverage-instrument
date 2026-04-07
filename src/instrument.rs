@@ -177,7 +177,8 @@ pub fn instrument(
 
     // Phase 2: Generate preamble source and prepend to program
     let preamble =
-        generate_preamble_source(&coverage_map, &options.coverage_variable, &cov_fn_name);
+        generate_preamble_source(&coverage_map, &options.coverage_variable, &cov_fn_name)
+            .map_err(|e| InstrumentError::SerializationError(e.to_string()))?;
 
     // Phase 3: Emit instrumented code via codegen
     let codegen_options = CodegenOptions {
@@ -225,12 +226,15 @@ pub enum InstrumentError {
     ParseError(String),
     /// The coverage variable name is not a valid JavaScript identifier.
     InvalidCoverageVariable(String),
+    /// Coverage data serialization failed.
+    SerializationError(String),
 }
 
 impl std::fmt::Display for InstrumentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ParseError(msg) => write!(f, "parse error: {msg}"),
+            Self::SerializationError(msg) => write!(f, "serialization error: {msg}"),
             Self::InvalidCoverageVariable(name) => {
                 write!(
                     f,
