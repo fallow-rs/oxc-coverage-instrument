@@ -1,0 +1,32 @@
+{
+  "name": "@oxc-coverage/binding-win32-arm64-msvc",
+  "version": "0.2.0",
+  "cpu": [
+    "arm64"
+  ],
+  "main": "coverage-instrument.win32-arm64-msvc.node",
+  "files": [
+    "coverage-instrument.win32-arm64-msvc.node"
+  ],
+  "description": "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST. 58x faster than istanbul-lib-instrument.",
+  "keywords": [
+    "oxc",
+    "istanbul",
+    "coverage",
+    "javascript",
+    "typescript",
+    "instrumentation",
+    "code-coverage"
+  ],
+  "homepage": "https://github.com/fallow-rs/oxc-coverage-instrument",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fallow-rs/oxc-coverage-instrument.git",
+    "directory": "napi"
+  },
+  "bugs": "https://github.com/fallow-rs/oxc-coverage-instrument/issues",
+  "os": [
+    "win32"
+  ]
+}
