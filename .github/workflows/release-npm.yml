@@ -151,7 +151,7 @@ jobs:
           npx napi pre-publish --no-gh-release -t npm --skip-optional-publish
           for dir in npm/*/; do
             if [ -f "$dir/package.json" ]; then
-              npm publish "$dir" --provenance --access public || true
+              npm publish "$dir" --provenance --access public || echo "WARNING: Failed to publish $dir"
             fi
           done
         env:

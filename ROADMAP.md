@@ -27,6 +27,7 @@ Correct instrumented output via AST mutation. Istanbul-conformant.
 - [x] **Coverage ingestion**: `parse_coverage_map()` and `FileCoverage::from_json()` for reading coverage data
 - [x] **Conformance test suite**: 175 automated checks against Istanbul reference output
 - [x] **277 tests**, 98.9% line coverage, strict clippy (all+pedantic+nursery)
+- [x] **Source map composition**: chains output map through input source map (TS → JS → instrumented)
 
 ## v0.3.0
 
@@ -35,7 +36,6 @@ Polish and ecosystem.
 - [ ] **Publish to crates.io**: `cargo publish`
 - [ ] **Publish to npm**: cross-platform CI build + publish workflow
 - [ ] **Configurable counter style**: comma-operator wrapping for expression contexts
-- [ ] **Input source map composition**: chain output source map through input source map
 
 ## Future
 

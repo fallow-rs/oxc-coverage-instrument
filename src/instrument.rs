@@ -239,20 +239,13 @@ fn compose_source_maps(
     let input_lookup = input_sm.generate_lookup_table();
     let mut builder = oxc_sourcemap::SourceMapBuilder::default();
 
-    // Copy source files from input (the originals)
-    for source in input_sm.get_sources() {
-        let content = input_sm
-            .get_source_contents()
-            .find(|c| c.is_some())
-            .flatten();
-        if let Some(content) = content {
-            builder.add_source_and_content(source, content);
-        } else {
-            builder.add_source_and_content(source, "");
-        }
+    // Copy source files and contents from input (the originals)
+    for (source, content) in input_sm.get_sources().zip(input_sm.get_source_contents()) {
+        let content_str = content.map_or("", |c| c.as_ref());
+        builder.add_source_and_content(source, content_str);
     }
 
-    // Copy names from both maps
+    // Copy names from input map
     for name in input_sm.get_names() {
         builder.add_name(name);
     }
@@ -262,14 +255,13 @@ fn compose_source_maps(
         let src_line = token.get_src_line();
         let src_col = token.get_src_col();
 
-        // Look up this position in the input source map
         if let Some(original) = input_sm.lookup_token(&input_lookup, src_line, src_col) {
             builder.add_token(
                 token.get_dst_line(),
                 token.get_dst_col(),
                 original.get_src_line(),
                 original.get_src_col(),
-                original.get_source_id().map(|_| 0),
+                original.get_source_id(),
                 original.get_name_id(),
             );
         } else {

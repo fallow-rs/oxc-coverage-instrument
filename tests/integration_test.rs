@@ -663,6 +663,27 @@ fn input_source_map_none_by_default() {
 }
 
 #[test]
+fn source_map_composed_with_input_source_map() {
+    let opts = InstrumentOptions {
+        source_map: true,
+        input_source_map: Some(
+            r#"{"version":3,"sources":["original.ts"],"sourcesContent":["const x: number = 1;"],"mappings":"AAAA"}"#.to_string(),
+        ),
+        ..InstrumentOptions::default()
+    };
+    let result = instrument("const x = 1;", "test.js", &opts).unwrap();
+    assert!(result.source_map.is_some());
+    let sm: serde_json::Value = serde_json::from_str(result.source_map.as_ref().unwrap()).unwrap();
+    // The composed source map should reference the original TS file, not test.js
+    let sources = sm["sources"].as_array().unwrap();
+    let has_original = sources.iter().any(|s| s.as_str() == Some("original.ts"));
+    assert!(
+        has_original,
+        "Composed source map should reference original.ts, got: {sources:?}"
+    );
+}
+
+#[test]
 fn input_source_map_invalid_json_ignored() {
     let opts = InstrumentOptions {
         input_source_map: Some("not valid json".to_string()),
