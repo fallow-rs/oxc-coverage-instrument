@@ -32,13 +32,34 @@ jobs:
         with:
           components: clippy, rustfmt
       - name: Run tests
-        run: cargo test --all-targets
+        run: cargo test --workspace --all-targets
+      - name: Run doc-tests
+        run: cargo test --workspace --doc
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Format
-        run: cargo fmt --check
+        run: cargo fmt --all --check
       - name: Check for uncommitted changes
         run: git diff --exit-code
+
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read MSRV from Cargo.toml
+        id: msrv
+        run: |
+          MSRV=$(grep 'rust-version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "version=$MSRV" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - name: Check MSRV
+        run: cargo check --workspace
 
   doc:
     name: Documentation
@@ -63,3 +84,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: crate-ci/typos@v1
+
+  deny:
+    name: Cargo Deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  napi:
+    name: Napi Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        working-directory: napi
+        run: npm ci || npm install
+      - name: Build napi binding
+        working-directory: napi
+        run: npx napi build --platform
+      - name: Run napi tests
+        working-directory: napi
+        run: node test.mjs
