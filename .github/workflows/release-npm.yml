@@ -110,12 +110,14 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish npm
+    name: Publish to npm
     runs-on: ubuntu-latest
     needs: build
     permissions:
       contents: read
       id-token: write
+    env:
+      TAG_REF: ${{ github.ref }}
     steps:
       - uses: actions/checkout@v4
 
@@ -124,41 +126,79 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      - name: Ensure latest npm (for trusted publishing)
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         working-directory: napi
         run: npm ci || npm install
-
-      - name: Create npm dirs
-        working-directory: napi
-        run: npx napi create-npm-dirs
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: napi/artifacts
 
-      - name: Move artifacts
+      - name: Move artifacts into npm dirs
         working-directory: napi
         run: npx napi artifacts --dir artifacts
 
-      - name: List packages
+      - name: Update versions from tag
         working-directory: napi
-        run: ls -R npm/
+        run: |
+          VERSION="${TAG_REF#refs/tags/v}"
+          for pkg in package.json npm/*/package.json; do
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('$pkg', 'utf8'));
+              pkg.version = '$VERSION';
+              if (pkg.optionalDependencies) {
+                for (const key of Object.keys(pkg.optionalDependencies)) {
+                  if (key.startsWith('@oxc-coverage/')) {
+                    pkg.optionalDependencies[key] = '$VERSION';
+                  }
+                }
+              }
+              fs.writeFileSync('$pkg', JSON.stringify(pkg, null, 2) + '\n');
+            "
+          done
+
+      - name: Prepare root package
+        working-directory: napi
+        run: npx napi pre-publish --no-gh-release -t npm --skip-optional-publish
 
       - name: Publish platform packages
         working-directory: napi
         run: |
-          npx napi pre-publish --no-gh-release -t npm --skip-optional-publish
+          VERSION="${TAG_REF#refs/tags/v}"
+          FAILED=0
           for dir in npm/*/; do
             if [ -f "$dir/package.json" ]; then
-              npm publish "$dir" --provenance --access public || echo "WARNING: Failed to publish $dir"
+              PKG_NAME=$(node -e "console.log(require('./$dir/package.json').name)")
+              echo "Publishing $PKG_NAME@$VERSION..."
+              if npm view "$PKG_NAME@$VERSION" version >/dev/null 2>&1; then
+                echo "  Already published, skipping"
+                continue
+              fi
+              if ! npm publish "$dir" --access public --provenance; then
+                echo "  Provenance publish failed, retrying without provenance..."
+                if ! npm publish "$dir" --access public; then
+                  echo "::error::Failed to publish $PKG_NAME@$VERSION"
+                  FAILED=1
+                fi
+              fi
             fi
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          if [ "$FAILED" -eq 1 ]; then
+            exit 1
+          fi
 
       - name: Publish root package
         working-directory: napi
-        run: npm publish --provenance --access public --ignore-scripts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${TAG_REF#refs/tags/v}"
+          if npm view "oxc-coverage-instrument@$VERSION" version >/dev/null 2>&1; then
+            echo "oxc-coverage-instrument@$VERSION already published, skipping"
+          else
+            npm publish --access public --provenance --ignore-scripts || \
+              npm publish --access public --ignore-scripts
+          fi
