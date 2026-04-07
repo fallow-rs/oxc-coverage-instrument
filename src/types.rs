@@ -81,14 +81,8 @@ impl FileCoverage {
         fn_map: BTreeMap<String, FnEntry>,
         branch_map: BTreeMap<String, BranchEntry>,
     ) -> Self {
-        let s = statement_map
-            .keys()
-            .map(|k| (k.clone(), 0))
-            .collect();
-        let f = fn_map
-            .keys()
-            .map(|k| (k.clone(), 0))
-            .collect();
+        let s = statement_map.keys().map(|k| (k.clone(), 0)).collect();
+        let f = fn_map.keys().map(|k| (k.clone(), 0)).collect();
         let b = branch_map
             .iter()
             .map(|(k, entry)| (k.clone(), vec![0; entry.locations.len()]))

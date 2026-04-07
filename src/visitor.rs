@@ -5,7 +5,7 @@
 //! same resolution logic as other Oxc-based tools (same parser = same names).
 
 use oxc_ast::ast::*;
-use oxc_ast_visit::{walk, Visit};
+use oxc_ast_visit::{Visit, walk};
 use oxc_span::{GetSpan, Span};
 use std::collections::BTreeMap;
 
@@ -97,7 +97,10 @@ impl CoverageVisitor {
             BranchEntry {
                 line,
                 branch_type: branch_type.to_string(),
-                locations: locations.iter().map(|s| self.span_to_location(*s)).collect(),
+                locations: locations
+                    .iter()
+                    .map(|s| self.span_to_location(*s))
+                    .collect(),
             },
         );
     }
@@ -145,8 +148,7 @@ impl<'a> Visit<'a> for CoverageVisitor {
             if decl.init.as_ref().is_some_and(|init| {
                 matches!(
                     init,
-                    Expression::ArrowFunctionExpression(_)
-                        | Expression::FunctionExpression(_)
+                    Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
                 )
             }) {
                 self.pending_name = Some(id.name.to_string());
@@ -199,10 +201,7 @@ impl<'a> Visit<'a> for CoverageVisitor {
     }
 
     fn visit_logical_expression(&mut self, expr: &LogicalExpression<'a>) {
-        if matches!(
-            expr.operator,
-            LogicalOperator::And | LogicalOperator::Or
-        ) {
+        if matches!(expr.operator, LogicalOperator::And | LogicalOperator::Or) {
             self.add_branch(
                 "binary-expr",
                 expr.span,

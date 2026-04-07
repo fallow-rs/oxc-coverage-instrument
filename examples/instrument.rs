@@ -2,7 +2,7 @@
 //!
 //! Run with: `cargo run --example instrument`
 
-use oxc_coverage_instrument::{instrument, InstrumentOptions};
+use oxc_coverage_instrument::{InstrumentOptions, instrument};
 use std::collections::BTreeMap;
 
 fn main() {

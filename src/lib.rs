@@ -32,5 +32,7 @@ mod instrument;
 mod types;
 mod visitor;
 
-pub use instrument::{instrument, InstrumentError, InstrumentOptions, InstrumentResult, UnhandledPragma};
+pub use instrument::{
+    InstrumentError, InstrumentOptions, InstrumentResult, UnhandledPragma, instrument,
+};
 pub use types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
