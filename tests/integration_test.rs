@@ -550,3 +550,297 @@ fn coverage_map_json_roundtrip() {
     assert!(parsed.is_object());
     assert_eq!(parsed["path"], "test.js");
 }
+
+// ---------------------------------------------------------------------------
+// Nested arrows (bug #4 regression test)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn nested_arrow_functions_both_get_counters() {
+    let result = instrument_js("const f = (x) => (y) => x + y;");
+    assert_eq!(result.coverage_map.fn_map.len(), 2);
+    // Both functions should have counter entries
+    assert_eq!(result.coverage_map.f.len(), 2);
+    // Instrumented code should contain both f[0] and f[1]
+    assert!(result.code.contains(".f[0]"));
+    assert!(result.code.contains(".f[1]"));
+}
+
+#[test]
+fn deeply_nested_arrows() {
+    let result = instrument_js("const f = (a) => (b) => (c) => a + b + c;");
+    assert_eq!(result.coverage_map.fn_map.len(), 3);
+    assert_eq!(result.coverage_map.f.len(), 3);
+}
+
+// ---------------------------------------------------------------------------
+// Pragma: ignore next on arrow functions
+// ---------------------------------------------------------------------------
+
+#[test]
+fn pragma_ignore_next_arrow_function() {
+    let result = instrument_js(
+        "/* istanbul ignore next */\nconst ignored = () => 1;\nconst counted = () => 2;",
+    );
+    let fn_names: Vec<&str> = result
+        .coverage_map
+        .fn_map
+        .values()
+        .map(|f| f.name.as_str())
+        .collect();
+    assert!(fn_names.contains(&"counted"));
+    assert!(!fn_names.contains(&"ignored"));
+}
+
+// ---------------------------------------------------------------------------
+// Pragma: ignore if/else effect verification
+// ---------------------------------------------------------------------------
+
+#[test]
+fn pragma_ignore_if_skips_consequent_counter() {
+    let result = instrument_js(
+        "function f(x) {\n  /* istanbul ignore if */\n  if (x < 0) { throw new Error(); }\n  return x;\n}",
+    );
+    // Should still have a branch entry
+    assert_eq!(result.coverage_map.branch_map.len(), 1);
+    // The if-branch counter (b[0][0]) should NOT be in the code
+    assert!(!result.code.contains(".b[0][0]"));
+    // The else-branch counter should still be absent (no else clause)
+}
+
+#[test]
+fn pragma_ignore_else_skips_alternate_counter() {
+    let result = instrument_js(
+        "function f(x) {\n  /* istanbul ignore else */\n  if (x > 0) { return 'pos'; } else { return 'neg'; }\n}",
+    );
+    assert_eq!(result.coverage_map.branch_map.len(), 1);
+    // The if-branch counter should be present
+    assert!(result.code.contains(".b[0][0]"));
+    // The else-branch counter should NOT be present
+    assert!(!result.code.contains(".b[0][1]"));
+}
+
+// ---------------------------------------------------------------------------
+// Pragma: unknown pragma → unhandled_pragmas
+// ---------------------------------------------------------------------------
+
+#[test]
+fn unknown_pragma_populates_unhandled_pragmas() {
+    let result = instrument_js("/* istanbul ignore banana */\nfunction f() { return 1; }");
+    assert!(!result.unhandled_pragmas.is_empty());
+    assert!(result.unhandled_pragmas[0].comment.contains("banana"));
+    assert_eq!(result.unhandled_pragmas[0].line, 1);
+}
+
+#[test]
+fn known_pragmas_not_in_unhandled() {
+    let result = instrument_js("/* istanbul ignore next */\nfunction f() { return 1; }");
+    assert!(result.unhandled_pragmas.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Pragma: v8/c8 variants for if/else/file
+// ---------------------------------------------------------------------------
+
+#[test]
+fn pragma_v8_ignore_next() {
+    let result =
+        instrument_js("/* v8 ignore next */\nfunction ignored() {}\nfunction counted() {}");
+    let fn_names: Vec<&str> = result
+        .coverage_map
+        .fn_map
+        .values()
+        .map(|f| f.name.as_str())
+        .collect();
+    assert!(!fn_names.contains(&"ignored"));
+    assert!(fn_names.contains(&"counted"));
+}
+
+#[test]
+fn pragma_c8_ignore_file() {
+    let result = instrument_js("/* c8 ignore file */\nfunction f() { return 1; }");
+    assert!(result.coverage_map.fn_map.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Input source map
+// ---------------------------------------------------------------------------
+
+#[test]
+fn input_source_map_stored_on_coverage() {
+    let opts = InstrumentOptions {
+        input_source_map: Some(
+            r#"{"version":3,"sources":["test.ts"],"mappings":"AAAA"}"#.to_string(),
+        ),
+        ..InstrumentOptions::default()
+    };
+    let result = instrument("const x = 1;", "test.js", &opts).unwrap();
+    let json = serde_json::to_value(&result.coverage_map).unwrap();
+    assert!(json["inputSourceMap"].is_object());
+    assert_eq!(json["inputSourceMap"]["version"], 3);
+}
+
+#[test]
+fn input_source_map_none_by_default() {
+    let result = instrument_js("const x = 1;");
+    let json = serde_json::to_value(&result.coverage_map).unwrap();
+    assert!(json.get("inputSourceMap").is_none());
+}
+
+#[test]
+fn input_source_map_invalid_json_ignored() {
+    let opts = InstrumentOptions {
+        input_source_map: Some("not valid json".to_string()),
+        ..InstrumentOptions::default()
+    };
+    let result = instrument("const x = 1;", "test.js", &opts).unwrap();
+    let json = serde_json::to_value(&result.coverage_map).unwrap();
+    assert!(json.get("inputSourceMap").is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Coverage variable validation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn invalid_coverage_variable_returns_error() {
+    let opts = InstrumentOptions {
+        coverage_variable: "it's_broken".to_string(),
+        ..InstrumentOptions::default()
+    };
+    let result = instrument("const x = 1;", "test.js", &opts);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid coverage variable")
+    );
+}
+
+#[test]
+fn valid_coverage_variable_with_dollar() {
+    let opts = InstrumentOptions {
+        coverage_variable: "$coverage".to_string(),
+        ..InstrumentOptions::default()
+    };
+    let result = instrument("const x = 1;", "test.js", &opts);
+    assert!(result.is_ok());
+    assert!(result.unwrap().code.contains("$coverage"));
+}
+
+// ---------------------------------------------------------------------------
+// Async function handling
+// ---------------------------------------------------------------------------
+
+#[test]
+fn async_function_declaration() {
+    let result = instrument_js("async function fetchData() { return await fetch('/api'); }");
+    assert_eq!(result.coverage_map.fn_map.len(), 1);
+    assert_eq!(result.coverage_map.fn_map["0"].name, "fetchData");
+    // decl_span should NOT use hardcoded +8 — verify it covers "async function fetchData"
+    let decl = &result.coverage_map.fn_map["0"].decl;
+    // The declaration should span from "async" (col 0) to at least past "fetchData"
+    assert!(
+        decl.end.column > 8,
+        "decl_span should extend past 'function' for async"
+    );
+}
+
+#[test]
+fn async_arrow_function() {
+    let result = instrument_js("const f = async (x) => { return await x; };");
+    assert_eq!(result.coverage_map.fn_map.len(), 1);
+    assert_eq!(result.coverage_map.fn_map["0"].name, "f");
+}
+
+// ---------------------------------------------------------------------------
+// Destructuring defaults (AssignmentPattern branch)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn destructuring_default_creates_branch() {
+    let result = instrument_js("const { x = 1, y = 2 } = obj;");
+    let default_count = result
+        .coverage_map
+        .branch_map
+        .values()
+        .filter(|b| b.branch_type == "default-arg")
+        .count();
+    assert_eq!(default_count, 2);
+}
+
+// ---------------------------------------------------------------------------
+// Computed method keys
+// ---------------------------------------------------------------------------
+
+#[test]
+fn computed_method_key_uses_anonymous_name() {
+    let result = instrument_js("class C { [Symbol.iterator]() { return this; } }");
+    assert_eq!(result.coverage_map.fn_map.len(), 1);
+    // Computed key → anonymous name
+    assert!(result.coverage_map.fn_map["0"].name.contains("anonymous"));
+}
+
+// ---------------------------------------------------------------------------
+// Switch fall-through
+// ---------------------------------------------------------------------------
+
+#[test]
+fn switch_fall_through_cases() {
+    let result = instrument_js(
+        "function f(x) { switch(x) { case 1: case 2: return 'a'; case 3: return 'b'; } }",
+    );
+    let switch_branches: Vec<_> = result
+        .coverage_map
+        .branch_map
+        .values()
+        .filter(|b| b.branch_type == "switch")
+        .collect();
+    assert_eq!(switch_branches.len(), 1);
+    // 3 cases
+    assert_eq!(switch_branches[0].locations.len(), 3);
+}
+
+// ---------------------------------------------------------------------------
+// Unknown file extension fallback
+// ---------------------------------------------------------------------------
+
+#[test]
+fn unknown_extension_treated_as_js() {
+    let result = instrument("function f() { return 1; }", "test.coffee", &default_opts());
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().coverage_map.fn_map.len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Source map + ignore file
+// ---------------------------------------------------------------------------
+
+#[test]
+fn source_map_with_ignore_file() {
+    let opts = InstrumentOptions {
+        source_map: true,
+        ..InstrumentOptions::default()
+    };
+    let result = instrument(
+        "/* istanbul ignore file */\nfunction f() { return 1; }",
+        "test.js",
+        &opts,
+    )
+    .unwrap();
+    // Ignored file returns no source map even when requested
+    assert!(result.source_map.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Multiple parse errors joined
+// ---------------------------------------------------------------------------
+
+#[test]
+fn multiple_parse_errors_joined() {
+    let result = instrument("function { const }", "bad.js", &default_opts());
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("parse error"));
+}
