@@ -26,7 +26,7 @@ Correct instrumented output via AST mutation. Istanbul-conformant.
 - [x] **CLI binary**: `oxc-coverage-instrument <file>` for standalone use
 - [x] **Coverage ingestion**: `parse_coverage_map()` and `FileCoverage::from_json()` for reading coverage data
 - [x] **Conformance test suite**: 175 automated checks against Istanbul reference output
-- [x] **279 tests**, 98.9% line coverage, strict clippy (all+pedantic+nursery)
+- [x] **277 tests**, 98.9% line coverage, strict clippy (all+pedantic+nursery)
 
 ## v0.3.0
 

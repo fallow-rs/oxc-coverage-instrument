@@ -59,6 +59,8 @@ struct PendingInsertion {
 #[derive(Clone, Copy)]
 enum CounterType {
     Statement,
+    /// Left branch of a logical assignment (path index 0).
+    BranchLeft,
 }
 
 impl CoverageTransform {
@@ -596,6 +598,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
                         CounterType::Statement => {
                             build_counter_stmt(cov_fn, "s", p.counter_id, ctx)
                         }
+                        CounterType::BranchLeft => {
+                            build_branch_counter_stmt(cov_fn, p.counter_id, 0, ctx)
+                        }
                     };
                     insertions.push((idx, counter));
                 } else {
@@ -761,8 +766,19 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
             let right_span = expr.right.span();
             let branch_id = self.add_branch("binary-expr", expr.span, &[left_span, right_span]);
 
-            // Wrap the right side: x ??= (++cov().b[id][1], y)
             let cov_fn = self.cov_fn_name.as_str();
+
+            // The left branch (no assignment) is always entered — increment before
+            // the assignment. The right branch (assignment happens) is conditional.
+            // We insert the left counter as a pending statement before this expression,
+            // and wrap the right side with the right counter.
+            self.pending_stmts.push(PendingInsertion {
+                target_start: expr.span.start,
+                counter_id: branch_id,
+                counter_type: CounterType::BranchLeft,
+            });
+
+            // Wrap the right side: x ??= (++cov().b[id][1], y)
             let counter = build_branch_counter_expr(cov_fn, branch_id, 1, ctx);
             let orig_right = mem::replace(&mut expr.right, dummy_expr(ctx));
             let mut items = ctx.ast.vec();
