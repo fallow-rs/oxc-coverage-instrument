@@ -155,7 +155,7 @@ expression: result.coverage_map
         },
         "end": {
           "line": 12,
-          "column": 16
+          "column": 15
         }
       },
       "loc": {

@@ -64,6 +64,17 @@ pub struct UnhandledPragma {
     pub column: u32,
 }
 
+/// Check whether a string is a valid JavaScript identifier (ASCII subset).
+///
+/// Returns `true` if the string is non-empty, starts with `[a-zA-Z_$]`,
+/// and all remaining characters are `[a-zA-Z0-9_$]`.
+fn is_valid_js_identifier(s: &str) -> bool {
+    !s.is_empty()
+        && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
 /// Instrument a JavaScript/TypeScript source file for coverage collection.
 ///
 /// Parses the source with `oxc_parser`, collects statement/function/branch
@@ -91,6 +102,12 @@ pub fn instrument(
     filename: &str,
     options: &InstrumentOptions,
 ) -> Result<InstrumentResult, InstrumentError> {
+    if !is_valid_js_identifier(&options.coverage_variable) {
+        return Err(InstrumentError::InvalidCoverageVariable(
+            options.coverage_variable.clone(),
+        ));
+    }
+
     let allocator = Allocator::default();
     let source_type = SourceType::from_path(filename).unwrap_or_default();
     let parser = Parser::new(&allocator, source, source_type);
@@ -206,12 +223,20 @@ pub fn instrument(
 pub enum InstrumentError {
     /// The source could not be parsed.
     ParseError(String),
+    /// The coverage variable name is not a valid JavaScript identifier.
+    InvalidCoverageVariable(String),
 }
 
 impl std::fmt::Display for InstrumentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ParseError(msg) => write!(f, "parse error: {msg}"),
+            Self::InvalidCoverageVariable(name) => {
+                write!(
+                    f,
+                    "invalid coverage variable: {name:?} is not a valid JavaScript identifier"
+                )
+            }
         }
     }
 }

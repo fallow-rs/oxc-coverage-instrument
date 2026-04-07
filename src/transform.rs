@@ -8,7 +8,7 @@
 //! 4. Prepends the coverage initialization preamble to the program
 
 use std::collections::BTreeMap;
-use std::io::Write;
+use std::fmt::Write;
 use std::mem;
 
 use oxc_allocator::Vec as ArenaVec;
@@ -39,8 +39,9 @@ pub struct CoverageTransform {
     pending_name: Option<String>,
     /// Accumulated statements to inject before specific statements.
     pending_stmts: Vec<PendingInsertion>,
-    /// Pending function entry counter to inject at the start of a function body.
-    pending_fn_counter: Option<usize>,
+    /// Stack of pending function entry counters. Supports nested functions/arrows
+    /// where an inner function is entered before the outer's body is visited.
+    pending_fn_counters: Vec<usize>,
     /// When true, skip instrumentation for the next node.
     skip_next: bool,
     /// Coverage function name, cached to avoid cloning from state on every hook.
@@ -82,7 +83,7 @@ impl CoverageTransform {
             branch_map: BTreeMap::new(),
             pending_name: None,
             pending_stmts: Vec::new(),
-            pending_fn_counter: None,
+            pending_fn_counters: Vec::new(),
             skip_next: false,
             cov_fn_name,
         }
@@ -299,17 +300,16 @@ pub fn generate_preamble_source(
         + coverage.statement_map.len() * 80
         + coverage.fn_map.len() * 120
         + coverage.branch_map.len() * 120;
-    let mut buf = Vec::with_capacity(estimated_size);
+    let mut buf = String::with_capacity(estimated_size);
     let _ = write!(buf, "var {cov_fn_name} = (function () {{ var path = ");
-    serde_json::to_writer(&mut buf, &coverage.path).unwrap();
+    buf.push_str(&serde_json::to_string(&coverage.path).unwrap_or_default());
     let _ = write!(buf, "; var gcv = '{coverage_var}'; var coverageData = ");
-    serde_json::to_writer(&mut buf, coverage).unwrap();
+    buf.push_str(&serde_json::to_string(coverage).unwrap_or_default());
     let _ = writeln!(
         buf,
         "; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path]) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }});"
     );
-    // SAFETY: serde_json produces valid UTF-8, and our format strings are ASCII
-    unsafe { String::from_utf8_unchecked(buf) }
+    buf
 }
 
 /// Generate a deterministic coverage function name from the file path.
@@ -413,11 +413,14 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         let decl_span = if let Some(id) = &func.id {
             Span::new(func.span.start, id.span.end)
         } else {
-            Span::new(func.span.start, func.span.start + 8)
+            // Anonymous function: span from keyword to body start.
+            // Works for both "function() {" and "async function() {".
+            let end = func.body.as_ref().map_or(func.span.start, |b| b.span.start);
+            Span::new(func.span.start, end)
         };
         if let Some(body) = &func.body {
             let fn_id = self.add_function(name, decl_span, body.span);
-            self.pending_fn_counter = Some(fn_id);
+            self.pending_fn_counters.push(fn_id);
         }
     }
 
@@ -426,7 +429,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         body: &mut FunctionBody<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        if let Some(fn_id) = self.pending_fn_counter.take() {
+        if let Some(fn_id) = self.pending_fn_counters.pop() {
             let cov_fn = self.cov_fn_name.as_str();
             let counter = build_counter_stmt(cov_fn, "f", fn_id, ctx);
             body.statements.insert(0, counter);
@@ -458,7 +461,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         // Set pending_fn_counter for enter_function_body to insert the counter.
         // For expression-bodied arrows, exit_arrow_function_expression converts
         // the body to a block with return after traversal completes.
-        self.pending_fn_counter = Some(fn_id);
+        self.pending_fn_counters.push(fn_id);
     }
 
     fn exit_arrow_function_expression(

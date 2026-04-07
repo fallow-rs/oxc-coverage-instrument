@@ -47,7 +47,7 @@ expression: result.coverage_map
         },
         "end": {
           "line": 2,
-          "column": 13
+          "column": 12
         }
       },
       "loc": {
@@ -71,7 +71,7 @@ expression: result.coverage_map
         },
         "end": {
           "line": 3,
-          "column": 13
+          "column": 12
         }
       },
       "loc": {
