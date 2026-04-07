@@ -1,0 +1,85 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run tests with coverage
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov -p oxc_coverage_instrument --lcov --output-path coverage/lcov.info
+
+      - name: Compute coverage
+        run: |
+          COVERAGE=$(awk -F: '
+            /^LF:/ { total += $2 }
+            /^LH:/ { hit += $2 }
+            END { if (total > 0) printf "%.1f", (hit/total)*100; else print "0" }
+          ' coverage/lcov.info)
+          echo "COVERAGE=$COVERAGE" >> "$GITHUB_ENV"
+          echo "Coverage: $COVERAGE%"
+
+      - name: Compute badge color
+        run: |
+          int=${COVERAGE%.*}
+          if [ "$int" -ge 90 ]; then color="brightgreen"
+          elif [ "$int" -ge 80 ]; then color="green"
+          elif [ "$int" -ge 70 ]; then color="yellowgreen"
+          elif [ "$int" -ge 60 ]; then color="yellow"
+          elif [ "$int" -ge 50 ]; then color="orange"
+          else color="red"
+          fi
+          echo "BADGE_COLOR=$color" >> "$GITHUB_ENV"
+
+      - name: Update coverage badge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git ls-remote --heads origin badges | grep -q badges; then
+            git checkout --orphan badges
+            git rm -rf . 2>/dev/null || true
+            echo "{}" > coverage.json
+            git add coverage.json
+            git commit -m "chore: init badges branch"
+            git push origin badges
+            git checkout main
+          fi
+
+          git fetch origin badges
+          git worktree add /tmp/badges --detach origin/badges
+          cd /tmp/badges
+          git checkout -B badges origin/badges
+
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${COVERAGE}%\",\"color\":\"${BADGE_COLOR}\"}" > coverage.json
+
+          git add coverage.json
+          git diff --cached --quiet || git commit -m "chore: update coverage badge to ${COVERAGE}%"
+          git push origin badges
+
+          cd "$GITHUB_WORKSPACE"
+          git worktree remove /tmp/badges
