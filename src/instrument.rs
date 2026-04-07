@@ -194,10 +194,10 @@ pub fn instrument(
 
         // If an input source map was provided, compose it with the output source map
         // so the final map chains back to the original source (e.g., TypeScript).
-        if let Some(ref input_sm_json) = options.input_source_map {
-            if let Ok(input_sm) = oxc_sourcemap::SourceMap::from_json_string(input_sm_json) {
-                return compose_source_maps(&offset_sm, &input_sm).to_json_string();
-            }
+        if let Some(ref input_sm_json) = options.input_source_map
+            && let Ok(input_sm) = oxc_sourcemap::SourceMap::from_json_string(input_sm_json)
+        {
+            return compose_source_maps(&offset_sm, &input_sm).to_json_string();
         }
 
         offset_sm.to_json_string()

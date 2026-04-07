@@ -479,15 +479,15 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         decl: &mut VariableDeclarator<'a>,
         _ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        if let Some(id) = decl.id.get_binding_identifier() {
-            if decl.init.as_ref().is_some_and(|init| {
+        if let Some(id) = decl.id.get_binding_identifier()
+            && decl.init.as_ref().is_some_and(|init| {
                 matches!(
                     init,
                     Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
                 )
-            }) {
-                self.pending_name = Some(id.name.to_string());
-            }
+            })
+        {
+            self.pending_name = Some(id.name.to_string());
         }
     }
 
@@ -620,10 +620,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         }
 
         // istanbul ignore else: skip the else-branch counter
-        if let Some(alt) = &mut stmt.alternate {
-            if pragma != Some(IgnoreType::Else) {
-                inject_branch_counter_into_statement(alt, cov_fn, branch_id, 1, ctx);
-            }
+        if let Some(alt) = &mut stmt.alternate
+            && pragma != Some(IgnoreType::Else)
+        {
+            inject_branch_counter_into_statement(alt, cov_fn, branch_id, 1, ctx);
         }
     }
 
