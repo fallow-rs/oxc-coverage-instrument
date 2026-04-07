@@ -3,7 +3,10 @@
 //! Exposes the `instrument` function to JavaScript via napi-rs.
 
 // napi-derive generates code that triggers needless_pass_by_value
-#![expect(clippy::needless_pass_by_value, reason = "napi function signatures require owned types")]
+#![expect(
+    clippy::needless_pass_by_value,
+    reason = "napi function signatures require owned types"
+)]
 
 use napi_derive::napi;
 
