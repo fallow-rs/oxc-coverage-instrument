@@ -13,33 +13,54 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  DEBUG: napi:*
 
 jobs:
   build:
-    name: Build (${{ matrix.target }})
+    name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: aarch64-apple-darwin
-            os: macos-latest
-          - target: x86_64-apple-darwin
-            os: macos-latest
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-          - target: aarch64-pc-windows-msvc
-            os: windows-latest
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            build: npx napi build --release --platform --target aarch64-apple-darwin
+
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            build: npx napi build --release --platform --target x86_64-apple-darwin
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            build: npx napi build --release --platform --target x86_64-unknown-linux-gnu --use-napi-cross
+
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            build: npx napi build --release --platform --target aarch64-unknown-linux-gnu --use-napi-cross
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            build: npx napi build --release --platform --target x86_64-unknown-linux-musl -x
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: npx napi build --release --platform --target x86_64-pc-windows-msvc
+
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            build: npx napi build --release --platform --target aarch64-pc-windows-msvc
 
     steps:
+      - name: Configure git long paths (Windows)
+        if: contains(matrix.os, 'windows')
+        run: git config --system core.longpaths true
+
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
@@ -48,19 +69,30 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Install musl tools
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.target }}-cargo-
+
+      - uses: mlugg/setup-zig@v2
         if: contains(matrix.target, 'musl')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
+        with:
+          version: 0.14.1
 
-      - name: Install aarch64 cross-compilation tools
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        if: contains(matrix.target, 'musl')
+        with:
+          tool: cargo-zigbuild
 
       - name: Install dependencies
         working-directory: napi
@@ -68,9 +100,7 @@ jobs:
 
       - name: Build native binding
         working-directory: napi
-        run: npx napi build --release --platform --target ${{ matrix.target }}
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: ${{ matrix.build }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -91,12 +121,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         working-directory: napi
         run: npm ci || npm install
+
+      - name: Create npm dirs
+        working-directory: napi
+        run: npx napi create-npm-dirs
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -109,25 +143,22 @@ jobs:
 
       - name: List packages
         working-directory: napi
-        run: ls -la *.node npm/*/
-
-      - name: Publish
-        working-directory: napi
-        run: |
-          npx napi prepublish -t npm
-          npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: ls -R npm/
 
       - name: Publish platform packages
         working-directory: napi
         run: |
+          npx napi pre-publish --no-gh-release -t npm --skip-optional-publish
           for dir in npm/*/; do
             if [ -f "$dir/package.json" ]; then
-              cd "$dir"
-              npm publish --provenance --access public || true
-              cd ../..
+              npm publish "$dir" --provenance --access public || true
             fi
           done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish root package
+        working-directory: napi
+        run: npm publish --provenance --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
