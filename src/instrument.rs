@@ -171,10 +171,12 @@ fn inject_counters(source: &str, coverage: &FileCoverage, coverage_var: &str) ->
 /// Generate the runtime preamble that initializes the coverage variable.
 fn generate_preamble(coverage: &FileCoverage, coverage_var: &str) -> String {
     let coverage_json = serde_json::to_string(coverage).unwrap_or_default();
+    // Use JSON-serialized path to safely escape quotes and backslashes in file paths.
+    let path_json = serde_json::to_string(&coverage.path).unwrap_or_default();
     format!(
-        "var {cov} = (function() {{ var g = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!g['{cov}']) g['{cov}'] = {{}}; if (!g['{cov}']['{path}']) g['{cov}']['{path}'] = {json}; return g['{cov}']['{path}']; }})();\n",
+        "var {cov} = (function() {{ var g = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; var p = {path}; if (!g['{cov}']) g['{cov}'] = {{}}; if (!g['{cov}'][p]) g['{cov}'][p] = {json}; return g['{cov}'][p]; }})();\n",
         cov = coverage_var,
-        path = coverage.path,
+        path = path_json,
         json = coverage_json,
     )
 }

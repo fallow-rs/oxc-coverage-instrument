@@ -10,7 +10,7 @@ Takes JS/TS source, parses it with `oxc_parser`, identifies statements, function
 
 ## Why
 
-[`swc-coverage-instrument`](https://github.com/nicolo-ribaudo/swc-plugin-coverage-instrument) fills this role for SWC (~407K monthly npm downloads, mostly via Next.js/Jest). There is no equivalent for the Oxc ecosystem. Any tool built on `oxc_parser` that needs coverage instrumentation currently has to pull in SWC or Babel.
+[`swc-coverage-instrument`](https://github.com/kwonoj/swc-plugin-coverage-instrument) fills this role for SWC (~407K monthly npm downloads, mostly via Next.js/Jest). There is no equivalent for the Oxc ecosystem. Any tool built on `oxc_parser` that needs coverage instrumentation currently has to pull in SWC or Babel.
 
 This crate fills that gap. Function names come from the same Oxc parser, so they are consistent with other Oxc-based tools analyzing the same source.
 
@@ -139,9 +139,15 @@ The coverage map is produced from a read-only AST walk (`Visit` trait). Counter 
 | Project | Language | AST | Notes |
 |:--------|:---------|:----|:------|
 | [`istanbul-lib-instrument`](https://github.com/istanbuljs/istanbuljs) | JavaScript | Babel | The original Istanbul instrumenter |
-| [`swc-coverage-instrument`](https://github.com/nicolo-ribaudo/swc-plugin-coverage-instrument) | Rust | SWC | SWC equivalent (~407K monthly npm downloads) |
+| [`swc-coverage-instrument`](https://github.com/kwonoj/swc-plugin-coverage-instrument) | Rust | SWC | SWC equivalent (~407K monthly npm downloads) |
 | [`istanbul-oxide`](https://crates.io/crates/istanbul-oxide) | Rust | None | Istanbul data types crate (from the SWC project) |
 | **this crate** | Rust | Oxc | First Oxc-native coverage instrumenter |
+
+## Compatibility
+
+- **Minimum Rust version**: 1.85 (2024 edition)
+- **Oxc version**: currently targets oxc 0.124.x. Oxc does not guarantee stability between minor versions, so this crate pins to a specific minor range and tracks new oxc releases.
+- **Istanbul format**: targets the `coverage-final.json` schema used by Istanbul v3+.
 
 ## License
 
