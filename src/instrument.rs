@@ -202,13 +202,23 @@ pub fn instrument(
     // so positions in the combined output map correctly back to the original source.
     let source_map_json = codegen_ret.map.map(|sm| {
         let preamble_lines = preamble.chars().filter(|&c| c == '\n').count() as u32;
-        if preamble_lines > 0 {
+        let offset_sm = if preamble_lines > 0 {
             let builder =
                 oxc_sourcemap::ConcatSourceMapBuilder::from_sourcemaps(&[(&sm, preamble_lines)]);
-            builder.into_sourcemap().to_json_string()
+            builder.into_sourcemap()
         } else {
-            sm.to_json_string()
+            sm
+        };
+
+        // If an input source map was provided, compose it with the output source map
+        // so the final map chains back to the original source (e.g., TypeScript).
+        if let Some(ref input_sm_json) = options.input_source_map {
+            if let Ok(input_sm) = oxc_sourcemap::SourceMap::from_json_string(input_sm_json) {
+                return compose_source_maps(&offset_sm, &input_sm).to_json_string();
+            }
         }
+
+        offset_sm.to_json_string()
     });
 
     Ok(InstrumentResult {
@@ -217,6 +227,65 @@ pub fn instrument(
         source_map: source_map_json,
         unhandled_pragmas,
     })
+}
+
+/// Compose two source maps: for each mapping in `output_sm` (instrumented → intermediate),
+/// look up the corresponding position in `input_sm` (intermediate → original) to produce
+/// a composed map (instrumented → original).
+fn compose_source_maps(
+    output_sm: &oxc_sourcemap::SourceMap,
+    input_sm: &oxc_sourcemap::SourceMap,
+) -> oxc_sourcemap::SourceMap {
+    let input_lookup = input_sm.generate_lookup_table();
+    let mut builder = oxc_sourcemap::SourceMapBuilder::default();
+
+    // Copy source files from input (the originals)
+    for source in input_sm.get_sources() {
+        let content = input_sm
+            .get_source_contents()
+            .find(|c| c.is_some())
+            .flatten();
+        if let Some(content) = content {
+            builder.add_source_and_content(source, content);
+        } else {
+            builder.add_source_and_content(source, "");
+        }
+    }
+
+    // Copy names from both maps
+    for name in input_sm.get_names() {
+        builder.add_name(name);
+    }
+
+    // For each token in the output map, look up in the input map
+    for token in output_sm.get_tokens() {
+        let src_line = token.get_src_line();
+        let src_col = token.get_src_col();
+
+        // Look up this position in the input source map
+        if let Some(original) = input_sm.lookup_token(&input_lookup, src_line, src_col) {
+            builder.add_token(
+                token.get_dst_line(),
+                token.get_dst_col(),
+                original.get_src_line(),
+                original.get_src_col(),
+                original.get_source_id().map(|_| 0),
+                original.get_name_id(),
+            );
+        } else {
+            // No mapping in input — keep the output mapping as-is
+            builder.add_token(
+                token.get_dst_line(),
+                token.get_dst_col(),
+                src_line,
+                src_col,
+                token.get_source_id(),
+                token.get_name_id(),
+            );
+        }
+    }
+
+    builder.into_sourcemap()
 }
 
 /// Error type for instrumentation failures.
