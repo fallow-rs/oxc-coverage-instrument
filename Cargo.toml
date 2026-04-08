@@ -70,7 +70,7 @@ use_self = "allow"
 
 [package]
 name = "oxc_coverage_instrument"
-version = "0.2.6"
+version = "0.2.7"
 authors.workspace = true
 edition.workspace = true
 description = "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST"
