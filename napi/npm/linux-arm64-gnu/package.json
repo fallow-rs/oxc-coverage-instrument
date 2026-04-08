@@ -1,6 +1,6 @@
 {
   "name": "@oxc-coverage-instrument/binding-linux-arm64-gnu",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "cpu": [
     "arm64"
   ],
