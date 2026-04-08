@@ -1,3 +1,3 @@
-# `@oxc-coverage/binding-darwin-arm64`
+# `@oxc-coverage-instrument/binding-darwin-arm64`
 
-This is the **aarch64-apple-darwin** binary for `@oxc-coverage/binding`
+This is the **aarch64-apple-darwin** binary for `@oxc-coverage-instrument/binding`

@@ -27,7 +27,7 @@
   "bugs": "https://github.com/fallow-rs/oxc-coverage-instrument/issues",
   "napi": {
     "binaryName": "coverage-instrument",
-    "packageName": "@oxc-coverage/binding",
+    "packageName": "@oxc-coverage-instrument/binding",
     "targets": [
       "aarch64-apple-darwin",
       "x86_64-apple-darwin",
@@ -47,5 +47,14 @@
     "prepublishOnly": "napi prepublish -t npm",
     "artifacts": "napi artifacts",
     "test": "node test.mjs"
+  },
+  "optionalDependencies": {
+    "@oxc-coverage-instrument/binding-darwin-arm64": "0.2.0",
+    "@oxc-coverage-instrument/binding-darwin-x64": "0.2.0",
+    "@oxc-coverage-instrument/binding-linux-x64-gnu": "0.2.0",
+    "@oxc-coverage-instrument/binding-linux-arm64-gnu": "0.2.0",
+    "@oxc-coverage-instrument/binding-linux-x64-musl": "0.2.0",
+    "@oxc-coverage-instrument/binding-win32-x64-msvc": "0.2.0",
+    "@oxc-coverage-instrument/binding-win32-arm64-msvc": "0.2.0"
   }
 }

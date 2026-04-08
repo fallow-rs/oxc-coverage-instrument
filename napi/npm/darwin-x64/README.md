@@ -1,3 +1,3 @@
-# `@oxc-coverage/binding-darwin-x64`
+# `@oxc-coverage-instrument/binding-darwin-x64`
 
-This is the **x86_64-apple-darwin** binary for `@oxc-coverage/binding`
+This is the **x86_64-apple-darwin** binary for `@oxc-coverage-instrument/binding`

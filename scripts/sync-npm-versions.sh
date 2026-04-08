@@ -22,7 +22,7 @@ update_optional_deps() {
     pkg.version = '$VERSION';
     if (pkg.optionalDependencies) {
       for (const key of Object.keys(pkg.optionalDependencies)) {
-        if (key.startsWith('@oxc-coverage/')) {
+        if (key.startsWith('@oxc-coverage-instrument/')) {
           pkg.optionalDependencies[key] = '$VERSION';
         }
       }

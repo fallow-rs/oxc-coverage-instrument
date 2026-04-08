@@ -1,5 +1,5 @@
 {
-  "name": "@oxc-coverage/binding-linux-x64-musl",
+  "name": "@oxc-coverage-instrument/binding-linux-x64-musl",
   "version": "0.2.0",
   "cpu": [
     "x64"
