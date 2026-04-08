@@ -109,6 +109,21 @@ jobs:
           path: napi/*.node
           if-no-files-found: error
 
+  publish-crate:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish oxc_coverage_instrument
+        run: cargo publish || echo "Already published, skipping"
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
   publish:
     name: Publish to npm
     runs-on: ubuntu-latest
