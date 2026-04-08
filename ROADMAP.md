@@ -29,10 +29,10 @@ Correct instrumented output via AST mutation. Istanbul-conformant. Published to 
 - [x] **Conformance test suite**: 175 automated checks against Istanbul reference output
 - [x] **282 tests**, 97% line coverage, strict clippy (all+pedantic+nursery, Oxc-level restrictions)
 - [x] **CI**: cross-platform tests, MSRV, cargo-deny, napi test, typos, doc checks, coverage badge
+- [x] **Published to crates.io**: automated publishing via CI on each release
 
 ## Future
 
-- **Publish to crates.io**: `cargo publish` when ready for Rust ecosystem consumption
 - **Configurable counter style**: comma-operator wrapping for expression contexts
 - **fallow integration**: `fallow health --coverage coverage-final.json` ingests real per-function coverage
 - **Oxc org transfer**: if the Oxc project wants to host this (see [oxc#21108](https://github.com/oxc-project/oxc/issues/21108))
