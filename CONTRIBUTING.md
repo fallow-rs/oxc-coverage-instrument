@@ -8,7 +8,7 @@ Thanks for your interest in contributing.
 git clone https://github.com/fallow-rs/oxc-coverage-instrument
 cd oxc-coverage-instrument
 cargo build
-cargo test
+cargo test --workspace
 cargo run --example instrument
 ```
 
@@ -16,39 +16,61 @@ cargo run --example instrument
 
 ```bash
 # Check it compiles
-cargo check
+cargo check --workspace
 
 # Run tests (including doc tests)
-cargo test
+cargo test --workspace --all-targets
+cargo test --workspace --doc
 
-# Run clippy
-cargo clippy -- -D warnings
+# Run clippy (strict: all + pedantic + nursery)
+cargo clippy --workspace --all-targets -- -D warnings
 
 # Format
-cargo fmt --check
+cargo fmt --all --check
+
+# Typos
+typos
+
+# Docs
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
 ```
 
-## What to work on
+## Napi bindings (Node.js)
 
-Check the [ROADMAP.md](ROADMAP.md) for planned features. The highest-impact items for v0.2.0:
+```bash
+cd napi
+npm install
+npx napi build --platform
+node test.mjs
+```
 
-1. **AST-level counter injection via `Traverse`**: the current source-level injection has edge cases. This is the biggest improvement.
-2. **Istanbul ignore pragma handling**: needed before the crate is usable in production.
-3. **Conformance test suite**: run the same fixtures through both Babel's Istanbul instrumenter and this crate, compare counter structures.
+## Conformance test suite
+
+The conformance tests compare our output against `istanbul-lib-instrument`. To regenerate reference data:
+
+```bash
+npm install  # in repo root (installs istanbul-lib-instrument)
+node tests/conformance/generate-reference.mjs
+```
 
 ## Code conventions
 
-- Rust 2024 edition
-- `cargo fmt` and `cargo clippy -- -D warnings` must pass
+- Rust 2024 edition, MSRV 1.92
+- Strict clippy (all + pedantic + nursery + Oxc-level restriction lints)
+- `cargo fmt` with `style_edition = "2024"`, `use_small_heuristics = "Max"`
 - Doc comments on all public types and functions
-- Tests for new visitor handlers (statement types, branch types, function types)
+- Tests for new coverage constructs (statement types, branch types, function types)
+- `#[expect(..., reason = "...")]` instead of `#[allow]`
 
 ## Submitting changes
 
 1. Fork the repo
 2. Create a branch from `main`
 3. Make your changes
-4. Run `cargo test && cargo clippy -- -D warnings && cargo fmt --check`
+4. Run the full quality check:
+   ```bash
+   cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && typos
+   ```
 5. Open a PR with a clear description of what changed and why
 
 ## License

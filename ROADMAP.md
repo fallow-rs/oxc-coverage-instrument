@@ -13,31 +13,26 @@ Working coverage map generation and source-level counter injection.
 - [x] Source-level counter injection
 - [x] `InstrumentOptions` with configurable coverage variable name
 
-## v0.2.0 (current)
+## v0.2.x (current)
 
-Correct instrumented output via AST mutation. Istanbul-conformant.
+Correct instrumented output via AST mutation. Istanbul-conformant. Published to npm.
 
-- [x] **AST-level counter injection via `Traverse`**: replaced source-level insertion with proper AST mutation using `oxc_traverse::Traverse`, then emit via `oxc_codegen`
+- [x] **AST-level counter injection via `Traverse`**: proper AST mutation using `oxc_traverse::Traverse` + `oxc_codegen`
 - [x] **Pragma handling**: `istanbul ignore next/if/else/file`, `v8 ignore`, `c8 ignore`
 - [x] **Source map output**: via `oxc_codegen` with preamble line offset correction
+- [x] **Source map composition**: chains output map through input source map (TS → JS → instrumented)
 - [x] **Branch coverage**: `??`, `??=`/`||=`/`&&=`, `default-arg`, chained logical flattening
 - [x] **Istanbul conformance**: prefix `++`, `branchMap.loc`, verified against `istanbul-lib-instrument` on 25 fixtures
-- [x] **npm package**: Node.js bindings via napi-rs (`oxc-coverage-instrument`)
+- [x] **npm package**: Node.js bindings via napi-rs, 7 platform binaries, trusted publishing
 - [x] **CLI binary**: `oxc-coverage-instrument <file>` for standalone use
 - [x] **Coverage ingestion**: `parse_coverage_map()` and `FileCoverage::from_json()` for reading coverage data
 - [x] **Conformance test suite**: 175 automated checks against Istanbul reference output
-- [x] **277 tests**, 98.9% line coverage, strict clippy (all+pedantic+nursery)
-- [x] **Source map composition**: chains output map through input source map (TS → JS → instrumented)
-
-## v0.3.0
-
-Polish and ecosystem.
-
-- [ ] **Publish to crates.io**: `cargo publish`
-- [ ] **Publish to npm**: cross-platform CI build + publish workflow
-- [ ] **Configurable counter style**: comma-operator wrapping for expression contexts
+- [x] **282 tests**, 97% line coverage, strict clippy (all+pedantic+nursery, Oxc-level restrictions)
+- [x] **CI**: cross-platform tests, MSRV, cargo-deny, napi test, typos, doc checks, coverage badge
 
 ## Future
 
+- **Publish to crates.io**: `cargo publish` when ready for Rust ecosystem consumption
+- **Configurable counter style**: comma-operator wrapping for expression contexts
 - **fallow integration**: `fallow health --coverage coverage-final.json` ingests real per-function coverage
 - **Oxc org transfer**: if the Oxc project wants to host this (see [oxc#21108](https://github.com/oxc-project/oxc/issues/21108))

@@ -95,7 +95,7 @@ export function coveragePlugin() {
     transform(code, id) {
       if (process.env.COVERAGE && /\.[jt]sx?$/.test(id) && !id.includes('node_modules')) {
         const result = instrument(code, id, { sourceMap: true });
-        return { code: result.code, map: JSON.parse(result.sourceMap) };
+        return { code: result.code, map: result.sourceMap ? JSON.parse(result.sourceMap) : undefined };
       }
     },
   };
@@ -105,7 +105,7 @@ export function coveragePlugin() {
 ### Reading existing coverage data
 
 ```rust
-use oxc_coverage_instrument::{parse_coverage_map, FileCoverage};
+use oxc_coverage_instrument::parse_coverage_map;
 
 // Parse a coverage-final.json file
 let json = std::fs::read_to_string("coverage-final.json").unwrap();
