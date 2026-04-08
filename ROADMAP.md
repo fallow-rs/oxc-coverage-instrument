@@ -33,6 +33,5 @@ Correct instrumented output via AST mutation. Istanbul-conformant. Published to 
 
 ## Future
 
-- **Configurable counter style**: comma-operator wrapping for expression contexts
 - **fallow integration**: `fallow health --coverage coverage-final.json` ingests real per-function coverage
 - **Oxc org transfer**: if the Oxc project wants to host this (see [oxc#21108](https://github.com/oxc-project/oxc/issues/21108))
