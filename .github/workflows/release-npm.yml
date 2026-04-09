@@ -120,7 +120,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Publish oxc_coverage_instrument
-        run: cargo publish || echo "Already published, skipping"
+        run: cargo publish --allow-dirty || echo "Already published, skipping"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
