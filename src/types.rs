@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileCoverage {
     /// Absolute file path.
+    #[serde(default, deserialize_with = "deserialize_null_as_empty")]
     pub path: String,
     /// Statement locations, keyed by sequential string IDs ("0", "1", ...).
     #[serde(rename = "statementMap")]
@@ -69,6 +70,7 @@ pub struct Position {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FnEntry {
     /// Function name. Anonymous functions use `"(anonymous_N)"`.
+    #[serde(default, deserialize_with = "deserialize_null_as_empty")]
     pub name: String,
     /// 1-based line of the function declaration.
     #[serde(default, deserialize_with = "deserialize_null_as_zero")]
@@ -88,10 +90,18 @@ pub struct BranchEntry {
     #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub line: u32,
     /// Branch type: `"if"`, `"switch"`, `"cond-expr"`, `"binary-expr"`, `"default-arg"`.
-    #[serde(rename = "type")]
+    #[serde(rename = "type", default, deserialize_with = "deserialize_null_as_empty")]
     pub branch_type: String,
     /// One location per branch arm.
     pub locations: Vec<Location>,
+}
+
+/// Deserialize a `String` where `null` is coerced to an empty string.
+fn deserialize_null_as_empty<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// Deserialize a `u32` where `null` is coerced to `0`.

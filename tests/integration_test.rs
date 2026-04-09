@@ -829,6 +829,54 @@ fn parse_coverage_map_null_hit_counts() {
     assert_eq!(empty_pos.column, 0, "missing column in empty position should default to 0");
 }
 
+#[test]
+fn parse_coverage_map_null_string_fields() {
+    use oxc_coverage_instrument::parse_coverage_map;
+
+    // Istanbul-compatible tools may produce null for path, name, and type
+    // fields during coverage merging or from non-standard instrumentation.
+    let json = r#"{
+        "test.js": {
+            "path": null,
+            "statementMap": {},
+            "fnMap": {"0": {"name": null, "line": 1, "decl": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}, "loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}}},
+            "branchMap": {"0": {"loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}, "line": 1, "type": null, "locations": []}},
+            "s": {},
+            "f": {"0": 0},
+            "b": {}
+        }
+    }"#;
+
+    let parsed = parse_coverage_map(json).unwrap();
+    let file = &parsed["test.js"];
+    assert_eq!(file.path, "", "null path should coerce to empty string");
+    assert_eq!(file.fn_map["0"].name, "", "null fn name should coerce to empty string");
+    assert_eq!(file.branch_map["0"].branch_type, "", "null branch type should coerce to empty string");
+}
+
+#[test]
+fn parse_coverage_map_missing_string_fields() {
+    use oxc_coverage_instrument::parse_coverage_map;
+
+    // Fields entirely absent from JSON (not just null) should also default.
+    let json = r#"{
+        "test.js": {
+            "statementMap": {},
+            "fnMap": {"0": {"line": 1, "decl": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}, "loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}}},
+            "branchMap": {"0": {"loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}, "line": 1, "locations": []}},
+            "s": {},
+            "f": {"0": 0},
+            "b": {}
+        }
+    }"#;
+
+    let parsed = parse_coverage_map(json).unwrap();
+    let file = &parsed["test.js"];
+    assert_eq!(file.path, "", "missing path should default to empty string");
+    assert_eq!(file.fn_map["0"].name, "", "missing fn name should default to empty string");
+    assert_eq!(file.branch_map["0"].branch_type, "", "missing branch type should default to empty string");
+}
+
 // ---------------------------------------------------------------------------
 // Source map composition fallback (invalid input source map)
 // ---------------------------------------------------------------------------
