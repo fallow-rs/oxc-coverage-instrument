@@ -824,7 +824,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_instrument"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "criterion",
  "insta",
