@@ -801,14 +801,15 @@ fn parse_coverage_map_invalid_json() {
 fn parse_coverage_map_null_hit_counts() {
     use oxc_coverage_instrument::parse_coverage_map;
 
-    // Istanbul allows null in s/f/b hit count maps. Real-world coverage files
-    // (e.g., from istanbul-lib-instrument) emit null for uninstrumented entries.
+    // Istanbul allows null in s/f/b hit count maps, null in position fields,
+    // and even empty objects `{}` for positions (e.g., branch locations with
+    // unknown spans). Real-world coverage files exercise all these variants.
     let json = r#"{
         "test.js": {
             "path": "test.js",
-            "statementMap": {"0": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}},
-            "fnMap": {"0": {"name": "f", "line": 1, "decl": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 5}}, "loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}}},
-            "branchMap": {"0": {"loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}, "line": 1, "type": "if", "locations": [{"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 5}}, {"start": {"line": 1, "column": 5}, "end": {"line": 1, "column": 10}}]}},
+            "statementMap": {"0": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": null}}},
+            "fnMap": {"0": {"name": "f", "line": null, "decl": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": null}}, "loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": null}}}},
+            "branchMap": {"0": {"loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": null}}, "line": 1, "type": "if", "locations": [{"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": null}}, {"start": {}, "end": {}}]}},
             "s": {"0": null},
             "f": {"0": null},
             "b": {"0": [null, 1]}
@@ -820,6 +821,12 @@ fn parse_coverage_map_null_hit_counts() {
     assert_eq!(file.s["0"], 0, "null statement count should coerce to 0");
     assert_eq!(file.f["0"], 0, "null function count should coerce to 0");
     assert_eq!(file.b["0"], vec![0, 1], "null branch arm count should coerce to 0");
+    assert_eq!(file.fn_map["0"].line, 0, "null fn line should coerce to 0");
+    assert_eq!(file.statement_map["0"].end.column, 0, "null position column should coerce to 0");
+    // Empty position objects `{}` should default both fields to 0
+    let empty_pos = &file.branch_map["0"].locations[1].start;
+    assert_eq!(empty_pos.line, 0, "missing line in empty position should default to 0");
+    assert_eq!(empty_pos.column, 0, "missing column in empty position should default to 0");
 }
 
 // ---------------------------------------------------------------------------

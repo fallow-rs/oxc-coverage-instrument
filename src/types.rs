@@ -51,11 +51,17 @@ pub struct Location {
 }
 
 /// A 1-based line, 0-based column position.
+///
+/// Istanbul allows `null` or missing fields for line/column when the position
+/// is unknown (e.g., empty `{}` objects for branch locations); these are
+/// coerced to `0` on deserialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Position {
     /// 1-based line number.
+    #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub line: u32,
     /// 0-based column number.
+    #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub column: u32,
 }
 
@@ -65,6 +71,7 @@ pub struct FnEntry {
     /// Function name. Anonymous functions use `"(anonymous_N)"`.
     pub name: String,
     /// 1-based line of the function declaration.
+    #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub line: u32,
     /// Span of the function declaration (keyword to name/params).
     pub decl: Location,
@@ -78,12 +85,24 @@ pub struct BranchEntry {
     /// Overall location of the branch construct.
     pub loc: Location,
     /// 1-based line where the branch starts.
+    #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub line: u32,
     /// Branch type: `"if"`, `"switch"`, `"cond-expr"`, `"binary-expr"`, `"default-arg"`.
     #[serde(rename = "type")]
     pub branch_type: String,
     /// One location per branch arm.
     pub locations: Vec<Location>,
+}
+
+/// Deserialize a `u32` where `null` is coerced to `0`.
+///
+/// Istanbul allows `null` for position fields (line, column) when the exact
+/// location is unknown, and for individual hit counts in some edge cases.
+fn deserialize_null_as_zero<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<u32>::deserialize(deserializer)?.unwrap_or(0))
 }
 
 /// Deserialize a `BTreeMap<String, u32>` where `null` values are coerced to `0`.
