@@ -24,11 +24,17 @@ pub struct FileCoverage {
     #[serde(rename = "branchMap")]
     pub branch_map: BTreeMap<String, BranchEntry>,
     /// Statement hit counts, keyed by the same IDs as `statement_map`.
+    /// Istanbul allows `null` values (e.g., uninstrumented statements); these are coerced to `0`.
+    #[serde(deserialize_with = "deserialize_null_as_zero_map")]
     pub s: BTreeMap<String, u32>,
     /// Function hit counts, keyed by the same IDs as `fn_map`.
+    /// Istanbul allows `null` values; these are coerced to `0`.
+    #[serde(deserialize_with = "deserialize_null_as_zero_map")]
     pub f: BTreeMap<String, u32>,
     /// Branch hit counts, keyed by the same IDs as `branch_map`.
     /// Each value is a Vec with one count per branch arm.
+    /// Istanbul allows `null` values in both the Vec and individual elements; these are coerced to `0`.
+    #[serde(deserialize_with = "deserialize_null_as_zero_vec_map")]
     pub b: BTreeMap<String, Vec<u32>>,
     /// Input source map from a prior transformation (e.g., TypeScript → JS).
     /// Stored so downstream tools can chain back to the original source.
@@ -78,6 +84,38 @@ pub struct BranchEntry {
     pub branch_type: String,
     /// One location per branch arm.
     pub locations: Vec<Location>,
+}
+
+/// Deserialize a `BTreeMap<String, u32>` where `null` values are coerced to `0`.
+///
+/// Istanbul coverage tools may emit `null` for hit counts when a statement or
+/// function was never instrumented or the count is indeterminate.
+fn deserialize_null_as_zero_map<'de, D>(deserializer: D) -> Result<BTreeMap<String, u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: BTreeMap<String, Option<u32>> = Deserialize::deserialize(deserializer)?;
+    Ok(raw.into_iter().map(|(k, v)| (k, v.unwrap_or(0))).collect())
+}
+
+/// Deserialize a `BTreeMap<String, Vec<u32>>` where `null` values are coerced to `0`.
+///
+/// Handles `null` at both the Vec level (coerced to empty Vec) and individual
+/// element level (coerced to `0`).
+fn deserialize_null_as_zero_vec_map<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, Vec<u32>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: BTreeMap<String, Option<Vec<Option<u32>>>> = Deserialize::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .map(|(k, v)| {
+            let vec = v.unwrap_or_default().into_iter().map(|x| x.unwrap_or(0)).collect();
+            (k, vec)
+        })
+        .collect())
 }
 
 impl FileCoverage {

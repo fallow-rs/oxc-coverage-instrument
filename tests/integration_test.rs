@@ -797,6 +797,31 @@ fn parse_coverage_map_invalid_json() {
     assert!(parse_coverage_map("not json").is_err());
 }
 
+#[test]
+fn parse_coverage_map_null_hit_counts() {
+    use oxc_coverage_instrument::parse_coverage_map;
+
+    // Istanbul allows null in s/f/b hit count maps. Real-world coverage files
+    // (e.g., from istanbul-lib-instrument) emit null for uninstrumented entries.
+    let json = r#"{
+        "test.js": {
+            "path": "test.js",
+            "statementMap": {"0": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}},
+            "fnMap": {"0": {"name": "f", "line": 1, "decl": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 5}}, "loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}}},
+            "branchMap": {"0": {"loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 10}}, "line": 1, "type": "if", "locations": [{"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 5}}, {"start": {"line": 1, "column": 5}, "end": {"line": 1, "column": 10}}]}},
+            "s": {"0": null},
+            "f": {"0": null},
+            "b": {"0": [null, 1]}
+        }
+    }"#;
+
+    let parsed = parse_coverage_map(json).unwrap();
+    let file = &parsed["test.js"];
+    assert_eq!(file.s["0"], 0, "null statement count should coerce to 0");
+    assert_eq!(file.f["0"], 0, "null function count should coerce to 0");
+    assert_eq!(file.b["0"], vec![0, 1], "null branch arm count should coerce to 0");
+}
+
 // ---------------------------------------------------------------------------
 // Source map composition fallback (invalid input source map)
 // ---------------------------------------------------------------------------
