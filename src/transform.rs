@@ -803,14 +803,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
 
                 // Wrap each leaf operand with its branch counter
                 let cov_fn = self.cov_fn_name.as_str();
-                wrap_logical_leaves(
-                    expr,
-                    cov_fn,
-                    branch_id,
-                    &mut 0,
-                    self.report_logic,
-                    ctx,
-                );
+                wrap_logical_leaves(expr, cov_fn, branch_id, &mut 0, self.report_logic, ctx);
             }
         }
     }

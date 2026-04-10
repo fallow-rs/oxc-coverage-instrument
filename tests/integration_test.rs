@@ -851,7 +851,10 @@ fn parse_coverage_map_null_string_fields() {
     let file = &parsed["test.js"];
     assert_eq!(file.path, "", "null path should coerce to empty string");
     assert_eq!(file.fn_map["0"].name, "", "null fn name should coerce to empty string");
-    assert_eq!(file.branch_map["0"].branch_type, "", "null branch type should coerce to empty string");
+    assert_eq!(
+        file.branch_map["0"].branch_type, "",
+        "null branch type should coerce to empty string"
+    );
 }
 
 #[test]
@@ -874,7 +877,10 @@ fn parse_coverage_map_missing_string_fields() {
     let file = &parsed["test.js"];
     assert_eq!(file.path, "", "missing path should default to empty string");
     assert_eq!(file.fn_map["0"].name, "", "missing fn name should default to empty string");
-    assert_eq!(file.branch_map["0"].branch_type, "", "missing branch type should default to empty string");
+    assert_eq!(
+        file.branch_map["0"].branch_type, "",
+        "missing branch type should default to empty string"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -902,20 +908,24 @@ fn gap_object_method_gets_function_counter() {
     // Istanbul creates function counters for object shorthand methods
     let result = instrument_js("const obj = { foo() { return 1; }, bar() { return 2; } };");
     // Should have 2 function entries (foo and bar)
-    assert!(result.coverage_map.fn_map.len() >= 2,
+    assert!(
+        result.coverage_map.fn_map.len() >= 2,
         "Object methods should get function counters, got {} functions: {:?}",
         result.coverage_map.fn_map.len(),
-        result.coverage_map.fn_map.values().map(|f| &f.name).collect::<Vec<_>>());
+        result.coverage_map.fn_map.values().map(|f| &f.name).collect::<Vec<_>>()
+    );
 }
 
 #[test]
 fn gap_getter_setter_get_function_counter() {
     // Istanbul creates function counters for getter/setter in object literals
     let result = instrument_js("const obj = { get x() { return 1; }, set x(v) { this._x = v; } };");
-    assert!(result.coverage_map.fn_map.len() >= 2,
+    assert!(
+        result.coverage_map.fn_map.len() >= 2,
         "Getters/setters should get function counters, got {} functions: {:?}",
         result.coverage_map.fn_map.len(),
-        result.coverage_map.fn_map.values().map(|f| &f.name).collect::<Vec<_>>());
+        result.coverage_map.fn_map.values().map(|f| &f.name).collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -923,9 +933,11 @@ fn class_property_initializer_gets_statement() {
     let result = instrument_js("class Foo { x = 1; y = computeDefault(); }");
     let stmt_count = result.coverage_map.statement_map.len();
     // 1 statement for the class declaration + 2 for the property initializers
-    assert!(stmt_count >= 3,
+    assert!(
+        stmt_count >= 3,
         "Class property initializers should get statement counters, got {} statements",
-        stmt_count);
+        stmt_count
+    );
 }
 
 #[test]
@@ -933,9 +945,11 @@ fn private_class_property_initializer_gets_statement() {
     let result = instrument_js("class Foo { #x = computeDefault(); }");
     let stmt_count = result.coverage_map.statement_map.len();
     // 1 statement for the class declaration + 1 for the private property initializer
-    assert!(stmt_count >= 2,
+    assert!(
+        stmt_count >= 2,
         "Private class property initializers should get statement counters, got {} statements",
-        stmt_count);
+        stmt_count
+    );
 }
 
 #[test]
@@ -961,21 +975,20 @@ fn ignore_class_methods_skips_function_counter() {
         &opts,
     ).unwrap();
     // Only 'update' should have a function counter; 'render' and 'componentDidMount' are skipped.
-    assert_eq!(result.coverage_map.fn_map.len(), 1, "Only non-ignored methods should get function counters");
+    assert_eq!(
+        result.coverage_map.fn_map.len(),
+        1,
+        "Only non-ignored methods should get function counters"
+    );
     assert_eq!(result.coverage_map.fn_map["0"].name, "update");
 }
 
 #[test]
 fn ignore_class_methods_still_instruments_body() {
-    let opts = InstrumentOptions {
-        ignore_class_methods: vec!["render".to_string()],
-        ..default_opts()
-    };
-    let result = instrument(
-        "class App { render() { const x = 1; return x; } }",
-        "test.js",
-        &opts,
-    ).unwrap();
+    let opts =
+        InstrumentOptions { ignore_class_methods: vec!["render".to_string()], ..default_opts() };
+    let result =
+        instrument("class App { render() { const x = 1; return x; } }", "test.js", &opts).unwrap();
     // No function counter for render, but body statements are still counted
     assert_eq!(result.coverage_map.fn_map.len(), 0);
     // Class declaration + 2 body statements (const x = 1, return x)
@@ -990,16 +1003,15 @@ fn ignore_class_methods_empty_list_instruments_all() {
 
 #[test]
 fn ignore_class_methods_string_literal_key() {
-    let opts = InstrumentOptions {
-        ignore_class_methods: vec!["render".to_string()],
-        ..default_opts()
-    };
+    let opts =
+        InstrumentOptions { ignore_class_methods: vec!["render".to_string()], ..default_opts() };
     // String-literal method key should also be matched
     let result = instrument(
         "class App { \"render\"() { return 1; } update() { return 2; } }",
         "test.js",
         &opts,
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(result.coverage_map.fn_map.len(), 1);
     assert_eq!(result.coverage_map.fn_map["0"].name, "update");
 }
@@ -1008,15 +1020,14 @@ fn ignore_class_methods_string_literal_key() {
 fn ignore_class_methods_with_pragma_no_leak() {
     // When both ignoreClassMethods AND a pragma target the same method,
     // skip_next must not leak to the next statement after the method.
-    let opts = InstrumentOptions {
-        ignore_class_methods: vec!["render".to_string()],
-        ..default_opts()
-    };
+    let opts =
+        InstrumentOptions { ignore_class_methods: vec!["render".to_string()], ..default_opts() };
     let result = instrument(
         "class App { /* istanbul ignore next */ render() { return 1; } update() { return 2; } }",
         "test.js",
         &opts,
-    ).unwrap();
+    )
+    .unwrap();
     // render is skipped (both by pragma and ignoreClassMethods)
     // update must NOT be affected by skip_next leaking
     assert_eq!(result.coverage_map.fn_map.len(), 1, "Only update should have a function counter");
@@ -1042,7 +1053,10 @@ fn report_logic_adds_bt_field() {
 #[test]
 fn report_logic_disabled_no_bt_field() {
     let result = instrument_js("const x = a && b;");
-    assert!(result.coverage_map.b_t.is_none(), "bT should not be present when report_logic is disabled");
+    assert!(
+        result.coverage_map.b_t.is_none(),
+        "bT should not be present when report_logic is disabled"
+    );
 }
 
 #[test]
@@ -1057,9 +1071,18 @@ fn report_logic_wraps_with_helper() {
     assert!(result.code.contains(".bT["), "Helper should reference bT counter");
     // The helper should use Istanbul's non-trivial truthy check:
     // empty arrays [] and empty objects {} are NOT counted as truthy
-    assert!(result.code.contains("!Array.isArray("), "Should check if NOT an array (Istanbul's check)");
-    assert!(result.code.contains("Object.values("), "Should check Object.values length (Istanbul's check)");
-    assert!(result.code.contains("Object.getPrototypeOf("), "Should check prototype (Istanbul's check)");
+    assert!(
+        result.code.contains("!Array.isArray("),
+        "Should check if NOT an array (Istanbul's check)"
+    );
+    assert!(
+        result.code.contains("Object.values("),
+        "Should check Object.values length (Istanbul's check)"
+    );
+    assert!(
+        result.code.contains("Object.getPrototypeOf("),
+        "Should check prototype (Istanbul's check)"
+    );
 }
 
 #[test]
@@ -1067,8 +1090,10 @@ fn report_logic_only_for_logical_expressions() {
     let opts = InstrumentOptions { report_logic: true, ..default_opts() };
     let result = instrument("if (x) { a(); } else { b(); }", "test.js", &opts).unwrap();
     // if/else branches should NOT create bT entries — only logical expressions do
-    assert!(result.coverage_map.b_t.is_none() || result.coverage_map.b_t.as_ref().unwrap().is_empty(),
-        "bT should not have entries for if/else branches");
+    assert!(
+        result.coverage_map.b_t.is_none() || result.coverage_map.b_t.as_ref().unwrap().is_empty(),
+        "bT should not have entries for if/else branches"
+    );
 }
 
 #[test]
@@ -1102,8 +1127,10 @@ fn export_function_counter_is_hoisted() {
     let export_pos = result.code.find("export").unwrap();
     let counter_pos = result.code.rfind("++").unwrap_or(0);
     // There should be a counter before the export
-    assert!(result.code[..export_pos].contains("++"),
-        "Statement counter should be hoisted before export declaration");
+    assert!(
+        result.code[..export_pos].contains("++"),
+        "Statement counter should be hoisted before export declaration"
+    );
     // The function should still get a function counter
     assert_eq!(result.coverage_map.fn_map.len(), 1);
     assert_eq!(result.coverage_map.fn_map["0"].name, "foo");
@@ -1113,8 +1140,10 @@ fn export_function_counter_is_hoisted() {
 fn export_const_arrow_counter_is_hoisted() {
     let result = instrument_js("export const add = (a, b) => a + b;");
     let export_pos = result.code.find("export").unwrap();
-    assert!(result.code[..export_pos].contains("++"),
-        "Statement counter should be hoisted before export const");
+    assert!(
+        result.code[..export_pos].contains("++"),
+        "Statement counter should be hoisted before export const"
+    );
     assert_eq!(result.coverage_map.fn_map.len(), 1);
     assert_eq!(result.coverage_map.fn_map["0"].name, "add");
 }
