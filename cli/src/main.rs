@@ -70,7 +70,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let opts = InstrumentOptions { coverage_variable, source_map, input_source_map: None };
+    let opts = InstrumentOptions { coverage_variable, source_map, ..InstrumentOptions::default() };
 
     let result = match instrument(&source, filename, &opts) {
         Ok(r) => r,

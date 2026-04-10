@@ -46,6 +46,12 @@ pub struct CoverageTransform {
     skip_next: bool,
     /// Coverage function name, cached to avoid cloning from state on every hook.
     cov_fn_name: String,
+    /// When true, adds truthy-value tracking (`bT`) for logical expression operands.
+    report_logic: bool,
+    /// Class method names to exclude from function coverage.
+    ignore_class_methods: Vec<String>,
+    /// Branch IDs of logical expression branches (for building the `bT` map).
+    pub logical_branch_ids: Vec<usize>,
 }
 
 struct PendingInsertion {
@@ -64,7 +70,12 @@ enum CounterType {
 }
 
 impl CoverageTransform {
-    pub fn new(source: &str, cov_fn_name: String) -> Self {
+    pub fn new(
+        source: &str,
+        cov_fn_name: String,
+        report_logic: bool,
+        ignore_class_methods: Vec<String>,
+    ) -> Self {
         let line_offsets: Vec<u32> = std::iter::once(0)
             .chain(
                 source
@@ -88,6 +99,9 @@ impl CoverageTransform {
             pending_fn_counters: Vec::new(),
             skip_next: false,
             cov_fn_name,
+            report_logic,
+            ignore_class_methods,
+            logical_branch_ids: Vec::new(),
         }
     }
 
@@ -282,6 +296,7 @@ pub fn generate_preamble_source(
     coverage: &FileCoverage,
     coverage_var: &str,
     cov_fn_name: &str,
+    report_logic: bool,
 ) -> Result<String, serde_json::Error> {
     let estimated_size = 256
         + coverage.statement_map.len() * 80
@@ -296,6 +311,24 @@ pub fn generate_preamble_source(
         buf,
         "; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path]) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }});"
     );
+    if report_logic {
+        // Declare temp variable and truthy tracking helper function.
+        // The helper captures the value, checks if it's a "non-trivial" truthy
+        // value, and if so increments the bT counter. Returns the original value.
+        //
+        // Istanbul's non-trivial check:
+        //   _temp && (!Array.isArray(_temp) || _temp.length)
+        //         && (Object.getPrototypeOf(_temp) !== Object.prototype
+        //             || Object.values(_temp).length)
+        //
+        // This means empty arrays [] and empty plain objects {} are NOT counted
+        // as truthy. Non-plain objects (class instances, etc.) are always counted.
+        let _ = writeln!(buf, "var {cov_fn_name}_temp;");
+        let _ = writeln!(
+            buf,
+            "function {cov_fn_name}_bt(val, id, idx) {{ {cov_fn_name}_temp = val; if ({cov_fn_name}_temp && (!Array.isArray({cov_fn_name}_temp) || {cov_fn_name}_temp.length) && (Object.getPrototypeOf({cov_fn_name}_temp) !== Object.prototype || Object.values({cov_fn_name}_temp).length)) {{ ++{cov_fn_name}().bT[id][idx]; }} return {cov_fn_name}_temp; }}"
+        );
+    }
     Ok(buf)
 }
 
@@ -338,6 +371,55 @@ fn collect_logical_leaves_inner(expr: &Expression, spans: &mut Vec<Span>) {
     }
 }
 
+/// Wrap a single logical expression leaf with its branch counter.
+/// Without report_logic: `(cov().b[id][pathIdx]++, operand)`
+/// With report_logic: additionally wrapped with truthy tracking via a
+/// preamble helper function.
+fn wrap_logical_leaf<'a>(
+    operand: &mut Expression<'a>,
+    cov_fn_name: &str,
+    branch_id: usize,
+    path_idx: usize,
+    report_logic: bool,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) {
+    let counter = build_branch_counter_expr(cov_fn_name, branch_id, path_idx, ctx);
+    let orig = mem::replace(operand, dummy_expr(ctx));
+    let mut items = ctx.ast.vec();
+    items.push(counter);
+    items.push(orig);
+    let branch_wrapped = ctx.ast.expression_sequence(SPAN, items);
+
+    if report_logic {
+        // Wrap with truthy tracking helper: cov_fn_bt(wrapped, branch_id, path_idx)
+        let bt_name = alloc_str(&format!("{cov_fn_name}_bt"), ctx);
+        let callee = ctx.ast.expression_identifier(SPAN, bt_name);
+        let mut args = ctx.ast.vec();
+        args.push(Argument::from(branch_wrapped));
+        args.push(Argument::from(ctx.ast.expression_numeric_literal(
+            SPAN,
+            branch_id as f64,
+            None,
+            oxc_syntax::number::NumberBase::Decimal,
+        )));
+        args.push(Argument::from(ctx.ast.expression_numeric_literal(
+            SPAN,
+            path_idx as f64,
+            None,
+            oxc_syntax::number::NumberBase::Decimal,
+        )));
+        *operand = ctx.ast.expression_call(
+            SPAN,
+            callee,
+            None::<TSTypeParameterInstantiation>,
+            args,
+            false,
+        );
+    } else {
+        *operand = branch_wrapped;
+    }
+}
+
 /// Recursively wrap each leaf operand in a chained logical expression with
 /// its branch counter: `(cov().b[id][pathIdx]++, operand)`.
 fn wrap_logical_leaves<'a>(
@@ -345,31 +427,22 @@ fn wrap_logical_leaves<'a>(
     cov_fn_name: &str,
     branch_id: usize,
     path_idx: &mut usize,
+    report_logic: bool,
     ctx: &mut TraverseCtx<'a, CoverageState>,
 ) {
     // Process left side
     if let Expression::LogicalExpression(inner) = &mut expr.left {
-        wrap_logical_leaves(inner, cov_fn_name, branch_id, path_idx, ctx);
+        wrap_logical_leaves(inner, cov_fn_name, branch_id, path_idx, report_logic, ctx);
     } else {
-        let counter = build_branch_counter_expr(cov_fn_name, branch_id, *path_idx, ctx);
-        let orig = mem::replace(&mut expr.left, dummy_expr(ctx));
-        let mut items = ctx.ast.vec();
-        items.push(counter);
-        items.push(orig);
-        expr.left = ctx.ast.expression_sequence(SPAN, items);
+        wrap_logical_leaf(&mut expr.left, cov_fn_name, branch_id, *path_idx, report_logic, ctx);
         *path_idx += 1;
     }
 
     // Process right side
     if let Expression::LogicalExpression(inner) = &mut expr.right {
-        wrap_logical_leaves(inner, cov_fn_name, branch_id, path_idx, ctx);
+        wrap_logical_leaves(inner, cov_fn_name, branch_id, path_idx, report_logic, ctx);
     } else {
-        let counter = build_branch_counter_expr(cov_fn_name, branch_id, *path_idx, ctx);
-        let orig = mem::replace(&mut expr.right, dummy_expr(ctx));
-        let mut items = ctx.ast.vec();
-        items.push(counter);
-        items.push(orig);
-        expr.right = ctx.ast.expression_sequence(SPAN, items);
+        wrap_logical_leaf(&mut expr.right, cov_fn_name, branch_id, *path_idx, report_logic, ctx);
         *path_idx += 1;
     }
 }
@@ -380,14 +453,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         func: &mut Function<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        // Check for ignore next pragma
-        if ctx.state.pragmas.get(func.span.start) == Some(IgnoreType::Next) {
-            self.skip_next = true;
-            self.pending_name = None;
-            return;
-        }
-        if self.skip_next {
-            self.skip_next = false;
+        let has_pragma = ctx.state.pragmas.get(func.span.start) == Some(IgnoreType::Next);
+        let skip = has_pragma || self.skip_next;
+        // Always clear skip_next here to prevent leaking into the next node
+        // (e.g., when both ignoreClassMethods and a pragma target the same method).
+        self.skip_next = false;
+        if skip {
             self.pending_name = None;
             return;
         }
@@ -504,9 +575,16 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         method: &mut MethodDefinition<'a>,
         _ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        if let PropertyKey::StaticIdentifier(id) = &method.key {
-            self.pending_name = Some(id.name.to_string());
+        let name = match &method.key {
+            PropertyKey::StaticIdentifier(id) => id.name.to_string(),
+            PropertyKey::StringLiteral(s) => s.value.to_string(),
+            _ => return,
+        };
+        if self.ignore_class_methods.contains(&name) {
+            self.skip_next = true;
+            return;
         }
+        self.pending_name = Some(name);
     }
 
     fn exit_method_definition(
@@ -515,6 +593,34 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         _ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         self.pending_name = None;
+    }
+
+    fn enter_property_definition(
+        &mut self,
+        prop: &mut PropertyDefinition<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        // Class property initializers: class Foo { x = expr; #y = expr; }
+        // Istanbul creates a statement counter for each initializer expression.
+        // Since PropertyDefinition is a class element (not a Statement), enter_statement
+        // won't catch it. We wrap the initializer: x = (++cov().s[N], expr).
+        let Some(value) = &prop.value else { return };
+        let span = value.span();
+        if span.start == 0 && span.end == 0 {
+            return;
+        }
+        if ctx.state.pragmas.get(prop.span.start) == Some(IgnoreType::Next) || self.skip_next {
+            self.skip_next = false;
+            return;
+        }
+        let stmt_id = self.add_statement(span);
+        let cov_fn = self.cov_fn_name.as_str();
+        let counter = build_counter_expr(cov_fn, "s", stmt_id, ctx);
+        let orig = mem::replace(prop.value.as_mut().unwrap(), dummy_expr(ctx));
+        let mut items = ctx.ast.vec();
+        items.push(counter);
+        items.push(orig);
+        *prop.value.as_mut().unwrap() = ctx.ast.expression_sequence(SPAN, items);
     }
 
     fn enter_statement(
@@ -691,9 +797,20 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
                 let leaf_spans = collect_logical_leaf_spans(expr);
                 let branch_id = self.add_branch("binary-expr", expr.span, &leaf_spans);
 
+                if self.report_logic {
+                    self.logical_branch_ids.push(branch_id);
+                }
+
                 // Wrap each leaf operand with its branch counter
                 let cov_fn = self.cov_fn_name.as_str();
-                wrap_logical_leaves(expr, cov_fn, branch_id, &mut 0, ctx);
+                wrap_logical_leaves(
+                    expr,
+                    cov_fn,
+                    branch_id,
+                    &mut 0,
+                    self.report_logic,
+                    ctx,
+                );
             }
         }
     }

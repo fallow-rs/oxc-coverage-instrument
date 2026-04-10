@@ -4,6 +4,12 @@ node_modules/
 /package.json
 /package-lock.json
 
+# comparison instrumenters (created ad-hoc for analysis)
+/comparison/
+
+# benchmark temp files (downloaded JS libraries, npm installs)
+/.bench-tmp/
+
 # napi build artifacts
 *.node
 napi/index.js

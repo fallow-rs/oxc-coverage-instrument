@@ -892,3 +892,240 @@ fn source_map_with_invalid_input_still_works() {
     // Should still produce a source map (just not composed)
     assert!(result.source_map.is_some());
 }
+
+// ---------------------------------------------------------------------------
+// Gap analysis: constructs that Istanbul instruments but we might miss
+// ---------------------------------------------------------------------------
+
+#[test]
+fn gap_object_method_gets_function_counter() {
+    // Istanbul creates function counters for object shorthand methods
+    let result = instrument_js("const obj = { foo() { return 1; }, bar() { return 2; } };");
+    // Should have 2 function entries (foo and bar)
+    assert!(result.coverage_map.fn_map.len() >= 2,
+        "Object methods should get function counters, got {} functions: {:?}",
+        result.coverage_map.fn_map.len(),
+        result.coverage_map.fn_map.values().map(|f| &f.name).collect::<Vec<_>>());
+}
+
+#[test]
+fn gap_getter_setter_get_function_counter() {
+    // Istanbul creates function counters for getter/setter in object literals
+    let result = instrument_js("const obj = { get x() { return 1; }, set x(v) { this._x = v; } };");
+    assert!(result.coverage_map.fn_map.len() >= 2,
+        "Getters/setters should get function counters, got {} functions: {:?}",
+        result.coverage_map.fn_map.len(),
+        result.coverage_map.fn_map.values().map(|f| &f.name).collect::<Vec<_>>());
+}
+
+#[test]
+fn class_property_initializer_gets_statement() {
+    let result = instrument_js("class Foo { x = 1; y = computeDefault(); }");
+    let stmt_count = result.coverage_map.statement_map.len();
+    // 1 statement for the class declaration + 2 for the property initializers
+    assert!(stmt_count >= 3,
+        "Class property initializers should get statement counters, got {} statements",
+        stmt_count);
+}
+
+#[test]
+fn private_class_property_initializer_gets_statement() {
+    let result = instrument_js("class Foo { #x = computeDefault(); }");
+    let stmt_count = result.coverage_map.statement_map.len();
+    // 1 statement for the class declaration + 1 for the private property initializer
+    assert!(stmt_count >= 2,
+        "Private class property initializers should get statement counters, got {} statements",
+        stmt_count);
+}
+
+#[test]
+fn class_property_initializer_wraps_value() {
+    let result = instrument_js("class Foo {\n  x = 1;\n  y = computeDefault();\n}");
+    // Initializer values should be wrapped: x = (++cov().s[N], value)
+    assert!(result.code.contains(".s["), "Should contain statement counters in class body");
+}
+
+// ---------------------------------------------------------------------------
+// ignoreClassMethods
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ignore_class_methods_skips_function_counter() {
+    let opts = InstrumentOptions {
+        ignore_class_methods: vec!["render".to_string(), "componentDidMount".to_string()],
+        ..default_opts()
+    };
+    let result = instrument(
+        "class App { render() { return 1; } update() { return 2; } componentDidMount() { return 3; } }",
+        "test.js",
+        &opts,
+    ).unwrap();
+    // Only 'update' should have a function counter; 'render' and 'componentDidMount' are skipped.
+    assert_eq!(result.coverage_map.fn_map.len(), 1, "Only non-ignored methods should get function counters");
+    assert_eq!(result.coverage_map.fn_map["0"].name, "update");
+}
+
+#[test]
+fn ignore_class_methods_still_instruments_body() {
+    let opts = InstrumentOptions {
+        ignore_class_methods: vec!["render".to_string()],
+        ..default_opts()
+    };
+    let result = instrument(
+        "class App { render() { const x = 1; return x; } }",
+        "test.js",
+        &opts,
+    ).unwrap();
+    // No function counter for render, but body statements are still counted
+    assert_eq!(result.coverage_map.fn_map.len(), 0);
+    // Class declaration + 2 body statements (const x = 1, return x)
+    assert!(result.coverage_map.statement_map.len() >= 3);
+}
+
+#[test]
+fn ignore_class_methods_empty_list_instruments_all() {
+    let result = instrument_js("class App { render() { return 1; } update() { return 2; } }");
+    assert_eq!(result.coverage_map.fn_map.len(), 2);
+}
+
+#[test]
+fn ignore_class_methods_string_literal_key() {
+    let opts = InstrumentOptions {
+        ignore_class_methods: vec!["render".to_string()],
+        ..default_opts()
+    };
+    // String-literal method key should also be matched
+    let result = instrument(
+        "class App { \"render\"() { return 1; } update() { return 2; } }",
+        "test.js",
+        &opts,
+    ).unwrap();
+    assert_eq!(result.coverage_map.fn_map.len(), 1);
+    assert_eq!(result.coverage_map.fn_map["0"].name, "update");
+}
+
+#[test]
+fn ignore_class_methods_with_pragma_no_leak() {
+    // When both ignoreClassMethods AND a pragma target the same method,
+    // skip_next must not leak to the next statement after the method.
+    let opts = InstrumentOptions {
+        ignore_class_methods: vec!["render".to_string()],
+        ..default_opts()
+    };
+    let result = instrument(
+        "class App { /* istanbul ignore next */ render() { return 1; } update() { return 2; } }",
+        "test.js",
+        &opts,
+    ).unwrap();
+    // render is skipped (both by pragma and ignoreClassMethods)
+    // update must NOT be affected by skip_next leaking
+    assert_eq!(result.coverage_map.fn_map.len(), 1, "Only update should have a function counter");
+    assert_eq!(result.coverage_map.fn_map["0"].name, "update");
+}
+
+// ---------------------------------------------------------------------------
+// reportLogic (bT tracking)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn report_logic_adds_bt_field() {
+    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let result = instrument("const x = a && b;", "test.js", &opts).unwrap();
+    assert!(result.coverage_map.b_t.is_some(), "bT should be present when report_logic is enabled");
+    let b_t = result.coverage_map.b_t.unwrap();
+    assert_eq!(b_t.len(), 1, "Should have 1 bT entry for the logical expression");
+    // Each entry should have the same number of paths as the branch
+    let branch_key = b_t.keys().next().unwrap();
+    assert_eq!(b_t[branch_key].len(), 2, "bT entry should have 2 paths (a and b)");
+}
+
+#[test]
+fn report_logic_disabled_no_bt_field() {
+    let result = instrument_js("const x = a && b;");
+    assert!(result.coverage_map.b_t.is_none(), "bT should not be present when report_logic is disabled");
+}
+
+#[test]
+fn report_logic_wraps_with_helper() {
+    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let result = instrument("const x = a || b;", "test.js", &opts).unwrap();
+    // The code should contain calls to the truthy tracking helper
+    assert!(result.code.contains("_bt("), "Should contain truthy tracking helper calls");
+    // The preamble should declare the helper function and temp variable
+    assert!(result.code.contains("_temp;"), "Should declare temp variable");
+    assert!(result.code.contains("function "), "Should contain helper function definition");
+    assert!(result.code.contains(".bT["), "Helper should reference bT counter");
+    // The helper should use Istanbul's non-trivial truthy check:
+    // empty arrays [] and empty objects {} are NOT counted as truthy
+    assert!(result.code.contains("!Array.isArray("), "Should check if NOT an array (Istanbul's check)");
+    assert!(result.code.contains("Object.values("), "Should check Object.values length (Istanbul's check)");
+    assert!(result.code.contains("Object.getPrototypeOf("), "Should check prototype (Istanbul's check)");
+}
+
+#[test]
+fn report_logic_only_for_logical_expressions() {
+    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let result = instrument("if (x) { a(); } else { b(); }", "test.js", &opts).unwrap();
+    // if/else branches should NOT create bT entries — only logical expressions do
+    assert!(result.coverage_map.b_t.is_none() || result.coverage_map.b_t.as_ref().unwrap().is_empty(),
+        "bT should not have entries for if/else branches");
+}
+
+#[test]
+fn report_logic_chained_logical() {
+    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let result = instrument("const x = a && b && c;", "test.js", &opts).unwrap();
+    let b_t = result.coverage_map.b_t.unwrap();
+    assert_eq!(b_t.len(), 1);
+    let entry = b_t.values().next().unwrap();
+    assert_eq!(entry.len(), 3, "Chained a && b && c should have 3 bT paths");
+}
+
+#[test]
+fn report_logic_nullish_coalescing() {
+    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let result = instrument("const x = a ?? b;", "test.js", &opts).unwrap();
+    let b_t = result.coverage_map.b_t.unwrap();
+    assert_eq!(b_t.len(), 1, "Nullish coalescing should have bT entry");
+}
+
+// ---------------------------------------------------------------------------
+// Counter hoisting for exports
+// ---------------------------------------------------------------------------
+
+#[test]
+fn export_function_counter_is_hoisted() {
+    // Statement counter should be BEFORE the export, not wrapping the expression.
+    // This preserves function name inference by JS engines.
+    let result = instrument_js("export function foo() { return 1; }");
+    // The counter should appear before "export" in the output
+    let export_pos = result.code.find("export").unwrap();
+    let counter_pos = result.code.rfind("++").unwrap_or(0);
+    // There should be a counter before the export
+    assert!(result.code[..export_pos].contains("++"),
+        "Statement counter should be hoisted before export declaration");
+    // The function should still get a function counter
+    assert_eq!(result.coverage_map.fn_map.len(), 1);
+    assert_eq!(result.coverage_map.fn_map["0"].name, "foo");
+}
+
+#[test]
+fn export_const_arrow_counter_is_hoisted() {
+    let result = instrument_js("export const add = (a, b) => a + b;");
+    let export_pos = result.code.find("export").unwrap();
+    assert!(result.code[..export_pos].contains("++"),
+        "Statement counter should be hoisted before export const");
+    assert_eq!(result.coverage_map.fn_map.len(), 1);
+    assert_eq!(result.coverage_map.fn_map["0"].name, "add");
+}
+
+#[test]
+fn report_logic_json_roundtrip() {
+    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let result = instrument("const x = a || b;", "test.js", &opts).unwrap();
+    // Serialize and deserialize to verify bT survives JSON roundtrip
+    let json = serde_json::to_string(&result.coverage_map).unwrap();
+    assert!(json.contains("\"bT\""), "JSON should contain bT field");
+    let parsed: oxc_coverage_instrument::FileCoverage = serde_json::from_str(&json).unwrap();
+    assert!(parsed.b_t.is_some());
+}

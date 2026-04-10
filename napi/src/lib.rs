@@ -16,6 +16,10 @@ pub struct InstrumentOptions {
     pub source_map: Option<bool>,
     /// Input source map JSON string from a prior transformation.
     pub input_source_map: Option<String>,
+    /// When true, adds truthy-value tracking (bT) for logical expression operands.
+    pub report_logic: Option<bool>,
+    /// Class method names to exclude from function coverage instrumentation.
+    pub ignore_class_methods: Option<Vec<String>>,
 }
 
 /// A coverage pragma comment that was found but not handled.
@@ -60,6 +64,8 @@ pub fn instrument(
             coverage_variable: o.coverage_variable.unwrap_or_else(|| "__coverage__".to_string()),
             source_map: o.source_map.unwrap_or(false),
             input_source_map: o.input_source_map,
+            report_logic: o.report_logic.unwrap_or(false),
+            ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
         }
     });
 

@@ -37,6 +37,16 @@ pub struct FileCoverage {
     /// Istanbul allows `null` values in both the Vec and individual elements; these are coerced to `0`.
     #[serde(deserialize_with = "deserialize_null_as_zero_vec_map")]
     pub b: BTreeMap<String, Vec<u32>>,
+    /// Branch truthy tracking hit counts. Only present when `report_logic` is enabled.
+    /// Tracks whether each operand in a logical expression evaluated to a truthy value.
+    /// Keyed by the same IDs as `binary-expr` entries in `branch_map`.
+    #[serde(
+        rename = "bT",
+        skip_serializing_if = "Option::is_none",
+        default,
+        deserialize_with = "deserialize_optional_null_as_zero_vec_map"
+    )]
+    pub b_t: Option<BTreeMap<String, Vec<u32>>>,
     /// Input source map from a prior transformation (e.g., TypeScript → JS).
     /// Stored so downstream tools can chain back to the original source.
     /// Only present when `InstrumentOptions::input_source_map` was provided.
@@ -147,6 +157,25 @@ where
         .collect())
 }
 
+/// Deserialize an `Option<BTreeMap<String, Vec<u32>>>` with null-tolerance.
+fn deserialize_optional_null_as_zero_vec_map<'de, D>(
+    deserializer: D,
+) -> Result<Option<BTreeMap<String, Vec<u32>>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt: Option<BTreeMap<String, Option<Vec<Option<u32>>>>> =
+        Deserialize::deserialize(deserializer)?;
+    Ok(opt.map(|raw| {
+        raw.into_iter()
+            .map(|(k, v)| {
+                let vec = v.unwrap_or_default().into_iter().map(|x| x.unwrap_or(0)).collect();
+                (k, vec)
+            })
+            .collect()
+    }))
+}
+
 impl FileCoverage {
     /// Deserialize a `FileCoverage` from a JSON string.
     ///
@@ -162,6 +191,7 @@ impl FileCoverage {
         statement_map: BTreeMap<String, Location>,
         fn_map: BTreeMap<String, FnEntry>,
         branch_map: BTreeMap<String, BranchEntry>,
+        logical_branch_ids: &[usize],
     ) -> Self {
         let s = statement_map.keys().map(|k| (k.clone(), 0)).collect();
         let f = fn_map.keys().map(|k| (k.clone(), 0)).collect();
@@ -169,7 +199,21 @@ impl FileCoverage {
             .iter()
             .map(|(k, entry)| (k.clone(), vec![0; entry.locations.len()]))
             .collect();
+        let b_t = if logical_branch_ids.is_empty() {
+            None
+        } else {
+            Some(
+                logical_branch_ids
+                    .iter()
+                    .map(|&id| {
+                        let key = id.to_string();
+                        let len = branch_map[&key].locations.len();
+                        (key, vec![0; len])
+                    })
+                    .collect(),
+            )
+        };
 
-        Self { path, statement_map, fn_map, branch_map, s, f, b, input_source_map: None }
+        Self { path, statement_map, fn_map, branch_map, s, f, b, b_t, input_source_map: None }
     }
 }

@@ -7,7 +7,7 @@
 [![docs.rs](https://docs.rs/oxc_coverage_instrument/badge.svg)](https://docs.rs/oxc_coverage_instrument)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Istanbul-compatible JavaScript/TypeScript coverage instrumentation, built on the [Oxc](https://oxc.rs) parser. **58x faster** than `istanbul-lib-instrument`.
+Istanbul-compatible JavaScript/TypeScript coverage instrumentation, built on the [Oxc](https://oxc.rs) parser. **5-33x faster** than existing tools.
 
 ## Why
 
@@ -138,12 +138,19 @@ Verified against `istanbul-lib-instrument` on 25 shared fixtures covering all br
 
 ## Performance
 
-| Tool | Throughput | Relative |
-|:-----|:-----------|:---------|
-| **oxc-coverage-instrument** | **50-67 MiB/s** | **58x faster** |
-| istanbul-lib-instrument | 1.1 MiB/s | baseline |
+Benchmarked on real-world JavaScript libraries, all running in the same Node.js process for a fair comparison. Reproduce with `./scripts/benchmark-comparison.sh`.
 
-From Node.js (via napi): **~19 MiB/s** (18x faster than Istanbul).
+| File | Size | oxc (napi) | babel-plugin-istanbul | swc-plugin (wasm) | istanbul-lib |
+|:-----|:-----|:-----------|:----------------------|:------------------|:-------------|
+| react.development.js | 107 KB | **1.9 ms** | 23.9 ms | 29.9 ms | 91.9 ms |
+| lodash.js | 531 KB | **7.3 ms** | 64.1 ms | 93.7 ms | 225.3 ms |
+| vue.global.js | 462 KB | **13.3 ms** | 123.7 ms | 206.3 ms | 565.9 ms |
+| d3.js | 573 KB | **23.7 ms** | 195.8 ms | 299.1 ms | 782.8 ms |
+| three.js | 1.2 MB | **31.4 ms** | 319.2 ms | 417.8 ms | 1109.3 ms |
+
+**8-13x** faster than babel-plugin-istanbul, **10-16x** faster than swc-plugin-coverage-instrument (Rust/WASM), **30-48x** faster than istanbul-lib-instrument.
+
+> **Note:** swc-plugin-coverage-instrument is written in Rust but runs as a WASM module inside SWC's sandbox, adding serialisation overhead at every AST boundary. The comparison measures end-to-end instrumentation time as users experience it.
 
 ## Architecture
 
@@ -171,8 +178,9 @@ instrumented code + coverage map
 | Project | AST | Notes |
 |:--------|:----|:------|
 | [`istanbul-lib-instrument`](https://github.com/istanbuljs/istanbuljs) | Babel | The canonical Istanbul instrumenter |
-| [`swc-coverage-instrument`](https://github.com/kwonoj/swc-plugin-coverage-instrument) | SWC | SWC equivalent (~407K monthly npm downloads) |
-| **this crate** | Oxc | First Oxc-native coverage instrumenter, 58x faster |
+| [`babel-plugin-istanbul`](https://github.com/istanbuljs/babel-plugin-istanbul) | Babel | Babel plugin wrapper around istanbul-lib-instrument |
+| [`swc-plugin-coverage-instrument`](https://github.com/kwonoj/swc-plugin-coverage-instrument) | SWC | SWC WASM plugin |
+| **this crate** | Oxc | Native Rust, 5-33x faster |
 
 ## Compatibility
 

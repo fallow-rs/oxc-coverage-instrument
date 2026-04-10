@@ -26,6 +26,14 @@ pub struct InstrumentOptions {
     /// When provided, this is stored on the `FileCoverage` as `inputSourceMap` so
     /// downstream tools (nyc, istanbul-reports) can chain back to the original source.
     pub input_source_map: Option<String>,
+    /// When true, adds truthy-value tracking (`bT`) for logical expression operands.
+    /// This enables nyc-style logic coverage that tracks not just which branch was
+    /// taken, but whether each operand evaluated to a truthy value.
+    pub report_logic: bool,
+    /// Class method names to exclude from function coverage instrumentation.
+    /// The method body is still instrumented for statement/branch coverage,
+    /// but no function counter is created.
+    pub ignore_class_methods: Vec<String>,
 }
 
 impl Default for InstrumentOptions {
@@ -34,6 +42,8 @@ impl Default for InstrumentOptions {
             coverage_variable: "__coverage__".to_string(),
             source_map: false,
             input_source_map: None,
+            report_logic: false,
+            ignore_class_methods: Vec::new(),
         }
     }
 }
@@ -126,6 +136,7 @@ pub fn instrument(
             std::collections::BTreeMap::new(),
             std::collections::BTreeMap::new(),
             std::collections::BTreeMap::new(),
+            &[],
         );
         return Ok(InstrumentResult {
             code: source.to_string(),
@@ -143,7 +154,12 @@ pub fn instrument(
     let cov_fn_name = generate_cov_fn_name(filename);
 
     // Phase 1: Traverse AST, collect coverage spans, and inject counter expressions
-    let mut transform = CoverageTransform::new(source, cov_fn_name.clone());
+    let mut transform = CoverageTransform::new(
+        source,
+        cov_fn_name.clone(),
+        options.report_logic,
+        options.ignore_class_methods.clone(),
+    );
     let state = CoverageState { pragmas };
 
     let scoping = traverse_mut(&mut transform, &allocator, &mut parsed.program, scoping, state);
@@ -154,6 +170,7 @@ pub fn instrument(
         transform.statement_map,
         transform.fn_map,
         transform.branch_map,
+        &transform.logical_branch_ids,
     );
 
     // Store input source map on coverage data for downstream tools (matches Istanbul behavior)
@@ -162,9 +179,13 @@ pub fn instrument(
     }
 
     // Phase 2: Generate preamble source and prepend to program
-    let preamble =
-        generate_preamble_source(&coverage_map, &options.coverage_variable, &cov_fn_name)
-            .map_err(|e| InstrumentError::SerializationError(e.to_string()))?;
+    let preamble = generate_preamble_source(
+        &coverage_map,
+        &options.coverage_variable,
+        &cov_fn_name,
+        options.report_logic,
+    )
+    .map_err(|e| InstrumentError::SerializationError(e.to_string()))?;
 
     // Phase 3: Emit instrumented code via codegen
     let codegen_options = CodegenOptions {
