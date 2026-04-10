@@ -84,6 +84,24 @@ oxc-coverage-instrument src/app.js --coverage-map
 oxc-coverage-instrument src/app.js -o dist/app.js --source-map
 ```
 
+### Vitest integration
+
+```typescript
+import { defineConfig } from 'vitest/config'
+import { createOxcInstrumenter } from 'oxc-coverage-instrument/vitest'
+
+export default defineConfig({
+  test: {
+    coverage: {
+      provider: 'istanbul',
+      instrumenter: () => createOxcInstrumenter(),
+    }
+  }
+})
+```
+
+> **Note:** Requires Vitest with custom instrumenter support (see [vitest#10119](https://github.com/vitest-dev/vitest/pull/10119)).
+
 ### Vite plugin example
 
 ```javascript

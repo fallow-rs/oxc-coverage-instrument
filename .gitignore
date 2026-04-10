@@ -10,6 +10,9 @@ node_modules/
 # benchmark temp files (downloaded JS libraries, npm installs)
 /.bench-tmp/
 
+# SWC WASM plugin cache (created by benchmark script)
+.swc/
+
 # napi build artifacts
 *.node
 napi/index.js

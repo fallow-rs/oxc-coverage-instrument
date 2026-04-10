@@ -1,12 +1,24 @@
 {
   "name": "oxc-coverage-instrument",
   "version": "0.2.13",
-  "description": "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST. 58x faster than istanbul-lib-instrument.",
+  "description": "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST. 8-48x faster than istanbul-lib-instrument.",
   "main": "index.js",
   "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./vitest": {
+      "types": "./vitest.d.ts",
+      "default": "./vitest.js"
+    }
+  },
   "files": [
     "index.js",
-    "index.d.ts"
+    "index.d.ts",
+    "vitest.js",
+    "vitest.d.ts"
   ],
   "keywords": [
     "oxc",
