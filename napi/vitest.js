@@ -12,7 +12,7 @@
 //     test: {
 //       coverage: {
 //         provider: 'istanbul',
-//         instrumenter: createOxcInstrumenter(),
+//         instrumenter: (options) => createOxcInstrumenter(options),
 //       }
 //     }
 //   })
@@ -23,13 +23,19 @@ const { instrument } = require('./index.js');
  * Creates an instrumenter that implements the istanbul-lib-instrument
  * Instrumenter interface, backed by oxc-coverage-instrument.
  *
+ * When used with Vitest's `coverage.instrumenter` option, the factory receives
+ * `InstrumenterOptions` with `coverageVariable` and `ignoreClassMethods`.
+ * These are forwarded to the native instrumenter automatically.
+ *
  * @param {object} [options]
- * @param {string} [options.coverageVariable='__coverage__']
- * @param {string[]} [options.ignoreClassMethods=[]]
- * @param {boolean} [options.reportLogic=false]
- * @returns {Instrumenter}
+ * @param {string} [options.coverageVariable] - Global variable for coverage data.
+ *   Vitest passes its internal `__VITEST_COVERAGE__`; defaults to `__coverage__`.
+ * @param {string[]} [options.ignoreClassMethods] - Class methods to skip.
+ * @param {boolean} [options.reportLogic] - Enable truthy-value tracking (bT).
+ * @returns {{ instrumentSync, lastSourceMap, lastFileCoverage }}
  */
-function createOxcInstrumenter(options = {}) {
+function createOxcInstrumenter(options) {
+  options = options || {};
   const coverageVariable = options.coverageVariable || '__coverage__';
   const ignoreClassMethods = options.ignoreClassMethods || [];
   const reportLogic = options.reportLogic || false;
@@ -38,13 +44,6 @@ function createOxcInstrumenter(options = {}) {
   let _lastFileCoverage = null;
 
   return {
-    /**
-     * Instrument source code synchronously.
-     * @param {string} code - Source code to instrument.
-     * @param {string} filename - File path for coverage map.
-     * @param {object} [inputSourceMap] - Input source map from prior transform.
-     * @returns {string} Instrumented source code.
-     */
     instrumentSync(code, filename, inputSourceMap) {
       const result = instrument(code, filename, {
         coverageVariable,
@@ -60,18 +59,10 @@ function createOxcInstrumenter(options = {}) {
       return result.code;
     },
 
-    /**
-     * Get the source map of the last instrumented file.
-     * @returns {object|null}
-     */
     lastSourceMap() {
       return _lastSourceMap;
     },
 
-    /**
-     * Get the coverage object of the last instrumented file.
-     * @returns {object}
-     */
     lastFileCoverage() {
       return _lastFileCoverage;
     },
