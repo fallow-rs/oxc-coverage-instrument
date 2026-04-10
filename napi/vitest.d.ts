@@ -36,4 +36,6 @@ export declare function createOxcInstrumenter(options?: OxcInstrumenterOptions):
   instrumentSync(code: string, filename: string, inputSourceMap?: any): string
   lastSourceMap(): any
   lastFileCoverage(): any
+  /** Property alias for compatibility with vite-plugin-istanbul. */
+  readonly fileCoverage: any
 }

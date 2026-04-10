@@ -66,6 +66,11 @@ function createOxcInstrumenter(options) {
     lastFileCoverage() {
       return _lastFileCoverage;
     },
+
+    // Property alias used by vite-plugin-istanbul (vs lastFileCoverage() method used by Vitest)
+    get fileCoverage() {
+      return _lastFileCoverage;
+    },
   };
 }
 
