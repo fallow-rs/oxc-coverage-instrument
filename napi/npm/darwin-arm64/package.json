@@ -1,6 +1,6 @@
 {
   "name": "@oxc-coverage-instrument/binding-darwin-arm64",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "cpu": [
     "arm64"
   ],
