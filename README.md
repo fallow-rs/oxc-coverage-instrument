@@ -21,7 +21,7 @@ This crate fills that gap. AST-level instrumentation via `oxc_traverse` + `oxc_c
 
 ```toml
 [dependencies]
-oxc_coverage_instrument = "0.2"
+oxc_coverage_instrument = "0.3"
 ```
 
 ### Node.js
@@ -160,13 +160,13 @@ Benchmarked on real-world JavaScript libraries, all running in the same Node.js 
 
 | File | Size | oxc (napi) | babel-plugin-istanbul | swc-plugin (wasm) | istanbul-lib |
 |:-----|:-----|:-----------|:----------------------|:------------------|:-------------|
-| react.development.js | 107 KB | **1.9 ms** | 23.9 ms | 29.9 ms | 91.9 ms |
-| lodash.js | 531 KB | **7.3 ms** | 64.1 ms | 93.7 ms | 225.3 ms |
-| vue.global.js | 462 KB | **13.3 ms** | 123.7 ms | 206.3 ms | 565.9 ms |
-| d3.js | 573 KB | **23.7 ms** | 195.8 ms | 299.1 ms | 782.8 ms |
-| three.js | 1.2 MB | **31.4 ms** | 319.2 ms | 417.8 ms | 1109.3 ms |
+| react.development.js | 107 KB | **1.7 ms** | 18.1 ms | 25.5 ms | 51.1 ms |
+| lodash.js | 531 KB | **6.7 ms** | 56.4 ms | 83.5 ms | 164.7 ms |
+| vue.global.js | 462 KB | **12.3 ms** | 98.2 ms | 187.6 ms | 365.8 ms |
+| d3.js | 573 KB | **22.4 ms** | 173.5 ms | 271.1 ms | 576.1 ms |
+| three.js | 1.2 MB | **29.1 ms** | 270.2 ms | 378.2 ms | 875.7 ms |
 
-**8-13x** faster than babel-plugin-istanbul, **10-16x** faster than swc-plugin-coverage-instrument (Rust/WASM), **30-48x** faster than istanbul-lib-instrument.
+**8-11x** faster than babel-plugin-istanbul, **13-15x** faster than swc-plugin-coverage-instrument (Rust/WASM), **25-30x** faster than istanbul-lib-instrument.
 
 > **Note:** swc-plugin-coverage-instrument is written in Rust but runs as a WASM module inside SWC's sandbox, adding serialisation overhead at every AST boundary. The comparison measures end-to-end instrumentation time as users experience it.
 
