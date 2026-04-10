@@ -40,8 +40,29 @@ function createOxcInstrumenter(options) {
   const ignoreClassMethods = options.ignoreClassMethods || [];
   const reportLogic = options.reportLogic || false;
 
-  let _lastSourceMap = null;
+  // Raw JSON strings from the last instrument call — parsed lazily on first access.
+  let _lastCoverageMapJson = null;
+  let _lastSourceMapJson = null;
+  // Parsed objects — null until actually read via lastFileCoverage()/lastSourceMap().
   let _lastFileCoverage = null;
+  let _lastSourceMap = null;
+  // Dirty flags — set to true after each instrumentSync to invalidate cached parses.
+  let _coverageDirty = false;
+  let _sourceMapDirty = false;
+
+  function ensureCoverageParsed() {
+    if (_coverageDirty && _lastCoverageMapJson !== null) {
+      _lastFileCoverage = JSON.parse(_lastCoverageMapJson);
+      _coverageDirty = false;
+    }
+  }
+
+  function ensureSourceMapParsed() {
+    if (_sourceMapDirty && _lastSourceMapJson !== null) {
+      _lastSourceMap = JSON.parse(_lastSourceMapJson);
+      _sourceMapDirty = false;
+    }
+  }
 
   return {
     instrumentSync(code, filename, inputSourceMap) {
@@ -53,22 +74,30 @@ function createOxcInstrumenter(options) {
         ignoreClassMethods,
       });
 
-      _lastFileCoverage = JSON.parse(result.coverageMap);
-      _lastSourceMap = result.sourceMap ? JSON.parse(result.sourceMap) : null;
+      // Store raw JSON — defer parsing until actually needed.
+      _lastCoverageMapJson = result.coverageMap;
+      _lastSourceMapJson = result.sourceMap || null;
+      _coverageDirty = true;
+      _sourceMapDirty = true;
 
-      return result.code;
+      // result.code is a Buffer (zero-copy from Rust); convert to string for
+      // istanbul-lib-instrument compatibility (instrumentSync must return string).
+      return result.code.toString();
     },
 
     lastSourceMap() {
+      ensureSourceMapParsed();
       return _lastSourceMap;
     },
 
     lastFileCoverage() {
+      ensureCoverageParsed();
       return _lastFileCoverage;
     },
 
     // Property alias used by vite-plugin-istanbul (vs lastFileCoverage() method used by Vitest)
     get fileCoverage() {
+      ensureCoverageParsed();
       return _lastFileCoverage;
     },
   };
