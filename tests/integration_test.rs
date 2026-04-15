@@ -35,9 +35,9 @@ fn statement_return_throw_expression() {
     let result = instrument_js(
         "function f() { const x = 1; return x; }\nfunction g() { throw new Error(); }",
     );
-    // f: function decl stmt + const + return = 3 in f, g: function decl stmt + throw = 2 in g
-    // Plus the two function declaration statements themselves
-    assert!(result.coverage_map.statement_map.len() >= 4);
+    // Function declarations are not statements in Istanbul's model.
+    // f: const x = 1 + return x = 2, g: throw = 1. Total = 3.
+    assert_eq!(result.coverage_map.statement_map.len(), 3);
 }
 
 #[test]
@@ -932,11 +932,11 @@ fn gap_getter_setter_get_function_counter() {
 fn class_property_initializer_gets_statement() {
     let result = instrument_js("class Foo { x = 1; y = computeDefault(); }");
     let stmt_count = result.coverage_map.statement_map.len();
-    // 1 statement for the class declaration + 2 for the property initializers
-    assert!(
-        stmt_count >= 3,
-        "Class property initializers should get statement counters, got {} statements",
-        stmt_count
+    // Class declarations are containers, not statements. Only the two property
+    // initializers are counted.
+    assert_eq!(
+        stmt_count, 2,
+        "Class property initializers should get statement counters, got {stmt_count} statements",
     );
 }
 
@@ -944,11 +944,10 @@ fn class_property_initializer_gets_statement() {
 fn private_class_property_initializer_gets_statement() {
     let result = instrument_js("class Foo { #x = computeDefault(); }");
     let stmt_count = result.coverage_map.statement_map.len();
-    // 1 statement for the class declaration + 1 for the private property initializer
-    assert!(
-        stmt_count >= 2,
-        "Private class property initializers should get statement counters, got {} statements",
-        stmt_count
+    // Class declarations are containers. Only the private property initializer is counted.
+    assert_eq!(
+        stmt_count, 1,
+        "Private class property initializers should get statement counters, got {stmt_count} statements",
     );
 }
 
@@ -991,8 +990,8 @@ fn ignore_class_methods_still_instruments_body() {
         instrument("class App { render() { const x = 1; return x; } }", "test.js", &opts).unwrap();
     // No function counter for render, but body statements are still counted
     assert_eq!(result.coverage_map.fn_map.len(), 0);
-    // Class declaration + 2 body statements (const x = 1, return x)
-    assert!(result.coverage_map.statement_map.len() >= 3);
+    // Class declaration is a container; only body statements count: const x = 1, return x.
+    assert_eq!(result.coverage_map.statement_map.len(), 2);
 }
 
 #[test]
@@ -1119,21 +1118,20 @@ fn report_logic_nullish_coalescing() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn export_function_counter_is_hoisted() {
-    // Statement counter should be BEFORE the export, not wrapping the expression.
-    // This preserves function name inference by JS engines.
+fn export_function_has_no_statement_counter() {
+    // istanbul-lib-instrument doesn't emit a statement counter for a function
+    // declaration (exported or not). Only the function counter and the body
+    // statements are counted.
     let result = instrument_js("export function foo() { return 1; }");
-    // The counter should appear before "export" in the output
     let export_pos = result.code.find("export").unwrap();
-    let counter_pos = result.code.rfind("++").unwrap_or(0);
-    // There should be a counter before the export
     assert!(
-        result.code[..export_pos].contains("++"),
-        "Statement counter should be hoisted before export declaration"
+        !result.code[..export_pos].contains("++"),
+        "Export function declarations should not get a hoisted statement counter"
     );
-    // The function should still get a function counter
     assert_eq!(result.coverage_map.fn_map.len(), 1);
     assert_eq!(result.coverage_map.fn_map["0"].name, "foo");
+    // Exactly one statement: the return inside the body.
+    assert_eq!(result.coverage_map.statement_map.len(), 1);
 }
 
 #[test]
@@ -1146,6 +1144,49 @@ fn export_const_arrow_counter_is_hoisted() {
     );
     assert_eq!(result.coverage_map.fn_map.len(), 1);
     assert_eq!(result.coverage_map.fn_map["0"].name, "add");
+}
+
+/// Regression test: a module of simple function exports must produce the same
+/// statement and function counts that istanbul-lib-instrument does. The Vitest
+/// istanbul provider compares these directly in its `coverage-final.json`.
+/// Before this fix we emitted a separate statement counter for each exported
+/// `function` declaration, inflating statement coverage to 8/4 instead of 4/4.
+#[test]
+fn istanbul_parity_for_exported_function_module() {
+    // Source mirrors vitest/test/coverage-test/fixtures/src/math.ts.
+    let source = "export function sum(a, b) {\n  return a + b\n}\n\n\
+         export function subtract(a, b) {\n  return a - b\n}\n\n\
+         export function multiply(a, b) {\n  return a * b\n}\n\n\
+         export function remainder(a, b) {\n  return a % b\n}\n";
+    let result = instrument(source, "math.ts", &default_opts()).unwrap();
+
+    // istanbul-lib-instrument for the same source produces:
+    //   statements: 4 (one per `return` body)
+    //   functions:  4
+    //   branches:   0
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        4,
+        "expected 4 statement entries (one per return), got {}",
+        result.coverage_map.statement_map.len()
+    );
+    assert_eq!(result.coverage_map.fn_map.len(), 4);
+    assert_eq!(result.coverage_map.branch_map.len(), 0);
+
+    // Every statement span should point at a `return ...` inside a function body,
+    // not at the enclosing `export function ...` declaration.
+    for loc in result.coverage_map.statement_map.values() {
+        assert_eq!(loc.start.column, 2, "return-statement column should be 2, got {loc:?}");
+        assert_eq!(loc.end.column, 14, "return-statement end column should be 14, got {loc:?}");
+    }
+
+    // No hoisted statement counter should appear before an `export function`
+    // — that was the original bug.
+    let first_export = result.code.find("export").expect("instrumented code should still export");
+    assert!(
+        !result.code[..first_export].contains("++cov"),
+        "exported function declarations must not produce hoisted statement counters"
+    );
 }
 
 #[test]

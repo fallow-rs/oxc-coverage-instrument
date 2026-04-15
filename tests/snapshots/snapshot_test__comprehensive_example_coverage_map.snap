@@ -7,16 +7,6 @@ expression: result.coverage_map
   "statementMap": {
     "0": {
       "start": {
-        "line": 1,
-        "column": 0
-      },
-      "end": {
-        "line": 7,
-        "column": 1
-      }
-    },
-    "1": {
-      "start": {
         "line": 2,
         "column": 2
       },
@@ -25,7 +15,7 @@ expression: result.coverage_map
         "column": 3
       }
     },
-    "2": {
+    "1": {
       "start": {
         "line": 3,
         "column": 4
@@ -35,7 +25,7 @@ expression: result.coverage_map
         "column": 28
       }
     },
-    "3": {
+    "2": {
       "start": {
         "line": 5,
         "column": 4
@@ -45,7 +35,7 @@ expression: result.coverage_map
         "column": 29
       }
     },
-    "4": {
+    "3": {
       "start": {
         "line": 9,
         "column": 0
@@ -55,7 +45,7 @@ expression: result.coverage_map
         "column": 28
       }
     },
-    "5": {
+    "4": {
       "start": {
         "line": 9,
         "column": 22
@@ -65,17 +55,7 @@ expression: result.coverage_map
         "column": 27
       }
     },
-    "6": {
-      "start": {
-        "line": 11,
-        "column": 0
-      },
-      "end": {
-        "line": 15,
-        "column": 1
-      }
-    },
-    "7": {
+    "5": {
       "start": {
         "line": 13,
         "column": 4
@@ -85,7 +65,7 @@ expression: result.coverage_map
         "column": 31
       }
     },
-    "8": {
+    "6": {
       "start": {
         "line": 17,
         "column": 0
@@ -287,9 +267,7 @@ expression: result.coverage_map
     "3": 0,
     "4": 0,
     "5": 0,
-    "6": 0,
-    "7": 0,
-    "8": 0
+    "6": 0
   },
   "f": {
     "0": 0,

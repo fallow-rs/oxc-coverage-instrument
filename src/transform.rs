@@ -629,9 +629,46 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         let span = stmt.span();
-        // Skip blocks, empty statements, and injected nodes (which have SPAN = 0:0)
-        if matches!(stmt, Statement::BlockStatement(_) | Statement::EmptyStatement(_))
-            || (span.start == 0 && span.end == 0)
+        // Injected nodes have SPAN = 0:0 — never treat them as real statements.
+        if span.start == 0 && span.end == 0 {
+            return;
+        }
+        // istanbul-lib-instrument treats these variants as containers, not statements:
+        //   FunctionDeclaration / ClassDeclaration  — covered via function counters
+        //   Import / ExportAll / TS type-only decls — skipped entirely
+        //   BlockStatement / EmptyStatement         — never counted
+        // `export { ... }` (re-export, no inner declaration) is also skipped; but
+        // `export const/let/var x = ...` must still produce a hoisted statement
+        // counter for the declaration it wraps. `export function foo` / `export class`
+        // / `export default` do not produce a statement counter.
+        // See istanbul-lib-instrument's visitor.js wiring.
+        let export_wraps_var_decl = matches!(
+            stmt,
+            Statement::ExportNamedDeclaration(export_decl)
+                if matches!(
+                    export_decl.declaration.as_ref(),
+                    Some(Declaration::VariableDeclaration(_))
+                )
+        );
+        if !export_wraps_var_decl
+            && matches!(
+                stmt,
+                Statement::BlockStatement(_)
+                    | Statement::EmptyStatement(_)
+                    | Statement::FunctionDeclaration(_)
+                    | Statement::ClassDeclaration(_)
+                    | Statement::ImportDeclaration(_)
+                    | Statement::ExportNamedDeclaration(_)
+                    | Statement::ExportDefaultDeclaration(_)
+                    | Statement::ExportAllDeclaration(_)
+                    | Statement::TSTypeAliasDeclaration(_)
+                    | Statement::TSInterfaceDeclaration(_)
+                    | Statement::TSEnumDeclaration(_)
+                    | Statement::TSModuleDeclaration(_)
+                    | Statement::TSImportEqualsDeclaration(_)
+                    | Statement::TSExportAssignment(_)
+                    | Statement::TSNamespaceExportDeclaration(_)
+            )
         {
             return;
         }

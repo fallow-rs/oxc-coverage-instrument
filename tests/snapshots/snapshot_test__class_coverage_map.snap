@@ -1,21 +1,12 @@
 ---
 source: tests/snapshot_test.rs
+assertion_line: 48
 expression: result.coverage_map
 ---
 {
   "path": "test.js",
   "statementMap": {
     "0": {
-      "start": {
-        "line": 1,
-        "column": 0
-      },
-      "end": {
-        "line": 4,
-        "column": 1
-      }
-    },
-    "1": {
       "start": {
         "line": 2,
         "column": 14
@@ -25,7 +16,7 @@ expression: result.coverage_map
         "column": 27
       }
     },
-    "2": {
+    "1": {
       "start": {
         "line": 3,
         "column": 14
@@ -89,8 +80,7 @@ expression: result.coverage_map
   "branchMap": {},
   "s": {
     "0": 0,
-    "1": 0,
-    "2": 0
+    "1": 0
   },
   "f": {
     "0": 0,
