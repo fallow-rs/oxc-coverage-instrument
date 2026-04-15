@@ -154,6 +154,44 @@ fn conformance_statement_counts_match() {
     }
 }
 
+/// Pinned intentional divergence: oxc instruments the ES2021 logical-assignment
+/// operators (`??=`, `||=`, `&&=`) as `binary-expr` branches with two locations
+/// (left = always reached, right = conditional assignment). istanbul-lib-instrument
+/// has no `AssignmentExpression` visitor entry and emits zero branches for these.
+///
+/// This is a deliberate superset — the right side is a genuine short-circuit
+/// conditional that istanbul misses. See user-panel review 2026-04-15 and the
+/// "Differences from istanbul-lib-instrument" section of README.md.
+///
+/// This test exists to pin the divergence: if istanbul ever adds support and
+/// produces a different shape (count, type string), the symptom surfaces here
+/// rather than silently double-counting in real coverage runs.
+#[test]
+fn logical_assignment_is_intentional_branch_superset() {
+    // Istanbul's reference count for each operator, captured from
+    // istanbul-lib-instrument's visitor.js (no AssignmentExpression entry → 0).
+    const ISTANBUL_EXPECTED: usize = 0;
+    const OXC_EXPECTED: usize = 1;
+
+    for (op, source) in &[
+        ("??=", "function f(a, b) { a ??= b; }"),
+        ("||=", "function f(a, b) { a ||= b; }"),
+        ("&&=", "function f(a, b) { a &&= b; }"),
+    ] {
+        let result = instrument_js(source, &format!("logical-assignment-{op}.js"));
+        let branches = &result.coverage_map.branch_map;
+        assert_eq!(
+            branches.len(),
+            OXC_EXPECTED,
+            "oxc should emit {OXC_EXPECTED} branch for `{op}` (got {}); istanbul emits {ISTANBUL_EXPECTED}",
+            branches.len()
+        );
+        let entry = branches.values().next().unwrap();
+        assert_eq!(entry.branch_type, "binary-expr", "`{op}` branch type");
+        assert_eq!(entry.locations.len(), 2, "`{op}` branch should have 2 locations (left, right)");
+    }
+}
+
 /// Test that our output matches Istanbul's field set exactly.
 /// Istanbul v7 output: path, statementMap, fnMap, branchMap, s, f, b
 #[test]

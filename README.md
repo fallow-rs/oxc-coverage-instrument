@@ -150,9 +150,28 @@ Verified against `istanbul-lib-instrument` on 25 shared fixtures covering all br
 
 - Function counts and names match exactly
 - Branch counts, types, and location counts match exactly
-- Statement counts within tolerance
+- Statement counts match exactly
 - JSON structure matches Istanbul's field set
 - Instrumented output re-parses as valid JS
+
+Real-world verification: **1,061 TS/TSX/JS files** from a production React monorepo produce byte-for-byte identical statement, function, and branch counts to `istanbul-lib-instrument` (when both instrumenters receive the same Babel-transpiled input).
+
+## Differences from istanbul-lib-instrument
+
+One intentional divergence: **ES2021 logical-assignment operators are instrumented as branches.**
+
+`x ??= y`, `x ||= y`, and `x &&= y` each contain a genuine short-circuit conditional: the right-hand side is evaluated (and the assignment happens) only when the left operand matches the operator's polarity. `oxc-coverage-instrument` emits one `binary-expr` branch entry per logical-assignment with two locations (left = always reached, right = conditional). `istanbul-lib-instrument` has no `AssignmentExpression` visitor entry and emits zero branches for these operators.
+
+This is a deliberate superset, not a divergence bug. See the pinned conformance test in `tests/conformance_test.rs::logical_assignment_is_intentional_branch_superset`.
+
+**Migration from `@vitest/coverage-istanbul`:** a codebase that uses `??=`/`||=`/`&&=` heavily will see a higher branch-coverage denominator (and so a slightly lower branch %) after switching providers. To rebaseline CI thresholds after the swap:
+
+```bash
+vitest run --coverage --coverage.reporter=json-summary
+jq '.total.branches.pct' coverage/coverage-summary.json
+```
+
+This is additional coverage signal, not a regression. Every extra branch represents a real runtime decision path.
 
 ## Performance
 
