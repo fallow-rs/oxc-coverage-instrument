@@ -63,16 +63,26 @@ const dropLogicalAssignment = (cov, source) => {
   return { ...cov, branchMap, b };
 };
 
+// Intentional divergences that should NOT show up in the advisory diff.
+// Each one is tracked by an open issue; any *new* diff outside these
+// categories is a true regression and should fail review.
+//
+//   - fn-name inference: oxc uses the JS-runtime inferred name (`f` for
+//     `const f = function() {}`, `bar` for `class C { bar() {} }`);
+//     istanbul emits `(anonymous_N)`. oxc is more accurate. See issue #8.
+//
 // Normalize both maps into a canonical shape before diffing. Istanbul adds
 // `hash` and `_coverageSchema` fields which oxc doesn't emit, and its
 // top-level ordering may differ. We compare only the fields that both
-// instrumenters are contracted to populate.
+// instrumenters are contracted to populate, and zero out fields covered
+// by intentional-divergence filters.
 const normalize = (cov) => ({
   statementMap: cov.statementMap,
   fnMap: Object.fromEntries(
     Object.entries(cov.fnMap).map(([id, f]) => [
       id,
-      { name: f.name, line: f.line, decl: f.decl, loc: f.loc },
+      // Skip `name` — tracked as intentional divergence (issue #8).
+      { line: f.line, decl: f.decl, loc: f.loc },
     ])
   ),
   branchMap: Object.fromEntries(
@@ -90,7 +100,7 @@ const diffKeys = (a, b, path = '') => {
   const diffs = [];
   if (JSON.stringify(a) === JSON.stringify(b)) return diffs;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) {
-    diffs.push({ path, ist: a, oxc: b });
+    diffs.push({ path, istanbul: a, oxc: b });
     return diffs;
   }
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
@@ -122,7 +132,7 @@ for (const file of fixtures) {
   totalDiffs += diffs.length;
   console.log(`[DIFF] ${file} — ${diffs.length} leaf diff(s):`);
   for (const d of diffs.slice(0, 5)) {
-    console.log(`  ${d.path}: istanbul=${JSON.stringify(d.ist)} oxc=${JSON.stringify(d.oxc)}`);
+    console.log(`  ${d.path}: istanbul=${JSON.stringify(d.istanbul)} oxc=${JSON.stringify(d.oxc)}`);
   }
   if (diffs.length > 5) console.log(`  … and ${diffs.length - 5} more`);
 }

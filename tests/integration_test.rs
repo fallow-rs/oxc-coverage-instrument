@@ -1148,7 +1148,7 @@ fn export_const_arrow_gets_per_declarator_counter() {
 
 /// Regression test: every declaration-container variant that istanbul-lib-instrument
 /// skips must also be skipped by us. Covers the full skip list in
-/// `enter_statement` so a mis-mapped `Statement` variant would surface here.
+/// `enter_statement` so a wrongly-mapped `Statement` variant would surface here.
 #[test]
 fn declaration_containers_produce_no_statement_counters() {
     // Each input contains only container nodes (no executable statements). The
