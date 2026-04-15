@@ -404,18 +404,42 @@ fn collect_logical_leaves_inner(expr: &Expression, spans: &mut Vec<Span>) {
     }
 }
 
+struct LogicalWrapState<'b> {
+    cov_fn_name: &'b str,
+    branch_id: usize,
+    report_logic: bool,
+    path_idx: usize,
+}
+
+impl<'b> LogicalWrapState<'b> {
+    fn new(cov_fn_name: &'b str, branch_id: usize, report_logic: bool) -> Self {
+        Self { cov_fn_name, branch_id, report_logic, path_idx: 0 }
+    }
+
+    fn current_path_idx(&self) -> usize {
+        self.path_idx
+    }
+
+    fn advance_path(&mut self) {
+        self.path_idx += 1;
+    }
+}
+
 /// Wrap a single logical expression leaf with its branch counter.
 /// Without report_logic: `(cov().b[id][pathIdx]++, operand)`
 /// With report_logic: additionally wrapped with truthy tracking via a
 /// preamble helper function.
 fn wrap_expression_with_branch_counter<'a>(
     operand: &mut Expression<'a>,
-    cov_fn_name: &str,
-    branch_id: usize,
-    path_idx: usize,
+    state: &LogicalWrapState<'_>,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) {
-    let counter = build_branch_counter_expr(cov_fn_name, branch_id, path_idx, ctx);
+    let counter = build_branch_counter_expr(
+        state.cov_fn_name,
+        state.branch_id,
+        state.current_path_idx(),
+        ctx,
+    );
     let orig = mem::replace(operand, dummy_expr(ctx));
     let mut items = ctx.ast.vec();
     items.push(counter);
@@ -425,30 +449,27 @@ fn wrap_expression_with_branch_counter<'a>(
 
 fn wrap_logical_leaf<'a>(
     operand: &mut Expression<'a>,
-    cov_fn_name: &str,
-    branch_id: usize,
-    path_idx: usize,
-    report_logic: bool,
+    state: &mut LogicalWrapState<'_>,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) {
-    wrap_expression_with_branch_counter(operand, cov_fn_name, branch_id, path_idx, ctx);
+    wrap_expression_with_branch_counter(operand, state, ctx);
     let branch_wrapped = mem::replace(operand, dummy_expr(ctx));
 
-    if report_logic {
+    if state.report_logic {
         // Wrap with truthy tracking helper: cov_fn_bt(wrapped, branch_id, path_idx)
-        let bt_name = alloc_str(&format!("{cov_fn_name}_bt"), ctx);
+        let bt_name = alloc_str(&format!("{}_bt", state.cov_fn_name), ctx);
         let callee = ctx.ast.expression_identifier(SPAN, bt_name);
         let mut args = ctx.ast.vec();
         args.push(Argument::from(branch_wrapped));
         args.push(Argument::from(ctx.ast.expression_numeric_literal(
             SPAN,
-            branch_id as f64,
+            state.branch_id as f64,
             None,
             oxc_syntax::number::NumberBase::Decimal,
         )));
         args.push(Argument::from(ctx.ast.expression_numeric_literal(
             SPAN,
-            path_idx as f64,
+            state.current_path_idx() as f64,
             None,
             oxc_syntax::number::NumberBase::Decimal,
         )));
@@ -462,6 +483,7 @@ fn wrap_logical_leaf<'a>(
     } else {
         *operand = branch_wrapped;
     }
+    state.advance_path();
 }
 
 /// Recursively wrap each leaf operand in a chained logical expression with
@@ -469,40 +491,26 @@ fn wrap_logical_leaf<'a>(
 /// `ParenthesizedExpression` so `a && (b || c)` wraps all three leaves.
 fn wrap_logical_leaves<'a>(
     expr: &mut LogicalExpression<'a>,
-    cov_fn_name: &str,
-    branch_id: usize,
-    path_idx: &mut usize,
-    report_logic: bool,
+    state: &mut LogicalWrapState<'_>,
     ctx: &mut TraverseCtx<'a, CoverageState>,
 ) {
-    wrap_logical_operand(&mut expr.left, cov_fn_name, branch_id, path_idx, report_logic, ctx);
-    wrap_logical_operand(&mut expr.right, cov_fn_name, branch_id, path_idx, report_logic, ctx);
+    wrap_logical_operand(&mut expr.left, state, ctx);
+    wrap_logical_operand(&mut expr.right, state, ctx);
 }
 
 fn wrap_logical_operand<'a>(
     operand: &mut Expression<'a>,
-    cov_fn_name: &str,
-    branch_id: usize,
-    path_idx: &mut usize,
-    report_logic: bool,
+    state: &mut LogicalWrapState<'_>,
     ctx: &mut TraverseCtx<'a, CoverageState>,
 ) {
     // Unwrap parens transparently (matches Babel's AST shape).
     if let Expression::ParenthesizedExpression(paren) = operand {
-        return wrap_logical_operand(
-            &mut paren.expression,
-            cov_fn_name,
-            branch_id,
-            path_idx,
-            report_logic,
-            ctx,
-        );
+        return wrap_logical_operand(&mut paren.expression, state, ctx);
     }
     if let Expression::LogicalExpression(inner) = operand {
-        wrap_logical_leaves(inner, cov_fn_name, branch_id, path_idx, report_logic, ctx);
+        wrap_logical_leaves(inner, state, ctx);
     } else {
-        wrap_logical_leaf(operand, cov_fn_name, branch_id, *path_idx, report_logic, ctx);
-        *path_idx += 1;
+        wrap_logical_leaf(operand, state, ctx);
     }
 }
 
@@ -960,7 +968,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
 
                 // Wrap each leaf operand with its branch counter
                 let cov_fn = self.cov_fn_name.as_str();
-                wrap_logical_leaves(expr, cov_fn, branch_id, &mut 0, self.report_logic, ctx);
+                let mut state = LogicalWrapState::new(cov_fn, branch_id, self.report_logic);
+                wrap_logical_leaves(expr, &mut state, ctx);
             }
         }
     }
@@ -979,7 +988,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
             let init_span = init.span();
             let branch_id = self.add_branch("default-arg", param.span, &[init_span]);
             let cov_fn = self.cov_fn_name.as_str();
-            wrap_expression_with_branch_counter(init, cov_fn, branch_id, 0, ctx);
+            let state = LogicalWrapState::new(cov_fn, branch_id, false);
+            wrap_expression_with_branch_counter(init, &state, ctx);
         }
     }
 
@@ -993,7 +1003,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         let right_span = pattern.right.span();
         let branch_id = self.add_branch("default-arg", pattern.span, &[right_span]);
         let cov_fn = self.cov_fn_name.as_str();
-        wrap_expression_with_branch_counter(&mut pattern.right, cov_fn, branch_id, 0, ctx);
+        let state = LogicalWrapState::new(cov_fn, branch_id, false);
+        wrap_expression_with_branch_counter(&mut pattern.right, &state, ctx);
     }
 
     fn enter_assignment_expression(

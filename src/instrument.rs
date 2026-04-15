@@ -13,7 +13,7 @@ use crate::pragma::PragmaMap;
 use crate::transform::{
     CoverageState, CoverageTransform, generate_cov_fn_name, generate_preamble_source,
 };
-use crate::types::FileCoverage;
+use crate::types::{FileCoverage, UnhandledPragma};
 
 /// Options for the `instrument` function.
 #[derive(Debug, Clone)]
@@ -61,17 +61,6 @@ pub struct InstrumentResult {
     /// Contains `/* istanbul ignore ... */` and `/* v8 ignore ... */` comments
     /// that were not processed. Callers should decide whether to warn or error.
     pub unhandled_pragmas: Vec<UnhandledPragma>,
-}
-
-/// A coverage pragma comment that was found but not handled.
-#[derive(Debug, Clone)]
-pub struct UnhandledPragma {
-    /// The full comment text.
-    pub comment: String,
-    /// 1-based line number.
-    pub line: u32,
-    /// 0-based column.
-    pub column: u32,
 }
 
 /// Check whether a string is a valid JavaScript identifier (ASCII subset).

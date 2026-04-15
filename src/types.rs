@@ -7,6 +7,17 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// A coverage pragma comment that was found but not handled.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnhandledPragma {
+    /// The full comment text.
+    pub comment: String,
+    /// 1-based line number.
+    pub line: u32,
+    /// 0-based column.
+    pub column: u32,
+}
+
 /// Coverage data for a single file. Serializes to Istanbul's `coverage-final.json` format.
 ///
 /// The root `coverage-final.json` is a map of file paths to `FileCoverage` objects.

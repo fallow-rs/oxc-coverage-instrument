@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use oxc_ast::ast::{Comment, Program};
 
-use crate::instrument::UnhandledPragma;
+use crate::types::UnhandledPragma;
 
 /// Type of coverage ignore directive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -33,10 +33,8 @@ mod pragma;
 mod transform;
 mod types;
 
-pub use instrument::{
-    InstrumentError, InstrumentOptions, InstrumentResult, UnhandledPragma, instrument,
-};
-pub use types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
+pub use instrument::{InstrumentError, InstrumentOptions, InstrumentResult, instrument};
+pub use types::{BranchEntry, FileCoverage, FnEntry, Location, Position, UnhandledPragma};
 
 /// Parse a `coverage-final.json` string into a map of file paths to coverage data.
 ///
