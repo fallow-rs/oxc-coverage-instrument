@@ -1,6 +1,5 @@
 ---
 source: tests/snapshot_test.rs
-assertion_line: 33
 expression: result.coverage_map
 ---
 {
@@ -44,7 +43,7 @@ expression: result.coverage_map
       "decl": {
         "start": {
           "line": 1,
-          "column": 0
+          "column": 9
         },
         "end": {
           "line": 1,

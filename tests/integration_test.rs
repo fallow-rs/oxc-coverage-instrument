@@ -1186,6 +1186,30 @@ fn declaration_containers_produce_no_statement_counters() {
     }
 }
 
+/// Regression test for `fnMap[*].decl` parity with istanbul-lib-instrument.
+/// istanbul sets `decl` to the identifier span for named functions; prior to
+/// v0.3.5 we were setting it to the span from the `function` keyword through
+/// the identifier. Caught by the Vitest validator against v0.3.4.
+#[test]
+fn fn_decl_span_matches_istanbul() {
+    // `export function sum(a, b) { return a + b }` — istanbul emits decl
+    // column 16..19 (the identifier `sum`), matching `id.span`. Previously we
+    // emitted 7..19 (from the `function` keyword through the identifier).
+    let result = instrument_js("export function sum(a, b) { return a + b; }");
+    let f = &result.coverage_map.fn_map["0"];
+    assert_eq!(f.name, "sum");
+    assert_eq!(f.decl.start.line, 1);
+    assert_eq!(f.decl.start.column, 16, "decl.start should point at identifier, not `function` keyword");
+    assert_eq!(f.decl.end.column, 19);
+
+    // Anonymous function expression: istanbul uses a 1-char span at the start
+    // of the `function` keyword (where the name would go).
+    let result = instrument_js("const f = function(a) { return a; };");
+    let f = &result.coverage_map.fn_map["0"];
+    assert_eq!(f.decl.start.column, 10);
+    assert_eq!(f.decl.end.column, 11, "anon fn decl should be a 1-char marker");
+}
+
 /// Regression test: a module of simple function exports must produce the same
 /// statement and function counts that istanbul-lib-instrument does. The Vitest
 /// istanbul provider compares these directly in its `coverage-final.json`.

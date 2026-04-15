@@ -501,13 +501,16 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         }
 
         let name = self.resolve_function_name(func);
+        // `decl` should point at the identifier itself, matching istanbul-lib-instrument:
+        //   `function foo(…)`          → decl is the `foo` identifier span
+        //   `function(…)` (anonymous)  → decl is a zero-ish-width marker at the start of
+        //                                 `function`, which is where the name would go
         let decl_span = if let Some(id) = &func.id {
-            Span::new(func.span.start, id.span.end)
+            id.span
         } else {
-            // Anonymous function: span from keyword to body start.
-            // Works for both "function() {" and "async function() {".
-            let end = func.body.as_ref().map_or(func.span.start, |b| b.span.start);
-            Span::new(func.span.start, end)
+            // Anonymous: one-character span at the start of the `function` keyword.
+            // Matches istanbul's output for `const f = function(…) {…}` (decl = col 10–11).
+            Span::new(func.span.start, func.span.start + 1)
         };
         if let Some(body) = &func.body {
             let fn_id = self.add_function(name, decl_span, body.span);
