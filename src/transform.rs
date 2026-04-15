@@ -848,7 +848,13 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
     ) {
         let pragma = ctx.state.pragmas.get(stmt.span.start);
 
-        let consequent_span = stmt.consequent.span();
+        // istanbul-lib-instrument's `coverIfBranches` passes `n.loc` (the whole
+        // `IfStatement` span) as the consequent location, not the consequent
+        // block's narrower span. See istanbul-lib-instrument/src/visitor.js
+        // insertBranchCounter(path.get('consequent'), branch, n.loc). Match it
+        // so downstream reporters (html-reporter, sonar) highlight the same
+        // range in hover tooltips.
+        let consequent_span = stmt.span;
         let alternate_span = stmt
             .alternate
             .as_ref()

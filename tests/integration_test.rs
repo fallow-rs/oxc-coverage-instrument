@@ -1186,6 +1186,26 @@ fn declaration_containers_produce_no_statement_counters() {
     }
 }
 
+/// Regression test for if-branch `locations[0]` parity with istanbul (#9).
+/// istanbul passes `n.loc` (the whole IfStatement span) as the consequent
+/// location, not the consequent block's narrower span. Matches the
+/// range that html-reporter / sonar highlight in hover tooltips.
+#[test]
+fn if_branch_consequent_location_is_whole_if_span() {
+    // Source: `function f(x) { if (x > 0) { return 1; } else { return -1; } }`.
+    // The if-statement spans col 16 .. col 62. istanbul sets locations[0] to
+    // this whole span (not the consequent block's narrower span); we match it.
+    let result = instrument_js(
+        "function f(x) { if (x > 0) { return 1; } else { return -1; } }",
+    );
+    let b = &result.coverage_map.branch_map["0"];
+    assert_eq!(b.branch_type, "if");
+    assert_eq!(b.locations[0].start.column, 16);
+    assert_eq!(b.locations[0].end.column, 60);
+    // locations[1] narrows to the alternate block (starts at `else`).
+    assert!(b.locations[1].start.column >= 41, "locations[1] should start in the else region");
+}
+
 /// Regression test: class-method `decl` points at the method key's identifier
 /// span, not the parameter-list position. See issue #9. istanbul truncates to
 /// col 10-11 for `bar` (a bug); we emit the full identifier span col 10-13.

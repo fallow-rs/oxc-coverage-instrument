@@ -5,11 +5,8 @@
 [DIFF] 05-class-methods.js — 2 leaf diff(s):
   fnMap.0.decl.end.column: istanbul=3 oxc=5
   fnMap.1.decl.end.column: istanbul=3 oxc=5
-[DIFF] 06-if-else.js — 2 leaf diff(s):
-  branchMap.0.locations.0.start.column: istanbul=2 oxc=13
-  branchMap.0.locations.0.end.line: istanbul=6 oxc=4
-[DIFF] 07-if-no-else.js — 5 leaf diff(s):
-  branchMap.0.locations.0.start.column: istanbul=2 oxc=13
+[OK]   06-if-else.js
+[DIFF] 07-if-no-else.js — 4 leaf diff(s):
   branchMap.0.locations.1.start.line: istanbul=undefined oxc=4
   branchMap.0.locations.1.start.column: istanbul=undefined oxc=3
   branchMap.0.locations.1.end.line: istanbul=undefined oxc=4
@@ -20,11 +17,7 @@
 [OK]   11-logical-or.js
 [OK]   12-logical-chain.js
 [OK]   13-nullish-coalescing.js
-[DIFF] 14-nested-if.js — 4 leaf diff(s):
-  branchMap.0.locations.0.start.column: istanbul=2 oxc=13
-  branchMap.0.locations.0.end.line: istanbul=10 oxc=8
-  branchMap.1.locations.0.start.column: istanbul=4 oxc=15
-  branchMap.1.locations.0.end.line: istanbul=7 oxc=5
+[OK]   14-nested-if.js
 [OK]   15-multiple-functions.js
 [OK]   16-for-loop.js
 [OK]   17-for-of.js
@@ -32,13 +25,11 @@
 [OK]   19-do-while.js
 [OK]   20-default-params.js
 [OK]   21-try-catch.js
-[DIFF] 22-complex-mixed.js — 2 leaf diff(s):
-  branchMap.0.locations.0.start.column: istanbul=4 oxc=26
-  branchMap.0.locations.0.end.line: istanbul=9 oxc=6
+[OK]   22-complex-mixed.js
 [OK]   23-empty-function.js
 [OK]   24-nested-functions.js
 [OK]   25-variable-declarations.js
 
-FAIL: 5/25 fixtures diverge (15 leaf diffs).
+FAIL: 2/25 fixtures diverge (6 leaf diffs).
 If the divergence is intentional, add a targeted filter in scripts/istanbul-diff.mjs
 and document it in README § "Differences from istanbul-lib-instrument".
