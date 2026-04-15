@@ -1135,15 +1135,15 @@ fn export_function_has_no_statement_counter() {
 }
 
 #[test]
-fn export_const_arrow_counter_is_hoisted() {
+fn export_const_arrow_gets_per_declarator_counter() {
+    // istanbul-lib-instrument wraps the declarator init with a statement
+    // counter: `export const add = (++cov().s[N], (a, b) => …)`.
+    // The counter appears AFTER `export`, inline in the init expression.
     let result = instrument_js("export const add = (a, b) => a + b;");
-    let export_pos = result.code.find("export").unwrap();
-    assert!(
-        result.code[..export_pos].contains("++"),
-        "Statement counter should be hoisted before export const"
-    );
     assert_eq!(result.coverage_map.fn_map.len(), 1);
     assert_eq!(result.coverage_map.fn_map["0"].name, "add");
+    // Two statements: the declarator init wrapper and the arrow body's return.
+    assert_eq!(result.coverage_map.statement_map.len(), 2);
 }
 
 /// Regression test: every declaration-container variant that istanbul-lib-instrument

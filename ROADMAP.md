@@ -35,3 +35,10 @@ Correct instrumented output via AST mutation. Istanbul-conformant. Published to 
 
 - **fallow integration**: `fallow health --coverage coverage-final.json` ingests real per-function coverage
 - **Oxc org transfer**: if the Oxc project wants to host this (see [oxc#21108](https://github.com/oxc-project/oxc/issues/21108))
+
+## Deferred / conditional
+
+- **`bO` (branch-operator) channel — DEFERRED pending reporter.** Optional `reportOperators: true` flag emitting an extra `bO` map that preserves operator-to-leaf mapping for chained logical expressions. The flat `binary-expr` model in `branchMap` erases operator boundaries (you cannot tell from a report whether the inner `||` in `a && (b || c)` was ever exercised, only that b/c were evaluated). Implementation in Rust is cheap: one extra field on `CoverageTransform`, collected during the existing `collect_logical_leaf_spans` walk, no new AST mutations, no runtime cost in instrumented output. Proposed shape: `bO: BTreeMap<String, Vec<{ operator, leafIndices }>>` — pure static index overlay, counts stay in `b`, merge semantics trivially inherited.
+  - **Blocker:** no mainstream coverage reporter (codecov, Sonar, istanbul-reports HTML, Vitest UI) reads extra channels today. The existing `bT` channel (enabled via `reportLogic`) is barely consumed in the wild. Shipping `bO` alone would add a second orphan channel.
+  - **Unblocks when:** we (or someone) ship a companion reporter that visualizes operator-level coverage — either as a custom HTML reporter in this repo or as a patch upstream. Feature + reporter must land together.
+  - **Precedent:** see user-panel review 2026-04-15.

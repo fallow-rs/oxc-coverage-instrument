@@ -1,6 +1,5 @@
 ---
 source: tests/snapshot_test.rs
-assertion_line: 133
 expression: code_without_preamble(&result.code)
 ---
 function greet(name) {
@@ -16,12 +15,11 @@ function greet(name) {
 		return "Hello, stranger";
 	}
 }
-++cov_18ab365425().s[3];
-const double = (x) => {
+const double = (++cov_18ab365425().s[3], (x) => {
 	++cov_18ab365425().f[1];
 	++cov_18ab365425().s[4];
 	return x * 2;
-};
+});
 class Calculator {
 	divide(a, b) {
 		++cov_18ab365425().f[2];
@@ -29,5 +27,4 @@ class Calculator {
 		return b !== 0 ? (++cov_18ab365425().b[1][0], a / b) : (++cov_18ab365425().b[1][1], 0);
 	}
 }
-++cov_18ab365425().s[6];
-const result = (++cov_18ab365425().b[2][0], greet("world")) || (++cov_18ab365425().b[2][1], double(21));
+const result = (++cov_18ab365425().s[6], (++cov_18ab365425().b[2][0], greet("world")) || (++cov_18ab365425().b[2][1], double(21)));

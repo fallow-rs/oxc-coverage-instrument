@@ -44,6 +44,10 @@ pub struct CoverageTransform {
     pending_fn_counters: Vec<usize>,
     /// When true, skip instrumentation for the next node.
     skip_next: bool,
+    /// True while traversing a `VariableDeclaration` carrying an `ignore next`
+    /// pragma. Consumed by `enter_variable_declarator` to skip both the
+    /// per-declarator statement counter and any inner function counter.
+    skip_current_var_decl: bool,
     /// Coverage function name, cached to avoid cloning from state on every hook.
     cov_fn_name: String,
     /// When true, adds truthy-value tracking (`bT`) for logical expression operands.
@@ -98,6 +102,7 @@ impl CoverageTransform {
             pending_stmts: Vec::new(),
             pending_fn_counters: Vec::new(),
             skip_next: false,
+            skip_current_var_decl: false,
             cov_fn_name,
             report_logic,
             ignore_class_methods,
@@ -346,15 +351,28 @@ fn dummy_expr<'a>(ctx: &TraverseCtx<'a, CoverageState>) -> Expression<'a> {
     ctx.ast.expression_numeric_literal(SPAN, 0.0, None, oxc_syntax::number::NumberBase::Decimal)
 }
 
-/// Check if the parent of the current node is a logical expression.
-/// Used to detect chained logical expressions (e.g., `a && b || c`).
+/// Check if the nearest non-parenthesized ancestor is a logical expression.
+/// Oxc preserves `ParenthesizedExpression` nodes (Babel strips them), so to
+/// match istanbul-lib-instrument's chain flattening we must look through
+/// any wrapping parens when deciding if we are an inner logical operand.
 fn is_parent_logical(ctx: &TraverseCtx<'_, CoverageState>) -> bool {
     use oxc_traverse::Ancestor;
-    matches!(ctx.parent(), Ancestor::LogicalExpressionLeft(_) | Ancestor::LogicalExpressionRight(_))
+    for a in ctx.ancestors() {
+        match a {
+            Ancestor::ParenthesizedExpressionExpression(_) => {}
+            Ancestor::LogicalExpressionLeft(_) | Ancestor::LogicalExpressionRight(_) => {
+                return true;
+            }
+            _ => return false,
+        }
+    }
+    false
 }
 
 /// Collect all leaf operand spans from a chained logical expression.
-/// For `a && b || c`, returns spans of [a, b, c].
+/// For `a && b || c`, returns spans of [a, b, c]. Also flattens through
+/// `ParenthesizedExpression` nodes so `a && (b || c)` is treated as one
+/// three-leaf chain, matching istanbul-lib-instrument.
 fn collect_logical_leaf_spans(expr: &LogicalExpression) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_logical_leaves_inner(&expr.left, &mut spans);
@@ -363,6 +381,10 @@ fn collect_logical_leaf_spans(expr: &LogicalExpression) -> Vec<Span> {
 }
 
 fn collect_logical_leaves_inner(expr: &Expression, spans: &mut Vec<Span>) {
+    if let Expression::ParenthesizedExpression(paren) = expr {
+        collect_logical_leaves_inner(&paren.expression, spans);
+        return;
+    }
     if let Expression::LogicalExpression(logical) = expr {
         collect_logical_leaves_inner(&logical.left, spans);
         collect_logical_leaves_inner(&logical.right, spans);
@@ -421,7 +443,8 @@ fn wrap_logical_leaf<'a>(
 }
 
 /// Recursively wrap each leaf operand in a chained logical expression with
-/// its branch counter: `(cov().b[id][pathIdx]++, operand)`.
+/// its branch counter: `(cov().b[id][pathIdx]++, operand)`. Looks through
+/// `ParenthesizedExpression` so `a && (b || c)` wraps all three leaves.
 fn wrap_logical_leaves<'a>(
     expr: &mut LogicalExpression<'a>,
     cov_fn_name: &str,
@@ -430,19 +453,33 @@ fn wrap_logical_leaves<'a>(
     report_logic: bool,
     ctx: &mut TraverseCtx<'a, CoverageState>,
 ) {
-    // Process left side
-    if let Expression::LogicalExpression(inner) = &mut expr.left {
-        wrap_logical_leaves(inner, cov_fn_name, branch_id, path_idx, report_logic, ctx);
-    } else {
-        wrap_logical_leaf(&mut expr.left, cov_fn_name, branch_id, *path_idx, report_logic, ctx);
-        *path_idx += 1;
-    }
+    wrap_logical_operand(&mut expr.left, cov_fn_name, branch_id, path_idx, report_logic, ctx);
+    wrap_logical_operand(&mut expr.right, cov_fn_name, branch_id, path_idx, report_logic, ctx);
+}
 
-    // Process right side
-    if let Expression::LogicalExpression(inner) = &mut expr.right {
+fn wrap_logical_operand<'a>(
+    operand: &mut Expression<'a>,
+    cov_fn_name: &str,
+    branch_id: usize,
+    path_idx: &mut usize,
+    report_logic: bool,
+    ctx: &mut TraverseCtx<'a, CoverageState>,
+) {
+    // Unwrap parens transparently (matches Babel's AST shape).
+    if let Expression::ParenthesizedExpression(paren) = operand {
+        return wrap_logical_operand(
+            &mut paren.expression,
+            cov_fn_name,
+            branch_id,
+            path_idx,
+            report_logic,
+            ctx,
+        );
+    }
+    if let Expression::LogicalExpression(inner) = operand {
         wrap_logical_leaves(inner, cov_fn_name, branch_id, path_idx, report_logic, ctx);
     } else {
-        wrap_logical_leaf(&mut expr.right, cov_fn_name, branch_id, *path_idx, report_logic, ctx);
+        wrap_logical_leaf(operand, cov_fn_name, branch_id, *path_idx, report_logic, ctx);
         *path_idx += 1;
     }
 }
@@ -545,11 +582,47 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         }
     }
 
+    fn enter_variable_declaration(
+        &mut self,
+        decl: &mut VariableDeclaration<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        // Honor `/* istanbul ignore next */` attached to this declaration.
+        // `enter_statement` used to handle this for us, but variable declarations
+        // are now treated as containers (per-declarator counters), so pragmas
+        // must be consulted here instead.
+        if ctx.state.pragmas.get(decl.span.start) == Some(IgnoreType::Next) {
+            self.skip_current_var_decl = true;
+        }
+    }
+
+    fn exit_variable_declaration(
+        &mut self,
+        _decl: &mut VariableDeclaration<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.skip_current_var_decl = false;
+    }
+
     fn enter_variable_declarator(
         &mut self,
         decl: &mut VariableDeclarator<'a>,
-        _ctx: &mut TraverseCtx<'a, CoverageState>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
+        // If the enclosing declaration is ignored, skip both the statement
+        // counter wrap and any inner function counter. Set `skip_next` so the
+        // inner arrow/function hook consumes it.
+        if self.skip_current_var_decl {
+            if matches!(
+                decl.init,
+                Some(Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
+            ) {
+                self.skip_next = true;
+            }
+            return;
+        }
+
+        // Set inherited name for function/arrow init so coverFunction can use it.
         if let Some(id) = decl.id.get_binding_identifier()
             && decl.init.as_ref().is_some_and(|init| {
                 matches!(
@@ -560,6 +633,24 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         {
             self.pending_name = Some(id.name.to_string());
         }
+
+        // Per-declarator statement counter: wrap the init with (++cov().s[N], init).
+        // Mirrors istanbul-lib-instrument's coverVariableDeclarator, which calls
+        // insertStatementCounter on path.get('init'). Declarators without an init
+        // (`let x;`) produce no statement counter.
+        let Some(init) = decl.init.as_mut() else { return };
+        let init_span = init.span();
+        if init_span.start == 0 && init_span.end == 0 {
+            return;
+        }
+        let stmt_id = self.add_statement(init_span);
+        let cov_fn = self.cov_fn_name.as_str();
+        let counter = build_counter_expr(cov_fn, "s", stmt_id, ctx);
+        let orig = mem::replace(init, dummy_expr(ctx));
+        let mut items = ctx.ast.vec();
+        items.push(counter);
+        items.push(orig);
+        *init = ctx.ast.expression_sequence(SPAN, items);
     }
 
     fn exit_variable_declarator(
@@ -635,41 +726,30 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         }
         // istanbul-lib-instrument treats these variants as containers, not statements:
         //   FunctionDeclaration / ClassDeclaration  — covered via function counters
-        //   Import / ExportAll / TS type-only decls — skipped entirely
+        //   VariableDeclaration                     — covered per-declarator (see
+        //                                             enter_variable_declarator)
+        //   Import / Export* / TS type-only decls   — skipped entirely
         //   BlockStatement / EmptyStatement         — never counted
-        // `export { ... }` (re-export, no inner declaration) is also skipped; but
-        // `export const/let/var x = ...` must still produce a hoisted statement
-        // counter for the declaration it wraps. `export function foo` / `export class`
-        // / `export default` do not produce a statement counter.
         // See istanbul-lib-instrument's visitor.js wiring.
-        let export_wraps_var_decl = matches!(
+        if matches!(
             stmt,
-            Statement::ExportNamedDeclaration(export_decl)
-                if matches!(
-                    export_decl.declaration.as_ref(),
-                    Some(Declaration::VariableDeclaration(_))
-                )
-        );
-        if !export_wraps_var_decl
-            && matches!(
-                stmt,
-                Statement::BlockStatement(_)
-                    | Statement::EmptyStatement(_)
-                    | Statement::FunctionDeclaration(_)
-                    | Statement::ClassDeclaration(_)
-                    | Statement::ImportDeclaration(_)
-                    | Statement::ExportNamedDeclaration(_)
-                    | Statement::ExportDefaultDeclaration(_)
-                    | Statement::ExportAllDeclaration(_)
-                    | Statement::TSTypeAliasDeclaration(_)
-                    | Statement::TSInterfaceDeclaration(_)
-                    | Statement::TSEnumDeclaration(_)
-                    | Statement::TSModuleDeclaration(_)
-                    | Statement::TSImportEqualsDeclaration(_)
-                    | Statement::TSExportAssignment(_)
-                    | Statement::TSNamespaceExportDeclaration(_)
-            )
-        {
+            Statement::BlockStatement(_)
+                | Statement::EmptyStatement(_)
+                | Statement::FunctionDeclaration(_)
+                | Statement::ClassDeclaration(_)
+                | Statement::VariableDeclaration(_)
+                | Statement::ImportDeclaration(_)
+                | Statement::ExportNamedDeclaration(_)
+                | Statement::ExportDefaultDeclaration(_)
+                | Statement::ExportAllDeclaration(_)
+                | Statement::TSTypeAliasDeclaration(_)
+                | Statement::TSInterfaceDeclaration(_)
+                | Statement::TSEnumDeclaration(_)
+                | Statement::TSModuleDeclaration(_)
+                | Statement::TSImportEqualsDeclaration(_)
+                | Statement::TSExportAssignment(_)
+                | Statement::TSNamespaceExportDeclaration(_)
+        ) {
             return;
         }
         // Check for ignore next pragma

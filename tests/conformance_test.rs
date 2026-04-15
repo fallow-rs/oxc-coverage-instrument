@@ -141,23 +141,15 @@ fn conformance_branch_counts_superset() {
     }
 }
 
-/// Test that statement counts are reasonable.
-/// Our counts may differ from Istanbul because of different AST traversal
-/// strategies, but they should be in the same ballpark.
+/// Test that statement counts match Istanbul exactly.
 #[test]
-fn conformance_statement_counts_reasonable() {
+fn conformance_statement_counts_match() {
     for &(name, source, expected_stmts, _fns, _branches, _) in ISTANBUL_REFERENCE {
         let result = instrument_js(source, &format!("{name}.js"));
         let our_stmts = result.coverage_map.statement_map.len();
-
-        // Allow some variance — our statement counting may differ slightly
-        // due to different AST node classification
-        let min = expected_stmts.saturating_sub(2);
-        let max = expected_stmts + 3; // We may count a few more
-
-        assert!(
-            our_stmts >= min && our_stmts <= max,
-            "Statement count for '{name}' out of range: got {our_stmts}, Istanbul has {expected_stmts} (expected {min}..={max})"
+        assert_eq!(
+            our_stmts, expected_stmts,
+            "Statement count for '{name}' differs from Istanbul: got {our_stmts}, expected {expected_stmts}"
         );
     }
 }

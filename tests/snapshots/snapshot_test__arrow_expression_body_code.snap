@@ -2,9 +2,8 @@
 source: tests/snapshot_test.rs
 expression: code_without_preamble(&result.code)
 ---
-++cov_18ab365425().s[0];
-const double = (x) => {
+const double = (++cov_18ab365425().s[0], (x) => {
 	++cov_18ab365425().f[0];
 	++cov_18ab365425().s[1];
 	return x * 2;
-};
+});

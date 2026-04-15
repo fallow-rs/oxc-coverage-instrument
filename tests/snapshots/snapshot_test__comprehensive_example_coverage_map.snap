@@ -38,11 +38,11 @@ expression: result.coverage_map
     "3": {
       "start": {
         "line": 9,
-        "column": 0
+        "column": 15
       },
       "end": {
         "line": 9,
-        "column": 28
+        "column": 27
       }
     },
     "4": {
@@ -68,11 +68,11 @@ expression: result.coverage_map
     "6": {
       "start": {
         "line": 17,
-        "column": 0
+        "column": 15
       },
       "end": {
         "line": 17,
-        "column": 44
+        "column": 43
       }
     }
   },

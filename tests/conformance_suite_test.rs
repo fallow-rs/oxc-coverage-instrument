@@ -162,23 +162,16 @@ macro_rules! conformance_test {
             }
 
             #[test]
-            fn statement_count_reasonable() {
+            fn statement_count_matches_istanbul() {
                 let reference = load_reference(concat!($fixture));
                 let result = instrument_fixture(concat!($fixture, ".js"));
-                let our_stmts = result.coverage_map.statement_map.len();
-                let istanbul_stmts = reference.statements;
-
-                // Allow ±3 difference due to AST traversal strategy differences
-                let min = istanbul_stmts.saturating_sub(3);
-                let max = istanbul_stmts + 3;
-                assert!(
-                    our_stmts >= min && our_stmts <= max,
-                    "{}: statement count out of range (ours={}, istanbul={}, allowed={}..={})",
+                assert_eq!(
+                    result.coverage_map.statement_map.len(),
+                    reference.statements,
+                    "{}: statement count mismatch (ours={}, istanbul={})",
                     $fixture,
-                    our_stmts,
-                    istanbul_stmts,
-                    min,
-                    max
+                    result.coverage_map.statement_map.len(),
+                    reference.statements
                 );
             }
 
