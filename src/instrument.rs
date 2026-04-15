@@ -84,6 +84,14 @@ fn is_valid_js_identifier(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
+fn stable_hex_hash(input: &str) -> String {
+    let mut hash: u64 = 0;
+    for byte in input.bytes() {
+        hash = hash.wrapping_mul(31).wrapping_add(u64::from(byte));
+    }
+    format!("{hash:x}")
+}
+
 /// Instrument a JavaScript/TypeScript source file for coverage collection.
 ///
 /// Parses the source with `oxc_parser`, collects statement/function/branch
@@ -178,9 +186,17 @@ pub fn instrument(
         coverage_map.input_source_map = serde_json::from_str(input_sm).ok();
     }
 
+    // Refresh stale coverage objects when the same path is reinstrumented with a
+    // different shape in the same runtime. Istanbul does this with a hash guard.
+    let coverage_hash = stable_hex_hash(
+        &serde_json::to_string(&coverage_map)
+            .map_err(|e| InstrumentError::SerializationError(e.to_string()))?,
+    );
+
     // Phase 2: Generate preamble source and prepend to program
     let preamble = generate_preamble_source(
         &coverage_map,
+        &coverage_hash,
         &options.coverage_variable,
         &cov_fn_name,
         options.report_logic,

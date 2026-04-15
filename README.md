@@ -33,7 +33,7 @@ npm install oxc-coverage-instrument
 ### CLI
 
 ```bash
-cargo install oxc-coverage-instrument-cli
+cargo install --git https://github.com/fallow-rs/oxc-coverage-instrument oxc-coverage-instrument-cli
 ```
 
 ## Usage

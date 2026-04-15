@@ -307,6 +307,7 @@ fn build_branch_counter_stmt<'a>(
 /// This matches the approach used by istanbul-lib-instrument.
 pub fn generate_preamble_source(
     coverage: &FileCoverage,
+    coverage_hash: &str,
     coverage_var: &str,
     cov_fn_name: &str,
     report_logic: bool,
@@ -318,11 +319,13 @@ pub fn generate_preamble_source(
     let mut buf = String::with_capacity(estimated_size);
     let _ = write!(buf, "var {cov_fn_name} = (function () {{ var path = ");
     buf.push_str(&serde_json::to_string(&coverage.path)?);
+    let _ = write!(buf, "; var hash = ");
+    buf.push_str(&serde_json::to_string(coverage_hash)?);
     let _ = write!(buf, "; var gcv = '{coverage_var}'; var coverageData = ");
     buf.push_str(&serde_json::to_string(coverage)?);
     let _ = writeln!(
         buf,
-        "; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path]) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }});"
+        "; coverageData.hash = hash; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path] || coverage[gcv][path].hash !== hash) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }});"
     );
     if report_logic {
         // Declare temp variable and truthy tracking helper function.
@@ -405,6 +408,21 @@ fn collect_logical_leaves_inner(expr: &Expression, spans: &mut Vec<Span>) {
 /// Without report_logic: `(cov().b[id][pathIdx]++, operand)`
 /// With report_logic: additionally wrapped with truthy tracking via a
 /// preamble helper function.
+fn wrap_expression_with_branch_counter<'a>(
+    operand: &mut Expression<'a>,
+    cov_fn_name: &str,
+    branch_id: usize,
+    path_idx: usize,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) {
+    let counter = build_branch_counter_expr(cov_fn_name, branch_id, path_idx, ctx);
+    let orig = mem::replace(operand, dummy_expr(ctx));
+    let mut items = ctx.ast.vec();
+    items.push(counter);
+    items.push(orig);
+    *operand = ctx.ast.expression_sequence(SPAN, items);
+}
+
 fn wrap_logical_leaf<'a>(
     operand: &mut Expression<'a>,
     cov_fn_name: &str,
@@ -413,12 +431,8 @@ fn wrap_logical_leaf<'a>(
     report_logic: bool,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) {
-    let counter = build_branch_counter_expr(cov_fn_name, branch_id, path_idx, ctx);
-    let orig = mem::replace(operand, dummy_expr(ctx));
-    let mut items = ctx.ast.vec();
-    items.push(counter);
-    items.push(orig);
-    let branch_wrapped = ctx.ast.expression_sequence(SPAN, items);
+    wrap_expression_with_branch_counter(operand, cov_fn_name, branch_id, path_idx, ctx);
+    let branch_wrapped = mem::replace(operand, dummy_expr(ctx));
 
     if report_logic {
         // Wrap with truthy tracking helper: cov_fn_bt(wrapped, branch_id, path_idx)
@@ -957,25 +971,29 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
     fn enter_formal_parameter(
         &mut self,
         param: &mut FormalParameter<'a>,
-        _ctx: &mut TraverseCtx<'a, CoverageState>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         // Default parameter values: function f(x = 1) { }
         // Istanbul creates a 'default-arg' branch with 1 location for the default expression.
-        if let Some(init) = &param.initializer {
+        if let Some(init) = &mut param.initializer {
             let init_span = init.span();
-            self.add_branch("default-arg", param.span, &[init_span]);
+            let branch_id = self.add_branch("default-arg", param.span, &[init_span]);
+            let cov_fn = self.cov_fn_name.as_str();
+            wrap_expression_with_branch_counter(init, cov_fn, branch_id, 0, ctx);
         }
     }
 
     fn enter_assignment_pattern(
         &mut self,
         pattern: &mut AssignmentPattern<'a>,
-        _ctx: &mut TraverseCtx<'a, CoverageState>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         // Destructuring defaults: const { x = 1 } = obj;
         // Istanbul also creates 'default-arg' for these.
         let right_span = pattern.right.span();
-        self.add_branch("default-arg", pattern.span, &[right_span]);
+        let branch_id = self.add_branch("default-arg", pattern.span, &[right_span]);
+        let cov_fn = self.cov_fn_name.as_str();
+        wrap_expression_with_branch_counter(&mut pattern.right, cov_fn, branch_id, 0, ctx);
     }
 
     fn enter_assignment_expression(

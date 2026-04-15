@@ -86,4 +86,26 @@ console.log('Testing oxc-coverage-instrument napi bindings...\n');
   console.log('  [PASS] Istanbul format compliance');
 }
 
+// Test 8: Default-arg branches increment at runtime
+{
+  const result = instrument('function f(x = 1) { return x; }\nconst obj = {};\nconst { y = 2 } = obj;\nf();', 'default-arg.js');
+  const context = { globalThis: {} };
+  const runner = new Function('globalThis', `${result.code}\nreturn globalThis.__coverage__;`);
+  const coverage = runner(context.globalThis);
+  assert.equal(coverage['default-arg.js'].b['0'][0], 1, 'Default parameter should hit branch counter');
+  assert.equal(coverage['default-arg.js'].b['1'][0], 1, 'Destructuring default should hit branch counter');
+  console.log('  [PASS] Default-arg runtime branch counters');
+}
+
+// Test 9: Same path with changed shape refreshes stale coverage data
+{
+  const first = instrument('function f() { return 1; }\nf();', 'same.js');
+  const second = instrument('function f() { if (true) { return 1; } return 0; }\nf();', 'same.js');
+  const sharedGlobal = {};
+  new Function('globalThis', first.code)(sharedGlobal);
+  new Function('globalThis', second.code)(sharedGlobal);
+  assert.ok(sharedGlobal.__coverage__['same.js'].b['0'], 'Updated instrumentation should refresh branch data for the same path');
+  console.log('  [PASS] Stale coverage refresh by hash');
+}
+
 console.log('\nAll tests passed!');

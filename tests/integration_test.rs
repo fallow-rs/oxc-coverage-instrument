@@ -695,6 +695,19 @@ fn destructuring_default_creates_branch() {
     let default_count =
         result.coverage_map.branch_map.values().filter(|b| b.branch_type == "default-arg").count();
     assert_eq!(default_count, 2);
+    assert!(
+        result.code.contains(".b[0][0]") && result.code.contains(".b[1][0]"),
+        "Destructuring defaults must increment branch counters at runtime"
+    );
+}
+
+#[test]
+fn default_parameter_wraps_initializer_with_branch_counter() {
+    let result = instrument_js("function f(x = 1) { return x; }");
+    assert!(
+        result.code.contains(".b[0][0]"),
+        "Default parameter initializer must increment branch counter at runtime"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -897,6 +910,15 @@ fn source_map_with_invalid_input_still_works() {
     let result = instrument("function f() { return 1; }", "test.js", &opts).unwrap();
     // Should still produce a source map (just not composed)
     assert!(result.source_map.is_some());
+}
+
+#[test]
+fn preamble_refreshes_stale_coverage_by_hash() {
+    let first = instrument_js("function f() { return 1; }");
+    let second = instrument_js("function f() { if (true) { return 1; } return 0; }");
+
+    assert!(first.code.contains("coverageData.hash = hash;"));
+    assert!(second.code.contains("coverage[gcv][path].hash !== hash"));
 }
 
 // ---------------------------------------------------------------------------
