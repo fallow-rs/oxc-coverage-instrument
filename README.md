@@ -156,9 +156,11 @@ Verified against `istanbul-lib-instrument` on 25 shared fixtures covering all br
 
 Real-world verification: **1,061 TS/TSX/JS files** from a production React monorepo produce byte-for-byte identical statement, function, and branch counts to `istanbul-lib-instrument` (when both instrumenters receive the same Babel-transpiled input).
 
+Independently validated against the Vitest test suite: from v0.3.5 onward, `coverage-final.json` for the Vitest `math.ts` fixture is byte-for-byte identical to `@vitest/coverage-istanbul`'s output — including `statementMap`, `fnMap` (with `decl` spans), `branchMap`, and all counter arrays.
+
 ## Differences from istanbul-lib-instrument
 
-One intentional divergence: **ES2021 logical-assignment operators are instrumented as branches.**
+Only one intentional divergence remains: **ES2021 logical-assignment operators are instrumented as branches.**
 
 `x ??= y`, `x ||= y`, and `x &&= y` each contain a genuine short-circuit conditional: the right-hand side is evaluated (and the assignment happens) only when the left operand matches the operator's polarity. `oxc-coverage-instrument` emits one `binary-expr` branch entry per logical-assignment with two locations (left = always reached, right = conditional). `istanbul-lib-instrument` has no `AssignmentExpression` visitor entry and emits zero branches for these operators.
 

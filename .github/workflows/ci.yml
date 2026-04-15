@@ -116,3 +116,39 @@ jobs:
       - name: Run napi tests
         working-directory: napi
         run: node test.mjs
+
+  istanbul-diff:
+    # Advisory byte-for-byte diff against istanbul-lib-instrument on the 25
+    # shared conformance fixtures. Intentional divergences (e.g. ??= branches,
+    # inferred fn-names over istanbul's (anonymous_N)) surface here as diffs;
+    # that's expected and does NOT fail the build. Blocking structural checks
+    # live in the Rust conformance_suite_test.rs. This job's value is surfacing
+    # span-level micro-regressions (like the v0.3.4 fnMap.decl column slip) in
+    # PR logs before they ship.
+    name: Istanbul byte diff (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install napi deps (brings in istanbul-lib-instrument devDep)
+        working-directory: napi
+        run: npm ci || npm install
+      - name: Build napi binding
+        working-directory: napi
+        run: npx napi build --platform
+      - name: Run istanbul diff
+        run: node scripts/istanbul-diff.mjs | tee istanbul-diff.log
+      - name: Upload diff log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: istanbul-diff-log
+          path: istanbul-diff.log
+          if-no-files-found: warn

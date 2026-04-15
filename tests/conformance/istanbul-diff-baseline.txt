@@ -1,0 +1,54 @@
+[OK]   01-function-declaration.js
+[DIFF] 02-function-expression.js — 1 leaf diff(s):
+  fnMap.0.name: istanbul="(anonymous_0)" oxc="f"
+[DIFF] 03-arrow-expression.js — 1 leaf diff(s):
+  fnMap.0.name: istanbul="(anonymous_0)" oxc="f"
+[DIFF] 04-arrow-block.js — 1 leaf diff(s):
+  fnMap.0.name: istanbul="(anonymous_0)" oxc="f"
+[DIFF] 05-class-methods.js — 6 leaf diff(s):
+  fnMap.0.name: istanbul="(anonymous_0)" oxc="bar"
+  fnMap.0.decl.start.column: istanbul=2 oxc=5
+  fnMap.0.decl.end.column: istanbul=3 oxc=6
+  fnMap.1.name: istanbul="(anonymous_1)" oxc="baz"
+  fnMap.1.decl.start.column: istanbul=2 oxc=5
+  … and 1 more
+[DIFF] 06-if-else.js — 2 leaf diff(s):
+  branchMap.0.locations.0.start.column: istanbul=2 oxc=13
+  branchMap.0.locations.0.end.line: istanbul=6 oxc=4
+[DIFF] 07-if-no-else.js — 5 leaf diff(s):
+  branchMap.0.locations.0.start.column: istanbul=2 oxc=13
+  branchMap.0.locations.1.start.line: istanbul=undefined oxc=4
+  branchMap.0.locations.1.start.column: istanbul=undefined oxc=3
+  branchMap.0.locations.1.end.line: istanbul=undefined oxc=4
+  branchMap.0.locations.1.end.column: istanbul=undefined oxc=3
+[OK]   08-ternary.js
+[OK]   09-switch-cases.js
+[OK]   10-logical-and.js
+[OK]   11-logical-or.js
+[OK]   12-logical-chain.js
+[OK]   13-nullish-coalescing.js
+[DIFF] 14-nested-if.js — 4 leaf diff(s):
+  branchMap.0.locations.0.start.column: istanbul=2 oxc=13
+  branchMap.0.locations.0.end.line: istanbul=10 oxc=8
+  branchMap.1.locations.0.start.column: istanbul=4 oxc=15
+  branchMap.1.locations.0.end.line: istanbul=7 oxc=5
+[DIFF] 15-multiple-functions.js — 3 leaf diff(s):
+  fnMap.1.name: istanbul="(anonymous_1)" oxc="expr"
+  fnMap.2.name: istanbul="(anonymous_2)" oxc="arrowExpr"
+  fnMap.3.name: istanbul="(anonymous_3)" oxc="arrowBlock"
+[OK]   16-for-loop.js
+[OK]   17-for-of.js
+[OK]   18-while-loop.js
+[OK]   19-do-while.js
+[OK]   20-default-params.js
+[OK]   21-try-catch.js
+[DIFF] 22-complex-mixed.js — 2 leaf diff(s):
+  branchMap.0.locations.0.start.column: istanbul=4 oxc=26
+  branchMap.0.locations.0.end.line: istanbul=9 oxc=6
+[OK]   23-empty-function.js
+[OK]   24-nested-functions.js
+[OK]   25-variable-declarations.js
+
+FAIL: 9/25 fixtures diverge (25 leaf diffs).
+If the divergence is intentional, add a targeted filter in scripts/istanbul-diff.mjs
+and document it in README § "Differences from istanbul-lib-instrument".
