@@ -1146,6 +1146,46 @@ fn export_const_arrow_counter_is_hoisted() {
     assert_eq!(result.coverage_map.fn_map["0"].name, "add");
 }
 
+/// Regression test: every declaration-container variant that istanbul-lib-instrument
+/// skips must also be skipped by us. Covers the full skip list in
+/// `enter_statement` so a mis-mapped `Statement` variant would surface here.
+#[test]
+fn declaration_containers_produce_no_statement_counters() {
+    // Each input contains only container nodes (no executable statements). The
+    // coverage map should contain zero statements. Functions and classes still
+    // produce function counters, but no statement counters.
+    let cases: &[(&str, &str, usize)] = &[
+        ("bare_function", "function foo() {}", 1),
+        ("bare_class", "class C {}", 0),
+        ("export_function", "export function foo() {}", 1),
+        ("export_class", "export class C {}", 0),
+        ("export_default_function", "export default function foo() {}", 1),
+        ("export_default_class", "export default class C {}", 0),
+        ("export_all", "export * from './x';", 0),
+        ("export_named_reexport", "export { x } from './x';", 0),
+        ("import_decl", "import x from './x';", 0),
+        ("ts_type_alias", "type X = number;", 0),
+        ("ts_interface", "interface I {}", 0),
+        ("ts_enum", "enum E { A, B }", 0),
+        ("ts_module", "declare module 'x' {}", 0),
+    ];
+    for (name, src, expected_fns) in cases {
+        let result = instrument(src, "test.ts", &default_opts())
+            .unwrap_or_else(|e| panic!("{name} failed to parse: {e}"));
+        assert_eq!(
+            result.coverage_map.statement_map.len(),
+            0,
+            "{name}: expected 0 statement entries for {src:?}, got {}",
+            result.coverage_map.statement_map.len()
+        );
+        assert_eq!(
+            result.coverage_map.fn_map.len(),
+            *expected_fns,
+            "{name}: function count mismatch for {src:?}",
+        );
+    }
+}
+
 /// Regression test: a module of simple function exports must produce the same
 /// statement and function counts that istanbul-lib-instrument does. The Vitest
 /// istanbul provider compares these directly in its `coverage-final.json`.
