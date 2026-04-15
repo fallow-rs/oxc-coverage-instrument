@@ -22,7 +22,7 @@ import { createOxcInstrumenter } from '../napi/vitest.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, '..', 'tests', 'conformance', 'fixtures');
 
-const ist = createInstrumenter({ esModules: true, produceSourceMap: false });
+const istanbul = createInstrumenter({ esModules: true, produceSourceMap: false });
 const oxc = createOxcInstrumenter({ coverageVariable: '__coverage__' });
 
 // istanbul does not instrument `??=` / `||=` / `&&=`; we do (documented superset).
@@ -107,8 +107,8 @@ let fixturesWithDiffs = 0;
 for (const file of fixtures) {
   const source = readFileSync(join(fixturesDir, file), 'utf8');
 
-  ist.instrumentSync(source, file);
-  const iCov = normalize(ist.lastFileCoverage());
+  istanbul.instrumentSync(source, file);
+  const iCov = normalize(istanbul.lastFileCoverage());
 
   oxc.instrumentSync(source, file);
   const oCov = normalize(dropLogicalAssignment(oxc.lastFileCoverage(), source));
