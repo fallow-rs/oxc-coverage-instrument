@@ -7,9 +7,38 @@ Thanks for your interest in contributing.
 ```bash
 git clone https://github.com/fallow-rs/oxc-coverage-instrument
 cd oxc-coverage-instrument
+git config core.hooksPath .githooks   # enable pre-push checks (see below)
 cargo build
 cargo test --workspace
 cargo run --example instrument
+```
+
+## Pre-push hook
+
+A versioned pre-push hook at `.githooks/pre-push` runs the fast CI checks (`cargo fmt --check`, `cargo clippy -D warnings`, `typos .`) before every push. It mirrors the CI jobs that block PR merges, so catching the failure locally saves a round-trip.
+
+**Enable once per clone:**
+
+```bash
+git config core.hooksPath .githooks
+```
+
+**Install `typos` (optional but recommended):**
+
+```bash
+cargo install typos-cli
+```
+
+**Opt-in extras:**
+
+```bash
+RUN_TESTS=1 git push   # also run `cargo test --workspace` (~5-10s)
+```
+
+**Bypass (use sparingly — prefer fixing the root cause):**
+
+```bash
+SKIP_PRE_PUSH=1 git push
 ```
 
 ## Development workflow
