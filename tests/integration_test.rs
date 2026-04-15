@@ -1199,7 +1199,10 @@ fn fn_decl_span_matches_istanbul() {
     let f = &result.coverage_map.fn_map["0"];
     assert_eq!(f.name, "sum");
     assert_eq!(f.decl.start.line, 1);
-    assert_eq!(f.decl.start.column, 16, "decl.start should point at identifier, not `function` keyword");
+    assert_eq!(
+        f.decl.start.column, 16,
+        "decl.start should point at identifier, not `function` keyword"
+    );
     assert_eq!(f.decl.end.column, 19);
 
     // Anonymous function expression: istanbul uses a 1-char span at the start
