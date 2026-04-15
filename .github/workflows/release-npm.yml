@@ -106,7 +106,15 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bindings-${{ matrix.target }}
-          path: napi/*.node
+          # `napi build` generates the JS/TS wrapper (index.js, index.d.ts) alongside
+          # the .node binary. The wrapper embeds the current package.json version and
+          # is identical across build targets, so including it here lets the publish
+          # job pick one up without running the build again. The wrapper files are
+          # gitignored (regenerated on every build) so they must travel via artifacts.
+          path: |
+            napi/*.node
+            napi/index.js
+            napi/index.d.ts
           if-no-files-found: error
 
   publish-crate:
@@ -156,6 +164,25 @@ jobs:
       - name: Move artifacts into npm dirs
         working-directory: napi
         run: npx napi artifacts --output-dir artifacts
+
+      - name: Restore JS/TS wrapper from build artifacts
+        # The JS/TS wrapper files (index.js, index.d.ts) are gitignored because
+        # `napi build` regenerates them. They ARE in every `bindings-*` artifact
+        # produced by the matrix build. Copy one pair back into napi/ so
+        # `npm publish` picks them up per the `files` field in package.json.
+        # Without this, the tarball ships without index.js and `require('./index.js')`
+        # in vitest.js fails at import time (see issue triggered after v0.3.1).
+        working-directory: napi
+        run: |
+          for dir in artifacts/bindings-*/; do
+            if [ -f "$dir/index.js" ] && [ -f "$dir/index.d.ts" ]; then
+              cp "$dir/index.js" index.js
+              cp "$dir/index.d.ts" index.d.ts
+              echo "Restored wrapper from $dir"
+              break
+            fi
+          done
+          test -f index.js && test -f index.d.ts
 
       - name: Update versions from tag
         working-directory: napi
