@@ -1195,9 +1195,7 @@ fn if_branch_consequent_location_is_whole_if_span() {
     // Source: `function f(x) { if (x > 0) { return 1; } else { return -1; } }`.
     // The if-statement spans col 16 .. col 62. istanbul sets locations[0] to
     // this whole span (not the consequent block's narrower span); we match it.
-    let result = instrument_js(
-        "function f(x) { if (x > 0) { return 1; } else { return -1; } }",
-    );
+    let result = instrument_js("function f(x) { if (x > 0) { return 1; } else { return -1; } }");
     let b = &result.coverage_map.branch_map["0"];
     assert_eq!(b.branch_type, "if");
     assert_eq!(b.locations[0].start.column, 16);
