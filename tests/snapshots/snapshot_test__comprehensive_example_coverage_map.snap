@@ -131,11 +131,11 @@ expression: result.coverage_map
       "decl": {
         "start": {
           "line": 12,
-          "column": 8
+          "column": 2
         },
         "end": {
           "line": 12,
-          "column": 9
+          "column": 8
         }
       },
       "loc": {

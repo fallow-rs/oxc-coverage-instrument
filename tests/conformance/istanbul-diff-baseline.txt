@@ -2,11 +2,9 @@
 [OK]   02-function-expression.js
 [OK]   03-arrow-expression.js
 [OK]   04-arrow-block.js
-[DIFF] 05-class-methods.js — 4 leaf diff(s):
-  fnMap.0.decl.start.column: istanbul=2 oxc=5
-  fnMap.0.decl.end.column: istanbul=3 oxc=6
-  fnMap.1.decl.start.column: istanbul=2 oxc=5
-  fnMap.1.decl.end.column: istanbul=3 oxc=6
+[DIFF] 05-class-methods.js — 2 leaf diff(s):
+  fnMap.0.decl.end.column: istanbul=3 oxc=5
+  fnMap.1.decl.end.column: istanbul=3 oxc=5
 [DIFF] 06-if-else.js — 2 leaf diff(s):
   branchMap.0.locations.0.start.column: istanbul=2 oxc=13
   branchMap.0.locations.0.end.line: istanbul=6 oxc=4
@@ -41,6 +39,6 @@
 [OK]   24-nested-functions.js
 [OK]   25-variable-declarations.js
 
-FAIL: 5/25 fixtures diverge (17 leaf diffs).
+FAIL: 5/25 fixtures diverge (15 leaf diffs).
 If the divergence is intentional, add a targeted filter in scripts/istanbul-diff.mjs
 and document it in README § "Differences from istanbul-lib-instrument".

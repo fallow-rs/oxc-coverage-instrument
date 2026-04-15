@@ -1186,6 +1186,25 @@ fn declaration_containers_produce_no_statement_counters() {
     }
 }
 
+/// Regression test: class-method `decl` points at the method key's identifier
+/// span, not the parameter-list position. See issue #9. istanbul truncates to
+/// col 10-11 for `bar` (a bug); we emit the full identifier span col 10-13.
+#[test]
+fn class_method_decl_is_identifier_span() {
+    let result = instrument_js("class C { bar(x) { return x; } }");
+    let f = &result.coverage_map.fn_map["0"];
+    assert_eq!(f.name, "bar");
+    assert_eq!(f.decl.start.column, 10);
+    assert_eq!(f.decl.end.column, 13, "decl should cover the full identifier `bar`");
+
+    // Static-string method key: span comes from the string literal.
+    let result = instrument_js("class C { \"my method\"() { return 1; } }");
+    let f = &result.coverage_map.fn_map["0"];
+    assert_eq!(f.name, "my method");
+    // "my method" literal with quotes is col 10-21; end must be strictly > start.
+    assert!(f.decl.end.column > f.decl.start.column);
+}
+
 /// Regression test for `fnMap[*].decl` parity with istanbul-lib-instrument.
 /// istanbul sets `decl` to the identifier span for named functions; prior to
 /// v0.3.5 we were setting it to the span from the `function` keyword through

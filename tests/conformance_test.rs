@@ -154,6 +154,46 @@ fn conformance_statement_counts_match() {
     }
 }
 
+/// Pinned intentional divergence: oxc uses the JS-runtime inferred name for
+/// anonymous function expressions and class methods, where istanbul-lib-instrument
+/// emits `(anonymous_N)`. Matches what `Function.prototype.name` actually holds
+/// at runtime — more useful for stack traces and HTML coverage reports.
+///
+/// See issue #8 and README § "Differences from istanbul-lib-instrument".
+/// The `scripts/istanbul-diff.mjs` advisory job filters `name` from its
+/// comparison to keep this superset from showing up as a "regression".
+#[test]
+fn fn_name_inference_is_intentional_superset() {
+    // const f = function() {…}  → oxc: "f", istanbul: "(anonymous_0)"
+    let result = instrument_js("const f = function(x) { return x; };", "t.js");
+    assert_eq!(result.coverage_map.fn_map["0"].name, "f");
+
+    // const arrowExpr = (x) => x  → oxc: "arrowExpr"
+    let result = instrument_js("const arrowExpr = (x) => x;", "t.js");
+    assert_eq!(result.coverage_map.fn_map["0"].name, "arrowExpr");
+
+    // class C { bar(x) {…} }  → oxc: "bar", istanbul: "(anonymous_0)"
+    let result = instrument_js("class C { bar(x) { return x; } }", "t.js");
+    assert_eq!(result.coverage_map.fn_map["0"].name, "bar");
+
+    // class C { [Symbol.iterator]() {…} } — truly computed, non-literal key:
+    // no static name to inherit, so the anonymous fallback kicks in.
+    let result = instrument_js("class C { [Symbol.iterator]() { return 1; } }", "t.js");
+    assert!(
+        result.coverage_map.fn_map["0"].name.starts_with("(anonymous_"),
+        "computed non-literal keys should fall back to (anonymous_N), got {}",
+        result.coverage_map.fn_map["0"].name
+    );
+
+    // Truly anonymous IIFE: no parent to inherit a name from.
+    let result = instrument_js("(function() { return 1; })();", "t.js");
+    assert!(
+        result.coverage_map.fn_map["0"].name.starts_with("(anonymous_"),
+        "bare anonymous fn should produce (anonymous_N), got {}",
+        result.coverage_map.fn_map["0"].name
+    );
+}
+
 /// Pinned intentional divergence: oxc instruments the ES2021 logical-assignment
 /// operators (`??=`, `||=`, `&&=`) as `binary-expr` branches with two locations
 /// (left = always reached, right = conditional assignment). istanbul-lib-instrument

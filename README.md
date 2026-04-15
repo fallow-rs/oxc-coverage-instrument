@@ -160,11 +160,26 @@ Independently validated against the Vitest test suite: from v0.3.5 onward, `cove
 
 ## Differences from istanbul-lib-instrument
 
-Only one intentional divergence remains: **ES2021 logical-assignment operators are instrumented as branches.**
+Two intentional divergences, both deliberate supersets of istanbul's behavior:
+
+### 1. ES2021 logical-assignment operators are instrumented as branches
 
 `x ??= y`, `x ||= y`, and `x &&= y` each contain a genuine short-circuit conditional: the right-hand side is evaluated (and the assignment happens) only when the left operand matches the operator's polarity. `oxc-coverage-instrument` emits one `binary-expr` branch entry per logical-assignment with two locations (left = always reached, right = conditional). `istanbul-lib-instrument` has no `AssignmentExpression` visitor entry and emits zero branches for these operators.
 
-This is a deliberate superset, not a divergence bug. See the pinned conformance test in `tests/conformance_test.rs::logical_assignment_is_intentional_branch_superset`.
+Pinned by `tests/conformance_test.rs::logical_assignment_is_intentional_branch_superset`.
+
+### 2. Inferred function names over `(anonymous_N)`
+
+For anonymous function expressions assigned to a variable or declared as a class method, `oxc-coverage-instrument` uses the name the JavaScript runtime actually assigns to `Function.prototype.name`:
+
+| Source | oxc `fnMap[].name` | istanbul `fnMap[].name` |
+|---|---|---|
+| `const f = function() {}` | `f` | `(anonymous_0)` |
+| `const g = () => 1` | `g` | `(anonymous_0)` |
+| `class C { bar() {} }` | `bar` | `(anonymous_0)` |
+| `(function() {})()` (IIFE) | `(anonymous_0)` | `(anonymous_0)` |
+
+Coverage reports and stack traces benefit from real names. Pinned by `tests/conformance_test.rs::fn_name_inference_is_intentional_superset`.
 
 **Migration from `@vitest/coverage-istanbul`:** a codebase that uses `??=`/`||=`/`&&=` heavily will see a higher branch-coverage denominator (and so a slightly lower branch %) after switching providers. To rebaseline CI thresholds after the swap:
 

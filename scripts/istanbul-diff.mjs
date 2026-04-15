@@ -63,13 +63,26 @@ const dropLogicalAssignment = (cov, source) => {
   return { ...cov, branchMap, b };
 };
 
-// Intentional divergences that should NOT show up in the advisory diff.
-// Each one is tracked by an open issue; any *new* diff outside these
-// categories is a true regression and should fail review.
+// Intentional divergences filtered from the diff (oxc more accurate than
+// istanbul here, and filtering prevents the diff from drowning in noise):
 //
 //   - fn-name inference: oxc uses the JS-runtime inferred name (`f` for
 //     `const f = function() {}`, `bar` for `class C { bar() {} }`);
-//     istanbul emits `(anonymous_N)`. oxc is more accurate. See issue #8.
+//     istanbul emits `(anonymous_N)`. Filtered by dropping `name` below.
+//     See issue #8.
+//
+// Intentional divergences LEFT IN the diff (oxc is correct, istanbul is
+// buggy, but filtering the entire decl field would mask real regressions
+// for named functions — accepted as documented known diffs in the baseline):
+//
+//   - class-method decl span: oxc uses the method key's identifier span
+//     (`bar` → col 10-13); istanbul truncates to the key's first char only
+//     (col 10-11). See issue #9.
+//
+//   - if-branch location spans: oxc's consequent location is the first inner
+//     statement span; istanbul's is the enclosing block span. Also oxc emits
+//     an implicit empty alternate location for if-no-else while istanbul
+//     omits it. See issue #10.
 //
 // Normalize both maps into a canonical shape before diffing. Istanbul adds
 // `hash` and `_coverageSchema` fields which oxc doesn't emit, and its

@@ -37,6 +37,13 @@ pub struct CoverageTransform {
     pub branch_map: BTreeMap<String, BranchEntry>,
     /// Name inherited from a parent node (variable declarator, method definition).
     pending_name: Option<String>,
+    /// `decl` span inherited from a class `MethodDefinition`. A method's inner
+    /// `Function` has no `id` of its own, so without this override
+    /// `enter_function` would fall back to the anonymous one-char marker at
+    /// the start of `function`. For methods that start with a parameter list
+    /// (e.g. `bar(x) {}`), `func.span.start` points at `(` — which is not a
+    /// meaningful `decl`. We carry the method key span down instead.
+    pending_method_decl: Option<Span>,
     /// Accumulated statements to inject before specific statements.
     pending_stmts: Vec<PendingInsertion>,
     /// Stack of pending function entry counters. Supports nested functions/arrows
@@ -99,6 +106,7 @@ impl CoverageTransform {
             statement_map: BTreeMap::new(),
             branch_map: BTreeMap::new(),
             pending_name: None,
+            pending_method_decl: None,
             pending_stmts: Vec::new(),
             pending_fn_counters: Vec::new(),
             skip_next: false,
@@ -502,11 +510,15 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
 
         let name = self.resolve_function_name(func);
         // `decl` should point at the identifier itself, matching istanbul-lib-instrument:
-        //   `function foo(…)`          → decl is the `foo` identifier span
-        //   `function(…)` (anonymous)  → decl is a zero-ish-width marker at the start of
-        //                                 `function`, which is where the name would go
+        //   `function foo(…)`               → decl is the `foo` identifier span
+        //   class methods `bar(…) {…}`      → decl is the method key span (set by
+        //                                      `enter_method_definition` before we get here)
+        //   `function(…)` (anonymous)       → decl is a zero-ish-width marker at the start of
+        //                                      `function`, which is where the name would go
         let decl_span = if let Some(id) = &func.id {
             id.span
+        } else if let Some(span) = self.pending_method_decl.take() {
+            span
         } else {
             // Anonymous: one-character span at the start of the `function` keyword.
             // Matches istanbul's output for `const f = function(…) {…}` (decl = col 10–11).
@@ -669,9 +681,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         method: &mut MethodDefinition<'a>,
         _ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        let name = match &method.key {
-            PropertyKey::StaticIdentifier(id) => id.name.to_string(),
-            PropertyKey::StringLiteral(s) => s.value.to_string(),
+        let (name, key_span) = match &method.key {
+            PropertyKey::StaticIdentifier(id) => (id.name.to_string(), id.span),
+            PropertyKey::StringLiteral(s) => (s.value.to_string(), s.span),
             _ => return,
         };
         if self.ignore_class_methods.contains(&name) {
@@ -679,6 +691,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
             return;
         }
         self.pending_name = Some(name);
+        // `decl` for a method is the method key's span (e.g. `bar` in
+        // `class C { bar(x) {} }`). Matches the rule we apply for named
+        // function declarations — see `fn_decl_span_matches_istanbul`.
+        self.pending_method_decl = Some(key_span);
     }
 
     fn exit_method_definition(
@@ -687,6 +703,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         _ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         self.pending_name = None;
+        self.pending_method_decl = None;
     }
 
     fn enter_property_definition(
