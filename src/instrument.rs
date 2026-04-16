@@ -253,7 +253,11 @@ fn compose_source_maps(
         builder.add_name(name);
     }
 
-    // For each token in the output map, look up in the input map
+    // For each token in the output map, look up in the input map.
+    // When the input map has no mapping for a given intermediate position, the
+    // composed map cannot reference an original source either — the output map's
+    // source/name ids index a different table. Emit a position-only token so the
+    // generated position still decodes, but don't claim a wrong original source.
     for token in output_sm.get_tokens() {
         let src_line = token.get_src_line();
         let src_col = token.get_src_col();
@@ -268,15 +272,7 @@ fn compose_source_maps(
                 original.get_name_id(),
             );
         } else {
-            // No mapping in input — keep the output mapping as-is
-            builder.add_token(
-                token.get_dst_line(),
-                token.get_dst_col(),
-                src_line,
-                src_col,
-                token.get_source_id(),
-                token.get_name_id(),
-            );
+            builder.add_token(token.get_dst_line(), token.get_dst_col(), 0, 0, None, None);
         }
     }
 

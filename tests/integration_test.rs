@@ -1325,3 +1325,140 @@ fn report_logic_json_roundtrip() {
     let parsed: oxc_coverage_instrument::FileCoverage = serde_json::from_str(&json).unwrap();
     assert!(parsed.b_t.is_some());
 }
+
+// ---------------------------------------------------------------------------
+// Non-ASCII column handling (Istanbul parity: UTF-16 code units, not bytes)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn non_ascii_columns_are_utf16_code_units() {
+    // `π` is 2 UTF-8 bytes but 1 UTF-16 code unit. Istanbul/Babel report columns
+    // as UTF-16 code units (JavaScript string indices), so the `1` init literal
+    // must be at column 10, not 11 (its UTF-8 byte position).
+    let result = instrument_js("const π = 1; const y = 2;");
+    let stmt0 = &result.coverage_map.statement_map["0"];
+    assert_eq!(stmt0.start.column, 10, "stmt 0 should start at UTF-16 col 10, got {stmt0:?}");
+    assert_eq!(stmt0.end.column, 11, "stmt 0 should end at UTF-16 col 11, got {stmt0:?}");
+    let stmt1 = &result.coverage_map.statement_map["1"];
+    assert_eq!(stmt1.start.column, 23, "stmt 1 should start at UTF-16 col 23, got {stmt1:?}");
+}
+
+#[test]
+fn emoji_columns_count_as_two_utf16_units() {
+    // `😀` is one code point outside the BMP: 4 UTF-8 bytes, 2 UTF-16 code units
+    // (one surrogate pair). Istanbul/Babel reflect the surrogate pair in columns.
+    // "const a = '😀'; const b = 2;"
+    //  c o n s t _ a _ = _ ' 😀😀 ' ;  _ c o n s t _ b _ = _ 2 ;
+    //  0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27
+    // VariableDeclarator.init `2` is at UTF-16 cols 26..27.
+    let result = instrument_js("const a = '😀'; const b = 2;");
+    let stmt1 = &result.coverage_map.statement_map["1"];
+    assert_eq!(stmt1.start.column, 26, "emoji should advance col by 2 UTF-16 units, got {stmt1:?}");
+    assert_eq!(stmt1.end.column, 27);
+}
+
+#[test]
+fn unhandled_pragma_column_is_utf16_code_units() {
+    // The unknown pragma's column must reflect UTF-16 code units so reporters
+    // highlight the correct span when the source contains non-ASCII.
+    let source = "const π = 1; /* istanbul ignore bogus */ const y = 2;";
+    let result = instrument(source, "test.js", &InstrumentOptions::default()).unwrap();
+    assert_eq!(result.unhandled_pragmas.len(), 1);
+    let pragma = &result.unhandled_pragmas[0];
+    assert_eq!(pragma.line, 1);
+    // "const π = 1; " is 13 UTF-16 code units; the `/` of the comment starts at col 13.
+    assert_eq!(pragma.column, 13, "pragma column should be UTF-16 code units, got {pragma:?}");
+}
+
+// ---------------------------------------------------------------------------
+// Pragma whitespace tolerance (Istanbul parity)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn pragma_ignore_next_does_not_leak_to_sibling_statement() {
+    // Regression: pragma on `return 1;` previously set `skip_next = true` which
+    // leaked out of the function body and skipped the following top-level `f();`,
+    // producing zero statements. Istanbul only skips the annotated statement.
+    let source = "function f() {\n  /* istanbul ignore next */\n  return 1;\n}\nf();";
+    let result = instrument_js(source);
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        1,
+        "only the annotated `return 1;` should be skipped; `f();` must still count"
+    );
+    // The remaining statement should be `f();` on line 5.
+    let stmt = result.coverage_map.statement_map.values().next().unwrap();
+    assert_eq!(stmt.start.line, 5);
+}
+
+#[test]
+fn pragma_ignore_next_three_sibling_statements() {
+    // Tighter regression: the pragma applies only to `a();` — `b();` and `c();`
+    // must both remain counted. Prior bug skipped `b();` because `skip_next`
+    // leaked past the annotated statement.
+    let source = "/* istanbul ignore next */\na();\nb();\nc();";
+    let result = instrument_js(source);
+    assert_eq!(result.coverage_map.statement_map.len(), 2);
+    let lines: Vec<u32> =
+        result.coverage_map.statement_map.values().map(|loc| loc.start.line).collect();
+    assert!(lines.contains(&3), "b(); on line 3 should count");
+    assert!(lines.contains(&4), "c(); on line 4 should count");
+}
+
+#[test]
+fn pragma_whitespace_tolerance_matches_canonical() {
+    // Istanbul accepts any ASCII whitespace between the tool name, `ignore`, and
+    // the kind keyword. Tab-between-tokens was previously treated as an unknown
+    // pragma by our parser; all variants must now behave identically to the
+    // canonical single-space form.
+    let canonical = "function f() {\n  /* istanbul ignore next */\n  return 1;\n}\nf();";
+    let reference = instrument_js(canonical);
+    let ref_stmts = reference.coverage_map.statement_map.len();
+    let ref_fns = reference.coverage_map.fn_map.len();
+    assert!(reference.unhandled_pragmas.is_empty());
+
+    let variants = [
+        "function f() {\n  /* istanbul\tignore next */\n  return 1;\n}\nf();",
+        "function f() {\n  /*   istanbul   ignore   next   */\n  return 1;\n}\nf();",
+        "function f() {\n  /* istanbul\n     ignore\n     next */\n  return 1;\n}\nf();",
+        "function f() {\n  /*\tistanbul\tignore\tnext\t*/\n  return 1;\n}\nf();",
+    ];
+    for src in variants {
+        let r = instrument_js(src);
+        assert_eq!(
+            r.coverage_map.statement_map.len(),
+            ref_stmts,
+            "variant should match canonical pragma behavior:\n{src}"
+        );
+        assert_eq!(r.coverage_map.fn_map.len(), ref_fns);
+        assert!(r.unhandled_pragmas.is_empty(), "variant should be recognized: {src}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Source map composition: partial input maps
+// ---------------------------------------------------------------------------
+
+#[test]
+fn source_map_composition_with_partial_input_map() {
+    // Input map only maps the first line; later mappings in the output map
+    // have no corresponding entry. The composed map must not misattribute those
+    // unmapped positions to the wrong original source — the fallback should
+    // emit a position-only token instead of reusing the output map's source id.
+    let opts = InstrumentOptions {
+        source_map: true,
+        input_source_map: Some(
+            r#"{"version":3,"sources":["original.ts"],"sourcesContent":["const x: number = 1;\nconst y: number = 2;"],"mappings":"AAAA"}"#.to_string(),
+        ),
+        ..InstrumentOptions::default()
+    };
+    let result = instrument("const x = 1;\nconst y = 2;", "test.js", &opts).unwrap();
+    let sm_json = result.source_map.as_ref().unwrap();
+    let sm: serde_json::Value = serde_json::from_str(sm_json).unwrap();
+    let sources = sm["sources"].as_array().unwrap();
+    // Composed map must reference the original source from the input map.
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].as_str(), Some("original.ts"));
+    // The composed map must still decode — mappings string should be non-empty.
+    assert!(sm["mappings"].as_str().is_some_and(|m| !m.is_empty()));
+}

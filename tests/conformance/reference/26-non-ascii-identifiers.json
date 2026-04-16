@@ -1,0 +1,128 @@
+{
+  "path": "26-non-ascii-identifiers.js",
+  "statements": 4,
+  "functions": 1,
+  "branches": 1,
+  "statementMap": {
+    "0": {
+      "start": {
+        "line": 2,
+        "column": 12
+      },
+      "end": {
+        "line": 2,
+        "column": 19
+      }
+    },
+    "1": {
+      "start": {
+        "line": 3,
+        "column": 19
+      },
+      "end": {
+        "line": 3,
+        "column": 28
+      }
+    },
+    "2": {
+      "start": {
+        "line": 4,
+        "column": 16
+      },
+      "end": {
+        "line": 4,
+        "column": 25
+      }
+    },
+    "3": {
+      "start": {
+        "line": 5,
+        "column": 2
+      },
+      "end": {
+        "line": 5,
+        "column": 39
+      }
+    }
+  },
+  "fnMap": {
+    "0": {
+      "name": "circleArea",
+      "line": 1,
+      "decl": {
+        "start": {
+          "line": 1,
+          "column": 9
+        },
+        "end": {
+          "line": 1,
+          "column": 19
+        }
+      },
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 23
+        },
+        "end": {
+          "line": 6,
+          "column": 1
+        }
+      }
+    }
+  },
+  "branchMap": {
+    "0": {
+      "type": "cond-expr",
+      "line": 5,
+      "loc": {
+        "start": {
+          "line": 5,
+          "column": 9
+        },
+        "end": {
+          "line": 5,
+          "column": 38
+        }
+      },
+      "locations": [
+        {
+          "start": {
+            "line": 5,
+            "column": 24
+          },
+          "end": {
+            "line": 5,
+            "column": 29
+          }
+        },
+        {
+          "start": {
+            "line": 5,
+            "column": 32
+          },
+          "end": {
+            "line": 5,
+            "column": 38
+          }
+        }
+      ],
+      "locationCount": 2
+    }
+  },
+  "s": {
+    "0": 0,
+    "1": 0,
+    "2": 0,
+    "3": 0
+  },
+  "f": {
+    "0": 0
+  },
+  "b": {
+    "0": [
+      0,
+      0
+    ]
+  }
+}

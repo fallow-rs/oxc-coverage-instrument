@@ -27,7 +27,8 @@ pub struct CoverageState {
 }
 
 /// Collects coverage metadata and injects counter expressions via AST mutation.
-pub struct CoverageTransform {
+pub struct CoverageTransform<'src> {
+    source: &'src str,
     line_offsets: Vec<u32>,
     fn_counter: usize,
     stmt_counter: usize,
@@ -80,9 +81,9 @@ enum CounterType {
     BranchLeft,
 }
 
-impl CoverageTransform {
+impl<'src> CoverageTransform<'src> {
     pub fn new(
-        source: &str,
+        source: &'src str,
         cov_fn_name: String,
         report_logic: bool,
         ignore_class_methods: Vec<String>,
@@ -98,6 +99,7 @@ impl CoverageTransform {
             .collect();
 
         Self {
+            source,
             line_offsets,
             fn_counter: 0,
             stmt_counter: 0,
@@ -127,8 +129,13 @@ impl CoverageTransform {
 
     fn offset_to_position(&self, offset: u32) -> Position {
         let line = self.line_offsets.partition_point(|&o| o <= offset).saturating_sub(1);
-        let col = offset - self.line_offsets[line];
-        Position { line: (line + 1) as u32, column: col }
+        let line_start = self.line_offsets[line] as usize;
+        let end = (offset as usize).min(self.source.len());
+        // Istanbul/Babel report columns as UTF-16 code units (JavaScript string indices),
+        // not UTF-8 bytes. Convert by walking chars from line start to the offset.
+        let column =
+            self.source[line_start..end].chars().map(char::len_utf16).sum::<usize>() as u32;
+        Position { line: (line + 1) as u32, column }
     }
 
     fn add_function(&mut self, name: String, decl_span: Span, body_span: Span) -> usize {
@@ -514,7 +521,7 @@ fn wrap_logical_operand<'a>(
     }
 }
 
-impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
+impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
     fn enter_function(
         &mut self,
         func: &mut Function<'a>,
@@ -794,7 +801,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
         ) {
             return;
         }
-        // Check for ignore next pragma
+        // Check for ignore next pragma on this statement.
+        // Setting `skip_next` lets nested functions/arrows in the subtree skip
+        // their own counters. It must NOT leak to the next sibling statement —
+        // `exit_statement` clears it defensively.
         if ctx.state.pragmas.get(span.start) == Some(IgnoreType::Next) {
             self.skip_next = true;
             return;
@@ -809,6 +819,17 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform {
             counter_id: stmt_id,
             counter_type: CounterType::Statement,
         });
+    }
+
+    fn exit_statement(
+        &mut self,
+        _stmt: &mut Statement<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        // Ensure `skip_next` cannot leak from an ignored statement to its next
+        // sibling. Nested enter hooks consume it when they fire; if no such hook
+        // fires (e.g. `/* istanbul ignore next */ return 1;`), this clears it.
+        self.skip_next = false;
     }
 
     fn exit_statements(

@@ -81,7 +81,13 @@ fn main() -> ExitCode {
     };
 
     if coverage_map_only {
-        let json = serde_json::to_string_pretty(&result.coverage_map).unwrap_or_default();
+        let json = match serde_json::to_string_pretty(&result.coverage_map) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: failed to serialize coverage map: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
         println!("{json}");
         return ExitCode::SUCCESS;
     }
@@ -95,7 +101,13 @@ fn main() -> ExitCode {
         }
         // Write coverage map alongside
         let map_path = format!("{path}.map.json");
-        let map_json = serde_json::to_string_pretty(&result.coverage_map).unwrap_or_default();
+        let map_json = match serde_json::to_string_pretty(&result.coverage_map) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: failed to serialize coverage map: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
         if let Err(e) = std::fs::write(&map_path, map_json) {
             eprintln!("error: cannot write {map_path}: {e}");
             return ExitCode::FAILURE;

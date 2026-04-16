@@ -54,19 +54,15 @@ impl PragmaMap {
                         ignore_file = true;
                     }
                     PragmaResult::Unknown(comment_text) => {
-                        let line = source[..comment.span.start as usize]
+                        let prefix = &source[..comment.span.start as usize];
+                        let line = prefix.chars().filter(|&c| c == '\n').count() as u32 + 1;
+                        let line_start = prefix.rfind('\n').map_or(0, |p| p + 1);
+                        // Istanbul reports columns as UTF-16 code units, matching Babel.
+                        let column = source[line_start..comment.span.start as usize]
                             .chars()
-                            .filter(|&c| c == '\n')
-                            .count() as u32
-                            + 1;
-                        let line_start =
-                            source[..comment.span.start as usize].rfind('\n').map_or(0, |p| p + 1);
-                        let column = comment.span.start as usize - line_start;
-                        unhandled.push(UnhandledPragma {
-                            comment: comment_text,
-                            line,
-                            column: column as u32,
-                        });
+                            .map(char::len_utf16)
+                            .sum::<usize>() as u32;
+                        unhandled.push(UnhandledPragma { comment: comment_text, line, column });
                     }
                 }
             }
@@ -87,46 +83,28 @@ impl PragmaMap {
     }
 
     /// Parse a pragma comment text into an ignore type.
+    ///
+    /// Matches `<tool> ignore <kind>` where `<tool>` is one of `istanbul`, `v8`, `c8`,
+    /// and `<kind>` is one of `next`, `if`, `else`, `file`. Any ASCII whitespace run
+    /// (spaces, tabs, newlines) between tokens is accepted, matching Istanbul's behavior.
     fn parse_pragma(text: &str) -> Option<PragmaResult> {
         let trimmed = text.trim();
-
-        // Match: istanbul ignore (next|if|else|file)
-        if let Some(rest) = trimmed.strip_prefix("istanbul ignore ") {
-            return Some(Self::parse_ignore_kind(rest.trim_start(), trimmed));
+        let mut tokens = trimmed.split_whitespace();
+        let tool = tokens.next()?;
+        if !matches!(tool, "istanbul" | "v8" | "c8") {
+            return None;
         }
-        if let Some(rest) = trimmed.strip_prefix("istanbul ignore\t") {
-            return Some(Self::parse_ignore_kind(rest.trim_start(), trimmed));
+        if tokens.next()? != "ignore" {
+            return None;
         }
-
-        // Match: v8 ignore (next|if|else|file)
-        if let Some(rest) = trimmed.strip_prefix("v8 ignore ") {
-            return Some(Self::parse_ignore_kind(rest.trim_start(), trimmed));
-        }
-        if let Some(rest) = trimmed.strip_prefix("v8 ignore\t") {
-            return Some(Self::parse_ignore_kind(rest.trim_start(), trimmed));
-        }
-
-        // Match: c8 ignore (next|if|else|file)
-        if let Some(rest) = trimmed.strip_prefix("c8 ignore ") {
-            return Some(Self::parse_ignore_kind(rest.trim_start(), trimmed));
-        }
-        if let Some(rest) = trimmed.strip_prefix("c8 ignore\t") {
-            return Some(Self::parse_ignore_kind(rest.trim_start(), trimmed));
-        }
-
-        None
-    }
-
-    fn parse_ignore_kind(kind_str: &str, full_text: &str) -> PragmaResult {
-        let keyword = kind_str.split_whitespace().next().unwrap_or("");
-
-        match keyword {
+        let kind = tokens.next().unwrap_or("");
+        Some(match kind {
             "next" => PragmaResult::Ignore(IgnoreType::Next),
             "if" => PragmaResult::Ignore(IgnoreType::If),
             "else" => PragmaResult::Ignore(IgnoreType::Else),
             "file" => PragmaResult::File,
-            _ => PragmaResult::Unknown(full_text.to_string()),
-        }
+            _ => PragmaResult::Unknown(trimmed.to_string()),
+        })
     }
 }
 

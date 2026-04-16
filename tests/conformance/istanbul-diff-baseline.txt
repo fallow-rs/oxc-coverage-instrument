@@ -29,7 +29,8 @@
 [OK]   23-empty-function.js
 [OK]   24-nested-functions.js
 [OK]   25-variable-declarations.js
+[OK]   26-non-ascii-identifiers.js
 
-FAIL: 2/25 fixtures diverge (6 leaf diffs).
+FAIL: 2/26 fixtures diverge (6 leaf diffs).
 If the divergence is intentional, add a targeted filter in scripts/istanbul-diff.mjs
 and document it in README § "Differences from istanbul-lib-instrument".
