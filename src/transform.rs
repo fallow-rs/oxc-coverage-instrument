@@ -50,8 +50,16 @@ pub struct CoverageTransform<'src> {
     /// Stack of pending function entry counters. Supports nested functions/arrows
     /// where an inner function is entered before the outer's body is visited.
     pending_fn_counters: Vec<usize>,
+    /// Per-frame record of whether the current function or arrow is being ignored
+    /// (i.e. its subtree should not be instrumented). Mirrors Istanbul's `path.skip()`:
+    /// when true at any ancestor frame, statements in the body are not counted.
+    ignored_fn_stack: Vec<bool>,
     /// When true, skip instrumentation for the next node.
     skip_next: bool,
+    /// When true, the next function/arrow should skip its own function counter
+    /// but keep instrumenting its body. Used by the `ignoreClassMethods` option,
+    /// which is a softer skip than `/* istanbul ignore next */`.
+    skip_fn_counter_only: bool,
     /// True while traversing a `VariableDeclaration` carrying an `ignore next`
     /// pragma. Consumed by `enter_variable_declarator` to skip both the
     /// per-declarator statement counter and any inner function counter.
@@ -111,7 +119,9 @@ impl<'src> CoverageTransform<'src> {
             pending_method_decl: None,
             pending_stmts: Vec::new(),
             pending_fn_counters: Vec::new(),
+            ignored_fn_stack: Vec::new(),
             skip_next: false,
+            skip_fn_counter_only: false,
             skip_current_var_decl: false,
             cov_fn_name,
             report_logic,
@@ -528,11 +538,15 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         let has_pragma = ctx.state.pragmas.get(func.span.start) == Some(IgnoreType::Next);
-        let skip = has_pragma || self.skip_next;
-        // Always clear skip_next here to prevent leaking into the next node
-        // (e.g., when both ignoreClassMethods and a pragma target the same method).
+        // Pragma-driven skip cascades into the body (Istanbul subtree semantics).
+        let pragma_skip = has_pragma || self.skip_next;
+        // `ignoreClassMethods` is a softer skip: drop the fn counter but keep body.
+        let fn_counter_only_skip = self.skip_fn_counter_only;
         self.skip_next = false;
-        if skip {
+        self.skip_fn_counter_only = false;
+        // Only pragma-driven skips suppress body statements.
+        self.ignored_fn_stack.push(pragma_skip);
+        if pragma_skip || fn_counter_only_skip {
             self.pending_name = None;
             return;
         }
@@ -559,6 +573,14 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         }
     }
 
+    fn exit_function(
+        &mut self,
+        _func: &mut Function<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.ignored_fn_stack.pop();
+    }
+
     fn enter_function_body(
         &mut self,
         body: &mut FunctionBody<'a>,
@@ -576,7 +598,11 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         arrow: &mut ArrowFunctionExpression<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        if ctx.state.pragmas.get(arrow.span.start) == Some(IgnoreType::Next) || self.skip_next {
+        let pragma_skip =
+            ctx.state.pragmas.get(arrow.span.start) == Some(IgnoreType::Next) || self.skip_next;
+        // Only pragma-driven skips suppress body statements.
+        self.ignored_fn_stack.push(pragma_skip);
+        if pragma_skip {
             self.skip_next = false;
             self.pending_name = None;
             return;
@@ -624,6 +650,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
             }
             arrow.expression = false;
         }
+        self.ignored_fn_stack.pop();
     }
 
     fn enter_variable_declaration(
@@ -683,6 +710,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         // insertStatementCounter on path.get('init'). Declarators without an init
         // (`let x;`) produce no statement counter.
         let Some(init) = decl.init.as_mut() else { return };
+        // Skip if inside an ignored function/arrow body.
+        if self.ignored_fn_stack.iter().any(|&ignored| ignored) {
+            return;
+        }
         let init_span = init.span();
         if init_span.start == 0 && init_span.end == 0 {
             return;
@@ -716,7 +747,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
             _ => return,
         };
         if self.ignore_class_methods.contains(&name) {
-            self.skip_next = true;
+            // Softer skip: drop the fn counter but keep body statement counters.
+            self.skip_fn_counter_only = true;
             return;
         }
         self.pending_name = Some(name);
@@ -751,6 +783,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         }
         if ctx.state.pragmas.get(prop.span.start) == Some(IgnoreType::Next) || self.skip_next {
             self.skip_next = false;
+            return;
+        }
+        if self.ignored_fn_stack.iter().any(|&ignored| ignored) {
             return;
         }
         let stmt_id = self.add_statement(span);
@@ -799,6 +834,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
                 | Statement::TSExportAssignment(_)
                 | Statement::TSNamespaceExportDeclaration(_)
         ) {
+            return;
+        }
+        // If any enclosing function or arrow is ignored, skip its body statements
+        // too. This matches Istanbul's subtree-skip semantics for
+        // `/* istanbul ignore next */` on the enclosing callable.
+        if self.ignored_fn_stack.iter().any(|&ignored| ignored) {
             return;
         }
         // Check for ignore next pragma on this statement.

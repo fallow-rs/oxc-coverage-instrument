@@ -1406,6 +1406,38 @@ fn pragma_ignore_next_three_sibling_statements() {
 }
 
 #[test]
+fn pragma_ignore_next_skips_arrow_body_statements() {
+    // Istanbul's `path.skip()` semantics: when a function/arrow is ignored, its
+    // whole subtree is skipped — including any statements inside its body.
+    // Our tool previously still instrumented `bar()` in the arrow body because
+    // the skip_next flag was consumed in enter_arrow before body traversal.
+    let source = "/* istanbul ignore next */\nfoo(() => bar());\nqux();";
+    let result = instrument_js(source);
+    let fn_names: Vec<&str> =
+        result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
+    assert!(fn_names.is_empty(), "arrow inside ignored statement must not count, got {fn_names:?}");
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        1,
+        "only `qux();` should count — `bar()` inside the ignored arrow must be skipped"
+    );
+}
+
+#[test]
+fn pragma_ignore_next_skips_nested_function_body() {
+    // Named function case: an ignored function's body must not produce statement
+    // or inner function counters, even for deeply nested returns.
+    let source = "/* istanbul ignore next */\nfunction ignored() {\n  const x = 1;\n  return x + 1;\n}\nignored();";
+    let result = instrument_js(source);
+    assert_eq!(result.coverage_map.fn_map.len(), 0, "ignored function should not produce fn entry");
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        1,
+        "only `ignored();` should count — body statements must be skipped"
+    );
+}
+
+#[test]
 fn pragma_whitespace_tolerance_matches_canonical() {
     // Istanbul accepts any ASCII whitespace between the tool name, `ignore`, and
     // the kind keyword. Tab-between-tokens was previously treated as an unknown
