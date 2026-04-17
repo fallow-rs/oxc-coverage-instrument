@@ -1,6 +1,6 @@
 {
   "name": "@oxc-coverage-instrument/binding-win32-x64-msvc",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "cpu": [
     "x64"
   ],
