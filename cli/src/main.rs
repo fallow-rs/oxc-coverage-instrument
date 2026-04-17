@@ -19,6 +19,10 @@ fn main() -> ExitCode {
         print_usage();
         return ExitCode::SUCCESS;
     }
+    if args[1] == "--version" || args[1] == "-V" {
+        println!("oxc-coverage-instrument {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
 
     let filename = &args[1];
     let mut output_file: Option<&str> = None;

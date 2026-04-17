@@ -158,6 +158,8 @@ Real-world verification: **1,061 TS/TSX/JS files** from a production React monor
 
 Independently validated against the Vitest test suite: from v0.3.5 onward, `coverage-final.json` for the Vitest `math.ts` fixture is byte-for-byte identical to `@vitest/coverage-istanbul`'s output — including `statementMap`, `fnMap` (with `decl` spans), `branchMap`, and all counter arrays.
 
+**Column conventions:** all `start.column` / `end.column` values in `statementMap`, `fnMap`, `branchMap`, and `unhandledPragmas` are reported as **UTF-16 code units** (JavaScript string indices), matching Babel and `istanbul-lib-instrument`. Sources containing non-ASCII characters — `π`, accented identifiers, emoji — produce the same column numbers as the reference tool. Verified by the `26-non-ascii-identifiers.js` conformance fixture (`tests/conformance/fixtures/`).
+
 ## Differences from istanbul-lib-instrument
 
 Two intentional divergences, both deliberate supersets of istanbul's behavior:
