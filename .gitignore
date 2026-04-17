@@ -8,6 +8,9 @@ node_modules/
 # comparison instrumenters (created ad-hoc for analysis)
 /comparison/
 
+# local-only quality reports (SIG audit etc.)
+/quality/
+
 # benchmark temp files (downloaded JS libraries, npm installs)
 /.bench-tmp/
 
