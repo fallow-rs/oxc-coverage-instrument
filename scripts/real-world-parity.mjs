@@ -43,31 +43,31 @@ for (const name of files) {
   const src = readFileSync(join(dir, name), 'utf8');
   const sizeKB = (src.length / 1024).toFixed(1);
 
-  const istInst = createInstrumenter({ esModules: false, produceSourceMap: false });
-  istInst.instrumentSync(src, name);
-  const ist = counts(istInst.lastFileCoverage());
+  const istanbulInst = createInstrumenter({ esModules: false, produceSourceMap: false });
+  istanbulInst.instrumentSync(src, name);
+  const istanbul = counts(istanbulInst.lastFileCoverage());
 
   const oxcInst = createOxcInstrumenter({ coverageVariable: '__coverage__' });
   oxcInst.instrumentSync(src, name);
   const oxc = counts(oxcInst.lastFileCoverage());
 
-  const sOk = oxc.s === ist.s;
-  const fOk = oxc.f === ist.f;
-  const bOk = oxc.b >= ist.b;
+  const sOk = oxc.s === istanbul.s;
+  const fOk = oxc.f === istanbul.f;
+  const bOk = oxc.b >= istanbul.b;
   const ok = sOk && fOk && bOk;
   const tag = ok ? '[OK]  ' : '[DIFF]';
   console.log(
     `${tag} ${name.padEnd(24)} ${sizeKB.padStart(6)} KB  ` +
-      `istanbul s=${ist.s} f=${ist.f} b=${ist.b}  ` +
+      `istanbul s=${istanbul.s} f=${istanbul.f} b=${istanbul.b}  ` +
       `oxc s=${oxc.s} f=${oxc.f} b=${oxc.b}`,
   );
   if (!ok) {
     diverged++;
-    if (!sOk) console.log(`       statements differ: istanbul=${ist.s} oxc=${oxc.s}`);
-    if (!fOk) console.log(`       functions differ:  istanbul=${ist.f} oxc=${oxc.f}`);
+    if (!sOk) console.log(`       statements differ: istanbul=${istanbul.s} oxc=${oxc.s}`);
+    if (!fOk) console.log(`       functions differ:  istanbul=${istanbul.f} oxc=${oxc.f}`);
     if (!bOk) {
       console.log(
-        `       branches regress:  istanbul=${ist.b} oxc=${oxc.b} (oxc should be >= istanbul)`,
+        `       branches regress:  istanbul=${istanbul.b} oxc=${oxc.b} (oxc should be >= istanbul)`,
       );
     }
   }
