@@ -85,15 +85,15 @@ categories = ["development-tools::testing", "web-programming"]
 workspace = true
 
 [dependencies]
-oxc_allocator = "0.124"
-oxc_ast = "0.124"
-oxc_codegen = "0.124"
-oxc_parser = "0.124"
-oxc_semantic = "0.124"
+oxc_allocator = "0.126"
+oxc_ast = "0.126"
+oxc_codegen = "0.126"
+oxc_parser = "0.126"
+oxc_semantic = "0.126"
 oxc_sourcemap = "6.1"
-oxc_span = "0.124"
-oxc_syntax = "0.124"
-oxc_traverse = "0.124"
+oxc_span = "0.126"
+oxc_syntax = "0.126"
+oxc_traverse = "0.126"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
