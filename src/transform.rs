@@ -960,7 +960,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
             return;
         }
 
-        insertions.sort_by(|a, b| b.0.cmp(&a.0));
+        insertions.sort_by_key(|insertion| std::cmp::Reverse(insertion.0));
         for (idx, counter) in insertions {
             stmts.insert(idx, counter);
         }
