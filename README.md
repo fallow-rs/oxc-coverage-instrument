@@ -241,7 +241,7 @@ instrumented code + coverage map
 ## Compatibility
 
 - **Rust**: 1.92+ (2024 edition)
-- **Oxc**: 0.124.x
+- **Oxc**: 0.126.x
 - **Istanbul**: `coverage-final.json` v3+ format
 - **Node.js**: 18+ (via napi-rs)
 
