@@ -980,6 +980,25 @@ fn class_property_initializer_wraps_value() {
     assert!(result.code.contains(".s["), "Should contain statement counters in class body");
 }
 
+#[test]
+fn pragma_ignore_next_skips_class_property_initializer_subtree() {
+    let source = "class C {\n  /* istanbul ignore next */\n  x = () => 1;\n}\na();";
+    let result = instrument_js(source);
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        1,
+        "only the following `a();` should count"
+    );
+    assert_eq!(
+        result.coverage_map.fn_map.len(),
+        0,
+        "arrow initializer inside ignored property must not count"
+    );
+    let stmt = result.coverage_map.statement_map.values().next().unwrap();
+    assert_eq!(stmt.start.line, 5);
+}
+
 // ---------------------------------------------------------------------------
 // ignoreClassMethods
 // ---------------------------------------------------------------------------
@@ -1435,6 +1454,37 @@ fn pragma_ignore_next_skips_nested_function_body() {
         1,
         "only `ignored();` should count — body statements must be skipped"
     );
+}
+
+#[test]
+fn pragma_ignore_next_skips_if_statement_subtree() {
+    // Regression for issue #13: `ignore next` on an IfStatement must suppress
+    // the if branch entry and the statements nested inside the if body.
+    let source = "/* istanbul ignore next */\nif (!a) { const b = 2; }";
+    let result = instrument_js(source);
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(result.coverage_map.branch_map.len(), 0, "ignored if must not add a branch");
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        0,
+        "ignored if body statements must not be counted"
+    );
+}
+
+#[test]
+fn pragma_ignore_next_if_does_not_leak_to_following_statement() {
+    let source = "function f(x) {\n  /* v8 ignore next */\n  if (x) { return 1; }\n  return 2;\n}";
+    let result = instrument_js(source);
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(result.coverage_map.fn_map.len(), 1);
+    assert_eq!(result.coverage_map.branch_map.len(), 0, "ignored if must not add a branch");
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        1,
+        "only the following `return 2;` should remain counted"
+    );
+    let stmt = result.coverage_map.statement_map.values().next().unwrap();
+    assert_eq!(stmt.start.line, 4);
 }
 
 #[test]
