@@ -563,6 +563,39 @@ fn known_pragmas_not_in_unhandled() {
     assert!(result.unhandled_pragmas.is_empty());
 }
 
+#[test]
+fn block_ignore_pragmas_skip_statements_between_start_and_stop() {
+    let source = "function f(x) {\n  /* v8 ignore start */\n  if (x) { return 1; }\n  return 2;\n  /* v8 ignore stop */\n}\nf(false);";
+    let result = instrument_js(source);
+
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(result.coverage_map.fn_map.len(), 1, "the enclosing function should still count");
+    assert_eq!(result.coverage_map.branch_map.len(), 0, "ignored block should skip the if branch");
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        1,
+        "only the call after the ignored block should remain counted"
+    );
+    let stmt = result.coverage_map.statement_map.values().next().unwrap();
+    assert_eq!(stmt.start.line, 7);
+}
+
+#[test]
+fn block_ignore_pragmas_support_istanbul_v8_and_c8() {
+    for tool in ["istanbul", "v8", "c8"] {
+        let source = format!(
+            "/* {tool} ignore start */\nfunction ignored() {{ return 1; }}\n/* {tool} ignore stop */\nfunction counted() {{ return 2; }}"
+        );
+        let result = instrument_js(&source);
+        let fn_names: Vec<&str> =
+            result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
+
+        assert!(result.unhandled_pragmas.is_empty(), "{tool} block pragmas should be handled");
+        assert!(!fn_names.contains(&"ignored"), "{tool} block should skip ignored function");
+        assert!(fn_names.contains(&"counted"), "{tool} block should stop before counted function");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pragma: v8/c8 variants for if/else/file
 // ---------------------------------------------------------------------------
@@ -1468,6 +1501,26 @@ fn pragma_ignore_next_skips_if_statement_subtree() {
         result.coverage_map.statement_map.len(),
         0,
         "ignored if body statements must not be counted"
+    );
+}
+
+#[test]
+fn pragma_ignore_next_skips_return_expression_subtree() {
+    // Regression for issue #14: `ignore next` on a ReturnStatement must suppress
+    // branch counters created by expressions nested inside the ignored statement.
+    let source = "function f(x) {\n  /* c8 ignore next */\n  return x ? 1 : 2;\n}";
+    let result = instrument_js(source);
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(result.coverage_map.fn_map.len(), 1);
+    assert_eq!(
+        result.coverage_map.branch_map.len(),
+        0,
+        "ignored return must not add a ternary branch"
+    );
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        0,
+        "ignored return statement must not be counted"
     );
 }
 

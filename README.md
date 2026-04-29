@@ -142,7 +142,7 @@ for (path, coverage) in &map {
 | **Statements** | Every executable statement |
 | **Functions** | Declarations, expressions, arrows, class methods |
 | **Branches** | `if`/`else`, ternary, `switch`, `&&`/`\|\|`/`??`, `??=`/`\|\|=`/`&&=`, `default-arg` |
-| **Pragmas** | `istanbul ignore next/if/else/file`, `v8 ignore`, `c8 ignore` |
+| **Pragmas** | `istanbul`/`v8`/`c8 ignore next/if/else/file/start/stop` |
 
 ## Istanbul conformance
 
