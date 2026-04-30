@@ -1619,6 +1619,34 @@ fn pragma_ignore_next_skips_class_getter_subtree() {
 }
 
 #[test]
+fn private_class_method_does_not_add_function_counter() {
+    let source = "class C {\n  #secret(x) { if (x) { return 1; } return 2; }\n  run(x) { return this.#secret(x); }\n}";
+    let result = instrument_js(source);
+    assert_eq!(
+        result.coverage_map.fn_map.len(),
+        1,
+        "Istanbul instruments private method bodies but not private method function counters"
+    );
+    assert_eq!(result.coverage_map.branch_map.len(), 1);
+}
+
+#[test]
+fn pragma_ignore_next_before_private_class_method_matches_istanbul_boundary() {
+    let source = "class C {\n  /* istanbul ignore next */\n  #secret(x) { if (x) { return 1; } return 2; }\n  run(x) { return this.#secret(x); }\n}";
+    let result = instrument_js(source);
+    assert_eq!(
+        result.coverage_map.fn_map.len(),
+        1,
+        "Istanbul does not apply method-key ignore pragmas to private methods"
+    );
+    assert_eq!(
+        result.coverage_map.branch_map.len(),
+        1,
+        "private method body should still be instrumented"
+    );
+}
+
+#[test]
 fn pragma_before_function_valued_object_property_does_not_skip_value() {
     let source = "const obj = {\n  /* istanbul ignore next */\n  method: function (x) {\n    if (x) { return 1; }\n    return 2;\n  },\n};";
     let result = instrument_js(source);

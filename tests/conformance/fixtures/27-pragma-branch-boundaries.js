@@ -10,6 +10,18 @@ class Component {
   }
 }
 
+class PrivateComponent {
+  /* istanbul ignore next */
+  #render(x) {
+    if (x) return 1;
+    return 2;
+  }
+
+  update(x) {
+    return this.#render(x);
+  }
+}
+
 const object = {
   /* istanbul ignore next */
   method(x) {
@@ -36,6 +48,7 @@ function ignoredElse(x) {
 }
 
 new Component().update(true);
+new PrivateComponent().update(false);
 object.property(false);
 ignoredIf(false);
 ignoredElse(true);

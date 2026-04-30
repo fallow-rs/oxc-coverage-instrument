@@ -804,9 +804,11 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
     ) {
         let parent_ignored = self.in_ignored_subtree();
         let key_span = method.key.span();
-        let has_ignore_next = ctx.state.pragmas.get(method.span.start) == Some(IgnoreType::Next)
-            || ctx.state.pragmas.get(key_span.start) == Some(IgnoreType::Next)
-            || self.skip_next;
+        let is_private = matches!(method.key, PropertyKey::PrivateIdentifier(_));
+        let has_ignore_next = !is_private
+            && (ctx.state.pragmas.get(method.span.start) == Some(IgnoreType::Next)
+                || ctx.state.pragmas.get(key_span.start) == Some(IgnoreType::Next)
+                || self.skip_next);
         self.ignored_prop_stack.push(has_ignore_next);
         if has_ignore_next {
             self.skip_next = false;
@@ -818,6 +820,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         let (name, key_span) = match &method.key {
             PropertyKey::StaticIdentifier(id) => (id.name.to_string(), id.span),
             PropertyKey::StringLiteral(s) => (s.value.to_string(), s.span),
+            PropertyKey::PrivateIdentifier(_) => {
+                // Istanbul instruments private method bodies, but does not add
+                // function counters for the private method itself.
+                self.skip_fn_counter_only = true;
+                return;
+            }
             _ => return,
         };
         if self.ignore_class_methods.contains(&name) {
