@@ -541,6 +541,11 @@ fn pragma_ignore_if_skips_consequent_counter() {
     // Only the non-ignored else path should be tracked.
     assert!(result.code.contains(".b[0][0]"));
     assert!(!result.code.contains(".b[0][1]"));
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        2,
+        "ignore if should also skip statement counters in the consequent arm"
+    );
 }
 
 #[test]
@@ -553,6 +558,25 @@ fn pragma_ignore_else_skips_alternate_counter() {
     // Only the non-ignored if path should be tracked.
     assert!(result.code.contains(".b[0][0]"));
     assert!(!result.code.contains(".b[0][1]"));
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        2,
+        "ignore else should also skip statement counters in the alternate arm"
+    );
+}
+
+#[test]
+fn pragma_ignore_if_without_else_skips_consequent_statement_counter() {
+    let result = instrument_js(
+        "function f(x) {\n  /* istanbul ignore if */\n  if (x) return 1;\n  return 2;\n}",
+    );
+    assert_eq!(result.coverage_map.branch_map.len(), 1);
+    assert_eq!(result.coverage_map.branch_map["0"].locations.len(), 1);
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        2,
+        "ignore if should skip the inline consequent return statement"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1565,6 +1589,48 @@ fn pragma_ignore_next_skips_object_method_subtree() {
         result.coverage_map.statement_map.len(),
         1,
         "only the object initializer should remain counted"
+    );
+}
+
+#[test]
+fn pragma_ignore_next_skips_class_method_subtree() {
+    let source = "class C {\n  /* istanbul ignore next */\n  render(x) {\n    if (x) { return 1; }\n    return 2;\n  }\n\n  update() { return 3; }\n}";
+    let result = instrument_js(source);
+    let fn_names: Vec<&str> =
+        result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
+    assert!(!fn_names.contains(&"render"), "ignored class method should not add a function");
+    assert!(fn_names.contains(&"update"), "sibling class method should still be counted");
+    assert_eq!(
+        result.coverage_map.branch_map.len(),
+        0,
+        "ignored class method body should not add branches"
+    );
+}
+
+#[test]
+fn pragma_ignore_next_skips_class_getter_subtree() {
+    let source = "class C {\n  /* istanbul ignore next */\n  get value() {\n    if (a) { return 1; }\n    return 2;\n  }\n}";
+    let result = instrument_js(source);
+    assert!(result.coverage_map.fn_map.is_empty(), "ignored getter should not add a function");
+    assert!(
+        result.coverage_map.branch_map.is_empty(),
+        "ignored getter body should not add branches"
+    );
+}
+
+#[test]
+fn pragma_before_function_valued_object_property_does_not_skip_value() {
+    let source = "const obj = {\n  /* istanbul ignore next */\n  method: function (x) {\n    if (x) { return 1; }\n    return 2;\n  },\n};";
+    let result = instrument_js(source);
+    assert_eq!(
+        result.coverage_map.fn_map.len(),
+        1,
+        "Istanbul does not apply a property-key pragma to a function-valued property"
+    );
+    assert_eq!(
+        result.coverage_map.branch_map.len(),
+        1,
+        "function-valued property body should still be instrumented"
     );
 }
 

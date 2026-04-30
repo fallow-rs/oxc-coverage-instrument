@@ -13,7 +13,7 @@ Istanbul-compatible JavaScript/TypeScript coverage instrumentation, built on the
 
 [`swc-coverage-instrument`](https://github.com/kwonoj/swc-plugin-coverage-instrument) fills this role for SWC. There is no equivalent for the Oxc ecosystem. Any tool built on `oxc_parser` that needs coverage instrumentation currently has to pull in SWC or Babel.
 
-This crate fills that gap. AST-level instrumentation via `oxc_traverse` + `oxc_codegen` produces correct Istanbul-compatible output, verified against the canonical `istanbul-lib-instrument` on 25 shared fixtures.
+This crate fills that gap. AST-level instrumentation via `oxc_traverse` + `oxc_codegen` produces correct Istanbul-compatible output, verified against the canonical `istanbul-lib-instrument` on 27 shared fixtures.
 
 ## Install
 
@@ -146,7 +146,7 @@ for (path, coverage) in &map {
 
 ## Istanbul conformance
 
-Verified against `istanbul-lib-instrument` on 26 shared fixtures covering all branch types, function forms, Unicode columns, and edge cases. 182 automated conformance checks validate:
+Verified against `istanbul-lib-instrument` on 27 shared fixtures covering all branch types, function forms, Unicode columns, pragma boundaries, and edge cases. 189 automated conformance checks validate:
 
 - Function counts match exactly
 - Branch counts, types, and location counts match exactly

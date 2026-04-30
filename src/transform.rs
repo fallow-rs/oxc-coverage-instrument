@@ -61,6 +61,14 @@ pub struct CoverageTransform<'src> {
     /// the property. Property definitions are not statements in Oxc's AST, but
     /// Istanbul still treats their initializer subtree as skippable.
     ignored_prop_stack: Vec<bool>,
+    /// Spans for `if` arms suppressed by `/* istanbul ignore if */` or
+    /// `/* istanbul ignore else */`. The branch visitor decides which arm is
+    /// suppressed, while statement/function visitors use this to skip nested
+    /// counters as Istanbul does.
+    ignored_if_arm_spans: Vec<Span>,
+    /// Number of ignored arm spans pushed by each entered `if`, so exit can pop
+    /// only the spans owned by that node.
+    ignored_if_arm_push_counts: Vec<usize>,
     /// When true, skip instrumentation for the next node.
     skip_next: bool,
     /// When true, the next function/arrow should skip its own function counter
@@ -129,6 +137,8 @@ impl<'src> CoverageTransform<'src> {
             ignored_fn_stack: Vec::new(),
             ignored_stmt_stack: Vec::new(),
             ignored_prop_stack: Vec::new(),
+            ignored_if_arm_spans: Vec::new(),
+            ignored_if_arm_push_counts: Vec::new(),
             skip_next: false,
             skip_fn_counter_only: false,
             skip_current_var_decl: false,
@@ -150,6 +160,12 @@ impl<'src> CoverageTransform<'src> {
         self.ignored_fn_stack.iter().any(|&ignored| ignored)
             || self.ignored_stmt_stack.iter().any(|&ignored| ignored)
             || self.ignored_prop_stack.iter().any(|&ignored| ignored)
+    }
+
+    fn is_in_ignored_if_arm(&self, span: Span) -> bool {
+        self.ignored_if_arm_spans
+            .iter()
+            .any(|ignored| ignored.start <= span.start && span.end <= ignored.end)
     }
 
     fn offset_to_position(&self, offset: u32) -> Position {
@@ -784,9 +800,19 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
     fn enter_method_definition(
         &mut self,
         method: &mut MethodDefinition<'a>,
-        _ctx: &mut TraverseCtx<'a, CoverageState>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        if self.in_ignored_subtree() {
+        let parent_ignored = self.in_ignored_subtree();
+        let key_span = method.key.span();
+        let has_ignore_next = ctx.state.pragmas.get(method.span.start) == Some(IgnoreType::Next)
+            || ctx.state.pragmas.get(key_span.start) == Some(IgnoreType::Next)
+            || self.skip_next;
+        self.ignored_prop_stack.push(has_ignore_next);
+        if has_ignore_next {
+            self.skip_next = false;
+            return;
+        }
+        if parent_ignored {
             return;
         }
         let (name, key_span) = match &method.key {
@@ -813,6 +839,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
     ) {
         self.pending_name = None;
         self.pending_method_decl = None;
+        self.ignored_prop_stack.pop();
     }
 
     fn enter_property_definition(
@@ -864,9 +891,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         prop: &mut ObjectProperty<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        let has_ignore_next = ctx.state.pragmas.get(prop.span.start) == Some(IgnoreType::Next)
-            || ctx.state.pragmas.get(prop.key.span().start) == Some(IgnoreType::Next)
-            || self.skip_next;
+        let is_method_like =
+            prop.method || matches!(prop.kind, PropertyKind::Get | PropertyKind::Set);
+        let has_ignore_next = is_method_like
+            && (ctx.state.pragmas.get(prop.span.start) == Some(IgnoreType::Next)
+                || ctx.state.pragmas.get(prop.key.span().start) == Some(IgnoreType::Next)
+                || self.skip_next);
         self.ignored_prop_stack.push(has_ignore_next);
         if has_ignore_next {
             self.skip_next = false;
@@ -889,8 +919,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         let span = stmt.span();
         let parent_ignored = self.in_ignored_subtree();
         let is_injected = span.start == 0 && span.end == 0;
-        let has_ignore_next =
-            !is_injected && ctx.state.pragmas.get(span.start) == Some(IgnoreType::Next);
+        let has_ignore_next = !is_injected
+            && (ctx.state.pragmas.get(span.start) == Some(IgnoreType::Next)
+                || self.is_in_ignored_if_arm(span));
         self.ignored_stmt_stack.push(has_ignore_next);
         // Injected nodes have SPAN = 0:0 — never treat them as real statements.
         if is_injected {
@@ -1020,9 +1051,21 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         if self.in_ignored_subtree() {
+            self.ignored_if_arm_push_counts.push(0);
             return;
         }
         let pragma = ctx.state.pragmas.get(stmt.span.start);
+        let mut ignored_arm_count = 0;
+        if pragma == Some(IgnoreType::If) {
+            self.ignored_if_arm_spans.push(stmt.consequent.span());
+            ignored_arm_count += 1;
+        } else if pragma == Some(IgnoreType::Else)
+            && let Some(alt) = &stmt.alternate
+        {
+            self.ignored_if_arm_spans.push(alt.span());
+            ignored_arm_count += 1;
+        }
+        self.ignored_if_arm_push_counts.push(ignored_arm_count);
 
         // istanbul-lib-instrument's `coverIfBranches` passes `n.loc` (the whole
         // `IfStatement` span) as the consequent location, not the consequent
@@ -1068,6 +1111,18 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
                     path_idx,
                     ctx,
                 );
+            }
+        }
+    }
+
+    fn exit_if_statement(
+        &mut self,
+        _stmt: &mut IfStatement<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        if let Some(count) = self.ignored_if_arm_push_counts.pop() {
+            for _ in 0..count {
+                self.ignored_if_arm_spans.pop();
             }
         }
     }

@@ -184,6 +184,46 @@ function runInstrumented(result, filename, callExpression) {
     'ignored logical leaf should be pruned from branch paths',
   );
 
+  const classMethod = instrument(
+    `class C {
+      /* istanbul ignore next */
+      render(x) {
+        if (x) { return 1; }
+        return 2;
+      }
+
+      update() { return 3; }
+    }`,
+    'class-method-ignore.js',
+  );
+  const classMethodMap = JSON.parse(classMethod.coverageMap);
+  assert.equal(
+    Object.keys(classMethodMap.fnMap).length,
+    1,
+    'ignored class method should not add a fnMap entry',
+  );
+  assert.equal(
+    Object.keys(classMethodMap.branchMap).length,
+    0,
+    'ignored class method body should not add branches',
+  );
+
+  const ignoreIf = instrument(
+    `function f(x) {
+      /* istanbul ignore if */
+      if (x) return 1;
+      return 2;
+    }`,
+    'ignore-if.js',
+  );
+  const ignoreIfMap = JSON.parse(ignoreIf.coverageMap);
+  assert.equal(ignoreIfMap.branchMap['0'].locations.length, 1, 'ignore if should keep only the alternate path');
+  assert.equal(
+    Object.keys(ignoreIfMap.statementMap).length,
+    2,
+    'ignore if should skip statement counters in the ignored arm',
+  );
+
   console.log('  [PASS] Issue regression runtime parity');
 }
 

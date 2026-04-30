@@ -258,3 +258,4 @@ conformance_test!(c23_empty_function, "23-empty-function");
 conformance_test!(c24_nested_functions, "24-nested-functions");
 conformance_test!(c25_variable_declarations, "25-variable-declarations");
 conformance_test!(c26_non_ascii_identifiers, "26-non-ascii-identifiers");
+conformance_test!(c27_pragma_branch_boundaries, "27-pragma-branch-boundaries");
