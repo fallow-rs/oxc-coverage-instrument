@@ -4,6 +4,12 @@ import { strict as assert } from 'node:assert';
 
 console.log('Testing oxc-coverage-instrument napi bindings...\n');
 
+function runInstrumented(result, filename, callExpression) {
+  const sharedGlobal = {};
+  new Function('globalThis', `${result.code}\n${callExpression}`)(sharedGlobal);
+  return sharedGlobal.__coverage__[filename];
+}
+
 // Test 1: Basic instrumentation
 {
   const result = instrument('function add(a, b) { return a + b; }', 'test.js');
@@ -106,6 +112,79 @@ console.log('Testing oxc-coverage-instrument napi bindings...\n');
   new Function('globalThis', second.code)(sharedGlobal);
   assert.ok(sharedGlobal.__coverage__['same.js'].b['0'], 'Updated instrumentation should refresh branch data for the same path');
   console.log('  [PASS] Stale coverage refresh by hash');
+}
+
+// Test 10: Issue regressions that require runtime counter execution
+{
+  const noElse = instrument(
+    `function f(x) {
+      if (!x.roles) return x
+      return x.roles.map(r => r)
+    }`,
+    'issue-19.js',
+  );
+  const noElseCoverage = runInstrumented(
+    noElse,
+    'issue-19.js',
+    "eval('f')({ roles: ['a'] }); eval('f')({});",
+  );
+  assert.deepEqual(noElseCoverage.b['0'], [1, 1], 'if without else should hit both branch counters');
+  assert.deepEqual(
+    JSON.parse(noElse.coverageMap).branchMap['0'].locations[1],
+    { start: {}, end: {} },
+    'if without else should use Istanbul-style unknown alternate location',
+  );
+
+  const objectMethod = instrument(
+    `const obj = {
+      /* v8 ignore next -- @preserve */
+      method(x) {
+        const y = x.foo
+        if (y) {
+          y.bar = 1
+        }
+      },
+    }`,
+    'issue-20.js',
+  );
+  const objectMethodMap = JSON.parse(objectMethod.coverageMap);
+  assert.equal(Object.keys(objectMethodMap.fnMap).length, 0, 'ignored object method should not add fnMap entries');
+  assert.equal(Object.keys(objectMethodMap.branchMap).length, 0, 'ignored object method should not add branchMap entries');
+
+  const ternary = instrument(
+    `function f(x) {
+      return {
+        ...x,
+        ...(x.set
+          ? { a: 1 }
+          : /* v8 ignore next -- @preserve */
+            {}),
+      }
+    }`,
+    'issue-21.js',
+  );
+  const ternaryMap = JSON.parse(ternary.coverageMap);
+  assert.equal(Object.keys(ternaryMap.fnMap).length, 1, 'enclosing function should still be tracked');
+  assert.equal(Object.keys(ternaryMap.branchMap).length, 1, 'non-ignored ternary arm should still be tracked');
+  assert.equal(ternaryMap.branchMap['0'].locations.length, 1, 'ignored ternary arm should be pruned from branch paths');
+
+  const fullyIgnoredTernary = instrument(
+    'function f(x) { return x ? /* v8 ignore next */ 1 : /* v8 ignore next */ 2; }',
+    'fully-ignored-ternary.js',
+  );
+  assert.equal(Object.keys(JSON.parse(fullyIgnoredTernary.coverageMap).branchMap).length, 0, 'empty branches should be pruned');
+
+  const logicalLeaf = instrument(
+    'function f(a, b) { return a && /* v8 ignore next */ b; }',
+    'logical-leaf.js',
+  );
+  assert.equal(
+    JSON.parse(logicalLeaf.coverageMap).branchMap['0'].locations.length,
+    1,
+    'ignored logical leaf should be pruned from branch paths',
+  );
+
+  console.log('  [PASS] Issue regression runtime parity');
 }
 
 console.log('\nAll tests passed!');

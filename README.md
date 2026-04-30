@@ -146,23 +146,25 @@ for (path, coverage) in &map {
 
 ## Istanbul conformance
 
-Verified against `istanbul-lib-instrument` on 25 shared fixtures covering all branch types, function forms, and edge cases. 175 automated conformance checks validate:
+Verified against `istanbul-lib-instrument` on 26 shared fixtures covering all branch types, function forms, Unicode columns, and edge cases. 182 automated conformance checks validate:
 
-- Function counts and names match exactly
+- Function counts match exactly
 - Branch counts, types, and location counts match exactly
 - Statement counts match exactly
 - JSON structure matches Istanbul's field set
 - Instrumented output re-parses as valid JS
 
+CI also runs a blocking byte-for-byte Istanbul diff over the shared fixture corpus after filtering documented intentional divergences. This catches span-level and counter-shape drift that count-only tests can miss.
+
 Real-world verification: **1,061 TS/TSX/JS files** from a production React monorepo produce byte-for-byte identical statement, function, and branch counts to `istanbul-lib-instrument` (when both instrumenters receive the same Babel-transpiled input).
 
-Independently validated against the Vitest test suite: from v0.3.5 onward, `coverage-final.json` for the Vitest `math.ts` fixture is byte-for-byte identical to `@vitest/coverage-istanbul`'s output — including `statementMap`, `fnMap` (with `decl` spans), `branchMap`, and all counter arrays.
+Independently validated against the Vitest test suite: from v0.3.5 onward, `coverage-final.json` for the Vitest `math.ts` fixture is byte-for-byte identical to `@vitest/coverage-istanbul`'s output — including `statementMap`, `fnMap` spans, `branchMap`, and all counter arrays.
 
 **Column conventions:** all `start.column` / `end.column` values in `statementMap`, `fnMap`, `branchMap`, and `unhandledPragmas` are reported as **UTF-16 code units** (JavaScript string indices), matching Babel and `istanbul-lib-instrument`. Sources containing non-ASCII characters — `π`, accented identifiers, emoji — produce the same column numbers as the reference tool. Verified by the `26-non-ascii-identifiers.js` conformance fixture (`tests/conformance/fixtures/`).
 
 ## Differences from istanbul-lib-instrument
 
-Two intentional divergences, both deliberate supersets of istanbul's behavior:
+Intentional divergences from `istanbul-lib-instrument`:
 
 ### 1. ES2021 logical-assignment operators are instrumented as branches
 
@@ -182,6 +184,16 @@ For anonymous function expressions assigned to a variable or declared as a class
 | `(function() {})()` (IIFE) | `(anonymous_0)` | `(anonymous_0)` |
 
 Coverage reports and stack traces benefit from real names. Pinned by `tests/conformance_test.rs::fn_name_inference_is_intentional_superset`.
+
+### 3. Full method-key spans in `fnMap[*].decl`
+
+For class and object methods, `oxc-coverage-instrument` records the whole method key as the declaration span. `istanbul-lib-instrument` truncates method declarations to the key's first character.
+
+| Source | oxc `decl` | istanbul `decl` |
+|---|---|---|
+| `class C { bar() {} }` | `bar` | `b` |
+
+The byte-diff check still pins the method declaration start, line, body `loc`, and all non-method function declaration spans.
 
 **Migration from `@vitest/coverage-istanbul`:** a codebase that uses `??=`/`||=`/`&&=` heavily will see a higher branch-coverage denominator (and so a slightly lower branch %) after switching providers. To rebaseline CI thresholds after the swap:
 

@@ -2,10 +2,10 @@
 //!
 //! Prerequisites: run `node tests/conformance/generate-reference.mjs` to generate
 //! reference data from Istanbul. The Rust tests then compare our output against
-//! the canonical Istanbul output for 25 shared fixtures.
+//! the canonical Istanbul output for shared fixtures.
 //!
 //! Comparison dimensions:
-//! - Function count and names
+//! - Function count
 //! - Istanbul-standard branch count, types, and location counts
 //! - Statement count (with tolerance for minor differences)
 //! - Coverage map JSON structure
@@ -231,7 +231,7 @@ macro_rules! conformance_test {
     };
 }
 
-// Generate conformance tests for all 25 fixtures
+// Generate conformance tests for all fixtures
 conformance_test!(c01_function_declaration, "01-function-declaration");
 conformance_test!(c02_function_expression, "02-function-expression");
 conformance_test!(c03_arrow_expression, "03-arrow-expression");
@@ -257,3 +257,4 @@ conformance_test!(c22_complex_mixed, "22-complex-mixed");
 conformance_test!(c23_empty_function, "23-empty-function");
 conformance_test!(c24_nested_functions, "24-nested-functions");
 conformance_test!(c25_variable_declarations, "25-variable-declarations");
+conformance_test!(c26_non_ascii_identifiers, "26-non-ascii-identifiers");

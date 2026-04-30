@@ -126,8 +126,17 @@ fn branch_if_without_else() {
     let result = instrument_js("if (true) { console.log('yes'); }");
     assert_eq!(result.coverage_map.branch_map.len(), 1);
     assert_eq!(result.coverage_map.branch_map["0"].locations.len(), 2);
-    // Consequent should have counter, alternate should be empty span
+    // Both paths need executable counters; otherwise the false path is
+    // permanently reported as uncovered.
     assert!(result.code.contains(".b[0][0]"));
+    assert!(result.code.contains(".b[0][1]"));
+
+    let json = serde_json::to_value(&result.coverage_map).unwrap();
+    assert_eq!(
+        json["branchMap"]["0"]["locations"][1],
+        serde_json::json!({ "start": {}, "end": {} }),
+        "synthetic no-else branch location should match Istanbul's unknown location"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -524,13 +533,14 @@ fn pragma_ignore_next_arrow_function() {
 #[test]
 fn pragma_ignore_if_skips_consequent_counter() {
     let result = instrument_js(
-        "function f(x) {\n  /* istanbul ignore if */\n  if (x < 0) { throw new Error(); }\n  return x;\n}",
+        "function f(x) {\n  /* istanbul ignore if */\n  if (x < 0) { throw new Error(); } else { return x; }\n}",
     );
     // Should still have a branch entry
     assert_eq!(result.coverage_map.branch_map.len(), 1);
-    // The if-branch counter (b[0][0]) should NOT be in the code
-    assert!(!result.code.contains(".b[0][0]"));
-    // The else-branch counter should still be absent (no else clause)
+    assert_eq!(result.coverage_map.branch_map["0"].locations.len(), 1);
+    // Only the non-ignored else path should be tracked.
+    assert!(result.code.contains(".b[0][0]"));
+    assert!(!result.code.contains(".b[0][1]"));
 }
 
 #[test]
@@ -539,9 +549,9 @@ fn pragma_ignore_else_skips_alternate_counter() {
         "function f(x) {\n  /* istanbul ignore else */\n  if (x > 0) { return 'pos'; } else { return 'neg'; }\n}",
     );
     assert_eq!(result.coverage_map.branch_map.len(), 1);
-    // The if-branch counter should be present
+    assert_eq!(result.coverage_map.branch_map["0"].locations.len(), 1);
+    // Only the non-ignored if path should be tracked.
     assert!(result.code.contains(".b[0][0]"));
-    // The else-branch counter should NOT be present
     assert!(!result.code.contains(".b[0][1]"));
 }
 
@@ -1538,6 +1548,98 @@ fn pragma_ignore_next_if_does_not_leak_to_following_statement() {
     );
     let stmt = result.coverage_map.statement_map.values().next().unwrap();
     assert_eq!(stmt.start.line, 4);
+}
+
+#[test]
+fn pragma_ignore_next_skips_object_method_subtree() {
+    let source = "const obj = {\n  /* v8 ignore next */\n  method(x) {\n    const y = x.foo;\n    if (y) { y.bar = 1; }\n  },\n};";
+    let result = instrument_js(source);
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(result.coverage_map.fn_map.len(), 0, "ignored method should not add a function");
+    assert_eq!(
+        result.coverage_map.branch_map.len(),
+        0,
+        "ignored method body should not add branches"
+    );
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        1,
+        "only the object initializer should remain counted"
+    );
+}
+
+#[test]
+fn pragma_ignore_next_skips_ternary_branch_counter() {
+    let source = "function f(x) {\n  return x.set ? { a: 1 } : /* v8 ignore next */ {};\n}";
+    let result = instrument_js(source);
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(result.coverage_map.branch_map.len(), 1);
+    assert_eq!(
+        result.coverage_map.branch_map["0"].locations.len(),
+        1,
+        "ignored ternary arm should not remain as an uncovered branch path"
+    );
+    assert!(result.code.contains(".b[0][0]"));
+    assert!(!result.code.contains(".b[0][1]"));
+}
+
+#[test]
+fn pragma_ignore_next_skips_nested_object_spread_ternary_arm() {
+    let source = "function f(x) {\n  return {\n    ...x,\n    ...(x.set\n      ? { a: 1 }\n      : /* v8 ignore next -- @preserve */\n        {}),\n  };\n}";
+    let result = instrument_js(source);
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(result.coverage_map.fn_map.len(), 1, "the enclosing function should still count");
+    assert_eq!(result.coverage_map.branch_map.len(), 1, "the non-ignored ternary arm should count");
+    assert_eq!(
+        result.coverage_map.branch_map["0"].locations.len(),
+        1,
+        "ignored object-spread ternary arm should not remain as an uncovered branch path"
+    );
+    assert!(result.code.contains(".b[0][0]"));
+    assert!(!result.code.contains(".b[0][1]"));
+}
+
+#[test]
+fn pragma_ignore_next_prunes_empty_ternary_branch() {
+    let source =
+        "function f(x) {\n  return x ? /* v8 ignore next */ 1 : /* v8 ignore next */ 2;\n}";
+    let result = instrument_js(source);
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(
+        result.coverage_map.branch_map.len(),
+        0,
+        "branches with no instrumented paths should be pruned like Istanbul"
+    );
+    assert_eq!(result.coverage_map.b.len(), 0);
+}
+
+#[test]
+fn pragma_ignore_next_skips_logical_expression_leaf() {
+    let source = "function f(a, b) {\n  return a && /* v8 ignore next */ b;\n}";
+    let result = instrument_js(source);
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(result.coverage_map.branch_map.len(), 1);
+    assert_eq!(
+        result.coverage_map.branch_map["0"].locations.len(),
+        1,
+        "ignored logical leaf should not remain as an uncovered branch path"
+    );
+    assert!(result.code.contains(".b[0][0]"));
+    assert!(!result.code.contains(".b[0][1]"));
+}
+
+#[test]
+fn pragma_ignore_next_prunes_empty_logical_expression_branch() {
+    let source =
+        "function f(a, b) {\n  return /* v8 ignore next */ a && /* v8 ignore next */ b;\n}";
+    let result = instrument_js(source);
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(
+        result.coverage_map.branch_map.len(),
+        0,
+        "logical branches with no instrumented leaves should be pruned like Istanbul"
+    );
+    assert_eq!(result.coverage_map.b.len(), 0);
 }
 
 #[test]

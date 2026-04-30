@@ -118,17 +118,12 @@ jobs:
         run: node test.mjs
 
   istanbul-diff:
-    # Advisory byte-for-byte diff against istanbul-lib-instrument on the 25
-    # shared conformance fixtures. Intentional divergences (e.g. ??= branches,
-    # inferred fn-names over istanbul's (anonymous_N)) surface here as diffs;
-    # that's expected and does NOT fail the build. Blocking structural checks
-    # live in the Rust conformance_suite_test.rs. This job's value is surfacing
-    # span-level micro-regressions (like the v0.3.4 fnMap.decl column slip) in
-    # PR logs before they ship.
-    name: Istanbul byte diff (advisory)
+    # Byte-for-byte diff against istanbul-lib-instrument on the shared
+    # conformance fixtures after filtering documented intentional divergences.
+    # This catches span-level and counter-shape regressions before they ship.
+    name: Istanbul byte diff
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     permissions:
       contents: read
     steps:

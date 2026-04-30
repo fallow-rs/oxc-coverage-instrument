@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Byte-for-byte diff between oxc-coverage-instrument and istanbul-lib-instrument
-// across the 25 shared conformance fixtures.
+// across the shared conformance fixtures.
 //
 // Asserts that the non-divergent parts of the coverage map match exactly:
 //   - statementMap (all spans)
-//   - fnMap (all spans incl. decl + loc, and names)
+//   - fnMap (line, decl, loc; excluding documented name and method-decl-end divergences)
 //   - branchMap (excluding intentional logical-assignment superset)
 //   - counter arrays s, f, b
 //
@@ -71,31 +71,43 @@ const dropLogicalAssignment = (cov, source) => {
 //     istanbul emits `(anonymous_N)`. Filtered by dropping `name` below.
 //     See issue #8.
 //
-// Intentional divergences LEFT IN the diff (oxc is correct, istanbul is
-// buggy, but filtering the entire decl field would mask real regressions
-// for named functions — accepted as documented known diffs in the baseline):
-//
-//   - class-method decl span: oxc uses the method key's identifier span
-//     (`bar` → col 10-13); istanbul truncates to the key's first char only
-//     (col 10-11). See issue #9.
-//
-//   - if-branch location spans: oxc's consequent location is the first inner
-//     statement span; istanbul's is the enclosing block span. Also oxc emits
-//     an implicit empty alternate location for if-no-else while istanbul
-//     omits it. See issue #10.
+//   - method decl end span: oxc uses the full method key span (`bar`),
+//     while istanbul truncates method decls to the first character (`b`).
+//     Filtered by dropping only `fnMap[*].decl.end` for method syntax.
 //
 // Normalize both maps into a canonical shape before diffing. Istanbul adds
 // `hash` and `_coverageSchema` fields which oxc doesn't emit, and its
 // top-level ordering may differ. We compare only the fields that both
 // instrumenters are contracted to populate, and zero out fields covered
 // by intentional-divergence filters.
-const normalize = (cov) => ({
+const isMethodDecl = (fn, source) => {
+  const offset = lineColToOffset(source, fn.decl.start.line, fn.decl.start.column);
+  if (source.slice(offset, offset + 'function'.length) === 'function') {
+    return false;
+  }
+  const prefix = source.slice(Math.max(0, offset - 16), offset);
+  return !/function\s*$/.test(prefix);
+};
+
+const normalizeFn = (fn, source) => ({
+  line: fn.line,
+  decl: {
+    start: fn.decl.start,
+    // Class/object method declarations intentionally use the full key span in
+    // oxc, while istanbul truncates to the key's first character. Keep the
+    // start pinned and filter only that known end-position divergence.
+    end: isMethodDecl(fn, source) ? '<method-decl-end-filtered>' : fn.decl.end,
+  },
+  loc: fn.loc,
+});
+
+const normalize = (cov, source) => ({
   statementMap: cov.statementMap,
   fnMap: Object.fromEntries(
     Object.entries(cov.fnMap).map(([id, f]) => [
       id,
       // Skip `name` — tracked as intentional divergence (issue #8).
-      { line: f.line, decl: f.decl, loc: f.loc },
+      normalizeFn(f, source),
     ])
   ),
   branchMap: Object.fromEntries(
@@ -131,10 +143,10 @@ for (const file of fixtures) {
   const source = readFileSync(join(fixturesDir, file), 'utf8');
 
   istanbul.instrumentSync(source, file);
-  const iCov = normalize(istanbul.lastFileCoverage());
+  const iCov = normalize(istanbul.lastFileCoverage(), source);
 
   oxc.instrumentSync(source, file);
-  const oCov = normalize(dropLogicalAssignment(oxc.lastFileCoverage(), source));
+  const oCov = normalize(dropLogicalAssignment(oxc.lastFileCoverage(), source), source);
 
   const diffs = diffKeys(iCov, oCov);
   if (diffs.length === 0) {
@@ -152,7 +164,7 @@ for (const file of fixtures) {
 
 console.log('');
 if (fixturesWithDiffs === 0) {
-  console.log(`PASS: ${fixtures.length} fixtures byte-for-byte identical to istanbul-lib-instrument.`);
+  console.log(`PASS: ${fixtures.length} fixtures match istanbul-lib-instrument after documented filters.`);
   process.exit(0);
 } else {
   console.log(`FAIL: ${fixturesWithDiffs}/${fixtures.length} fixtures diverge (${totalDiffs} leaf diffs).`);

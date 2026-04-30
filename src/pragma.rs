@@ -55,7 +55,9 @@ impl PragmaMap {
             if let Some(ignore_type) = Self::parse_pragma(&text) {
                 match ignore_type {
                     PragmaResult::Ignore(it) => {
-                        ignores.insert(comment.attached_to, it);
+                        let token_start = Self::next_token_start(source, comment.span.end)
+                            .unwrap_or(comment.attached_to);
+                        ignores.insert(token_start, it);
                     }
                     PragmaResult::File => {
                         ignore_file = true;
@@ -109,6 +111,18 @@ impl PragmaMap {
         let column =
             source[line_start..offset as usize].chars().map(char::len_utf16).sum::<usize>() as u32;
         (line, column)
+    }
+
+    fn next_token_start(source: &str, offset: u32) -> Option<u32> {
+        let mut cursor = offset as usize;
+        while cursor < source.len() {
+            let ch = source[cursor..].chars().next()?;
+            if !ch.is_whitespace() {
+                return Some(cursor as u32);
+            }
+            cursor += ch.len_utf8();
+        }
+        None
     }
 
     /// Parse a pragma comment text into an ignore type.

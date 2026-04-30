@@ -4,6 +4,7 @@
 //! (`@istanbuljs/schema`). Produces `coverage-final.json` compatible
 //! output that Jest, Vitest, c8, nyc, and Codecov all consume.
 
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -77,7 +78,7 @@ pub struct Location {
 /// Istanbul allows `null` or missing fields for line/column when the position
 /// is unknown (e.g., empty `{}` objects for branch locations); these are
 /// coerced to `0` on deserialization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Position {
     /// 1-based line number.
     #[serde(default, deserialize_with = "deserialize_null_as_zero")]
@@ -85,6 +86,22 @@ pub struct Position {
     /// 0-based column number.
     #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub column: u32,
+}
+
+impl Serialize for Position {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if self.line == 0 && self.column == 0 {
+            return serializer.serialize_struct("Position", 0)?.end();
+        }
+
+        let mut state = serializer.serialize_struct("Position", 2)?;
+        state.serialize_field("line", &self.line)?;
+        state.serialize_field("column", &self.column)?;
+        state.end()
+    }
 }
 
 /// Function entry in the coverage map.
@@ -201,9 +218,10 @@ impl FileCoverage {
         path: String,
         statement_map: BTreeMap<String, Location>,
         fn_map: BTreeMap<String, FnEntry>,
-        branch_map: BTreeMap<String, BranchEntry>,
+        mut branch_map: BTreeMap<String, BranchEntry>,
         logical_branch_ids: &[usize],
     ) -> Self {
+        branch_map.retain(|_, entry| !entry.locations.is_empty());
         let s = statement_map.keys().map(|k| (k.clone(), 0)).collect();
         let f = fn_map.keys().map(|k| (k.clone(), 0)).collect();
         let b = branch_map

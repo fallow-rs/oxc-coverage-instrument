@@ -188,7 +188,7 @@ impl<'src> CoverageTransform<'src> {
         id_num
     }
 
-    fn add_branch(&mut self, branch_type: &str, span: Span, locations: &[Span]) -> usize {
+    fn add_branch(&mut self, branch_type: &str, span: Span) -> usize {
         let id_num = self.branch_counter;
         let id = id_num.to_string();
         self.branch_counter += 1;
@@ -196,14 +196,34 @@ impl<'src> CoverageTransform<'src> {
         let line = loc.start.line;
         self.branch_map.insert(
             id,
-            BranchEntry {
-                loc,
-                line,
-                branch_type: branch_type.to_string(),
-                locations: locations.iter().map(|s| self.span_to_location(*s)).collect(),
-            },
+            BranchEntry { loc, line, branch_type: branch_type.to_string(), locations: Vec::new() },
         );
         id_num
+    }
+
+    fn add_branch_path(&mut self, branch_id: usize, span: Span) -> usize {
+        let location = self.span_to_location(span);
+        self.add_branch_path_location(branch_id, location)
+    }
+
+    fn add_branch_path_unknown(&mut self, branch_id: usize) -> usize {
+        self.add_branch_path_location(
+            branch_id,
+            Location {
+                start: Position { line: 0, column: 0 },
+                end: Position { line: 0, column: 0 },
+            },
+        )
+    }
+
+    fn add_branch_path_location(&mut self, branch_id: usize, location: Location) -> usize {
+        let entry = self
+            .branch_map
+            .get_mut(&branch_id.to_string())
+            .expect("branch path must reference an existing branch");
+        let path_idx = entry.locations.len();
+        entry.locations.push(location);
+        path_idx
     }
 
     fn resolve_function_name(&mut self, func: &Function) -> String {
@@ -416,21 +436,24 @@ fn is_parent_logical(ctx: &TraverseCtx<'_, CoverageState>) -> bool {
 /// For `a && b || c`, returns spans of [a, b, c]. Also flattens through
 /// `ParenthesizedExpression` nodes so `a && (b || c)` is treated as one
 /// three-leaf chain, matching istanbul-lib-instrument.
-fn collect_logical_leaf_spans(expr: &LogicalExpression) -> Vec<Span> {
+fn collect_logical_leaf_spans(expr: &LogicalExpression, pragmas: &PragmaMap) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_logical_leaves_inner(&expr.left, &mut spans);
-    collect_logical_leaves_inner(&expr.right, &mut spans);
+    collect_logical_leaves_inner(&expr.left, pragmas, &mut spans);
+    collect_logical_leaves_inner(&expr.right, pragmas, &mut spans);
     spans
 }
 
-fn collect_logical_leaves_inner(expr: &Expression, spans: &mut Vec<Span>) {
+fn collect_logical_leaves_inner(expr: &Expression, pragmas: &PragmaMap, spans: &mut Vec<Span>) {
     if let Expression::ParenthesizedExpression(paren) = expr {
-        collect_logical_leaves_inner(&paren.expression, spans);
+        collect_logical_leaves_inner(&paren.expression, pragmas, spans);
+        return;
+    }
+    if pragmas.get(expr.span().start) == Some(IgnoreType::Next) {
         return;
     }
     if let Expression::LogicalExpression(logical) = expr {
-        collect_logical_leaves_inner(&logical.left, spans);
-        collect_logical_leaves_inner(&logical.right, spans);
+        collect_logical_leaves_inner(&logical.left, pragmas, spans);
+        collect_logical_leaves_inner(&logical.right, pragmas, spans);
     } else {
         spans.push(expr.span());
     }
@@ -538,6 +561,9 @@ fn wrap_logical_operand<'a>(
     // Unwrap parens transparently (matches Babel's AST shape).
     if let Expression::ParenthesizedExpression(paren) = operand {
         return wrap_logical_operand(&mut paren.expression, state, ctx);
+    }
+    if ctx.state.pragmas.get(operand.span().start) == Some(IgnoreType::Next) {
+        return;
     }
     if let Expression::LogicalExpression(inner) = operand {
         wrap_logical_leaves(inner, state, ctx);
@@ -833,6 +859,28 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         self.ignored_prop_stack.pop();
     }
 
+    fn enter_object_property(
+        &mut self,
+        prop: &mut ObjectProperty<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        let has_ignore_next = ctx.state.pragmas.get(prop.span.start) == Some(IgnoreType::Next)
+            || ctx.state.pragmas.get(prop.key.span().start) == Some(IgnoreType::Next)
+            || self.skip_next;
+        self.ignored_prop_stack.push(has_ignore_next);
+        if has_ignore_next {
+            self.skip_next = false;
+        }
+    }
+
+    fn exit_object_property(
+        &mut self,
+        _prop: &mut ObjectProperty<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.ignored_prop_stack.pop();
+    }
+
     fn enter_statement(
         &mut self,
         stmt: &mut Statement<'a>,
@@ -983,24 +1031,44 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         // so downstream reporters (html-reporter, sonar) highlight the same
         // range in hover tooltips.
         let consequent_span = stmt.span;
-        let alternate_span = stmt
-            .alternate
-            .as_ref()
-            .map_or_else(|| Span::new(stmt.span.end, stmt.span.end), |alt| alt.span());
-        let branch_id = self.add_branch("if", stmt.span, &[consequent_span, alternate_span]);
+        let branch_id = self.add_branch("if", stmt.span);
 
-        let cov_fn = self.cov_fn_name.as_str();
+        let cov_fn = self.cov_fn_name.clone();
 
         // istanbul ignore if: skip the if-branch counter
         if pragma != Some(IgnoreType::If) {
-            inject_branch_counter_into_statement(&mut stmt.consequent, cov_fn, branch_id, 0, ctx);
+            let path_idx = self.add_branch_path(branch_id, consequent_span);
+            inject_branch_counter_into_statement(
+                &mut stmt.consequent,
+                cov_fn.as_str(),
+                branch_id,
+                path_idx,
+                ctx,
+            );
         }
 
         // istanbul ignore else: skip the else-branch counter
-        if let Some(alt) = &mut stmt.alternate
-            && pragma != Some(IgnoreType::Else)
-        {
-            inject_branch_counter_into_statement(alt, cov_fn, branch_id, 1, ctx);
+        if pragma != Some(IgnoreType::Else) {
+            if stmt.alternate.is_none() {
+                let scope_id =
+                    ctx.create_child_scope_of_current(oxc_syntax::scope::ScopeFlags::empty());
+                stmt.alternate =
+                    Some(ctx.ast.statement_block_with_scope_id(SPAN, ctx.ast.vec(), scope_id));
+            }
+            if let Some(alt) = &mut stmt.alternate {
+                let path_idx = if alt.span().start == 0 && alt.span().end == 0 {
+                    self.add_branch_path_unknown(branch_id)
+                } else {
+                    self.add_branch_path(branch_id, alt.span())
+                };
+                inject_branch_counter_into_statement(
+                    alt,
+                    cov_fn.as_str(),
+                    branch_id,
+                    path_idx,
+                    ctx,
+                );
+            }
         }
     }
 
@@ -1012,29 +1080,35 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         if self.in_ignored_subtree() {
             return;
         }
-        let branch_id = self.add_branch(
-            "cond-expr",
-            expr.span,
-            &[expr.consequent.span(), expr.alternate.span()],
-        );
+        let branch_id = self.add_branch("cond-expr", expr.span);
+        let ignore_consequent =
+            ctx.state.pragmas.get(expr.consequent.span().start) == Some(IgnoreType::Next);
+        let ignore_alternate =
+            ctx.state.pragmas.get(expr.alternate.span().start) == Some(IgnoreType::Next);
 
-        let cov_fn = self.cov_fn_name.as_str();
+        let cov_fn = self.cov_fn_name.clone();
 
-        // Wrap consequent: (cov().b[id][0]++, originalExpr)
-        let counter0 = build_branch_counter_expr(cov_fn, branch_id, 0, ctx);
-        let orig_consequent = mem::replace(&mut expr.consequent, dummy_expr(ctx));
-        let mut items = ctx.ast.vec();
-        items.push(counter0);
-        items.push(orig_consequent);
-        expr.consequent = ctx.ast.expression_sequence(SPAN, items);
+        if !ignore_consequent {
+            // Wrap consequent: (cov().b[id][path]++, originalExpr)
+            let path_idx = self.add_branch_path(branch_id, expr.consequent.span());
+            let counter = build_branch_counter_expr(cov_fn.as_str(), branch_id, path_idx, ctx);
+            let orig_consequent = mem::replace(&mut expr.consequent, dummy_expr(ctx));
+            let mut items = ctx.ast.vec();
+            items.push(counter);
+            items.push(orig_consequent);
+            expr.consequent = ctx.ast.expression_sequence(SPAN, items);
+        }
 
-        // Wrap alternate: (cov().b[id][1]++, originalExpr)
-        let counter1 = build_branch_counter_expr(cov_fn, branch_id, 1, ctx);
-        let orig_alternate = mem::replace(&mut expr.alternate, dummy_expr(ctx));
-        let mut items = ctx.ast.vec();
-        items.push(counter1);
-        items.push(orig_alternate);
-        expr.alternate = ctx.ast.expression_sequence(SPAN, items);
+        if !ignore_alternate {
+            // Wrap alternate: (cov().b[id][path]++, originalExpr)
+            let path_idx = self.add_branch_path(branch_id, expr.alternate.span());
+            let counter = build_branch_counter_expr(cov_fn.as_str(), branch_id, path_idx, ctx);
+            let orig_alternate = mem::replace(&mut expr.alternate, dummy_expr(ctx));
+            let mut items = ctx.ast.vec();
+            items.push(counter);
+            items.push(orig_alternate);
+            expr.alternate = ctx.ast.expression_sequence(SPAN, items);
+        }
     }
 
     fn enter_switch_statement(
@@ -1045,12 +1119,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         if self.in_ignored_subtree() {
             return;
         }
-        let case_spans: Vec<Span> = stmt.cases.iter().map(|c| c.span).collect();
-        let branch_id = self.add_branch("switch", stmt.span, &case_spans);
+        let branch_id = self.add_branch("switch", stmt.span);
 
-        let cov_fn = self.cov_fn_name.as_str();
-        for (path_idx, case) in stmt.cases.iter_mut().enumerate() {
-            let branch_stmt = build_branch_counter_stmt(cov_fn, branch_id, path_idx, ctx);
+        let cov_fn = self.cov_fn_name.clone();
+        for case in &mut stmt.cases {
+            let path_idx = self.add_branch_path(branch_id, case.span);
+            let branch_stmt = build_branch_counter_stmt(cov_fn.as_str(), branch_id, path_idx, ctx);
             case.consequent.insert(0, branch_stmt);
         }
     }
@@ -1073,9 +1147,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
                     return;
                 }
 
-                // Collect all leaf operand spans by flattening the chain
-                let leaf_spans = collect_logical_leaf_spans(expr);
-                let branch_id = self.add_branch("binary-expr", expr.span, &leaf_spans);
+                let branch_id = self.add_branch("binary-expr", expr.span);
+                for span in collect_logical_leaf_spans(expr, &ctx.state.pragmas) {
+                    self.add_branch_path(branch_id, span);
+                }
 
                 if self.report_logic {
                     self.logical_branch_ids.push(branch_id);
@@ -1104,7 +1179,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         // Istanbul creates a 'default-arg' branch with 1 location for the default expression.
         if let Some(init) = &mut param.initializer {
             let init_span = init.span();
-            let branch_id = self.add_branch("default-arg", param.span, &[init_span]);
+            let branch_id = self.add_branch("default-arg", param.span);
+            self.add_branch_path(branch_id, init_span);
             let cov_fn = self.cov_fn_name.as_str();
             let state = LogicalWrapState::new(cov_fn, branch_id, false);
             wrap_expression_with_branch_counter(init, &state, ctx);
@@ -1122,7 +1198,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         // Destructuring defaults: const { x = 1 } = obj;
         // Istanbul also creates 'default-arg' for these.
         let right_span = pattern.right.span();
-        let branch_id = self.add_branch("default-arg", pattern.span, &[right_span]);
+        let branch_id = self.add_branch("default-arg", pattern.span);
+        self.add_branch_path(branch_id, right_span);
         let cov_fn = self.cov_fn_name.as_str();
         let state = LogicalWrapState::new(cov_fn, branch_id, false);
         wrap_expression_with_branch_counter(&mut pattern.right, &state, ctx);
@@ -1149,7 +1226,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         ) {
             let left_span = expr.left.span();
             let right_span = expr.right.span();
-            let branch_id = self.add_branch("binary-expr", expr.span, &[left_span, right_span]);
+            let branch_id = self.add_branch("binary-expr", expr.span);
+            self.add_branch_path(branch_id, left_span);
+            self.add_branch_path(branch_id, right_span);
 
             let cov_fn = self.cov_fn_name.as_str();
 
