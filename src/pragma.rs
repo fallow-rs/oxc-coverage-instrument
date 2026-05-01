@@ -117,10 +117,29 @@ impl PragmaMap {
         let mut cursor = offset as usize;
         while cursor < source.len() {
             let ch = source[cursor..].chars().next()?;
-            if !ch.is_whitespace() {
-                return Some(cursor as u32);
+            if ch.is_whitespace() {
+                cursor += ch.len_utf8();
+                continue;
             }
-            cursor += ch.len_utf8();
+
+            let rest = &source[cursor..];
+            if rest.starts_with("//") {
+                if let Some(newline) = rest.find('\n') {
+                    cursor += newline + 1;
+                } else {
+                    return None;
+                }
+                continue;
+            }
+            if rest.starts_with("/*") {
+                if let Some(end) = rest.find("*/") {
+                    cursor += end + 2;
+                    continue;
+                }
+                return None;
+            }
+
+            return Some(cursor as u32);
         }
         None
     }

@@ -1737,6 +1737,85 @@ fn pragma_ignore_next_prunes_empty_logical_expression_branch() {
 }
 
 #[test]
+fn pragma_ignore_next_skips_intervening_comments() {
+    let cases = [
+        "function f() {\n  // v8 ignore next -- @preserve\n  // @ts-ignore: unrelated\n  if (typeof globalThis !== 'undefined') { console.log('ok') }\n}",
+        "function f() {\n  /* v8 ignore next -- @preserve */\n  /* unrelated comment */\n  if (typeof globalThis !== 'undefined') { console.log('ok') }\n}",
+    ];
+
+    for source in cases {
+        let result = instrument_js(source);
+        assert!(result.unhandled_pragmas.is_empty());
+        assert_eq!(result.coverage_map.branch_map.len(), 0, "branch should be ignored:\n{source}");
+        assert_eq!(
+            result.coverage_map.statement_map.len(),
+            0,
+            "statement subtree should be ignored:\n{source}"
+        );
+    }
+}
+
+#[test]
+fn pragma_ignore_next_skips_logical_expression_containers() {
+    let cases = [
+        "function f(child) {\n  return update(\n    /* v8 ignore next -- @preserve */\n    child.attributes || {},\n    {a: 1},\n  )\n}",
+        "function f(h) {\n  return {\n    applicant: h.applicantTemplate.workflow.id,\n    /* v8 ignore next -- @preserve */\n    lender: h.lenderTemplate?.workflow.id ?? '',\n  }\n}",
+    ];
+
+    for source in cases {
+        let result = instrument_js(source);
+        assert!(result.unhandled_pragmas.is_empty());
+        assert_eq!(
+            result.coverage_map.branch_map.len(),
+            0,
+            "logical branch should be ignored:\n{source}"
+        );
+    }
+}
+
+#[test]
+fn pragma_ignore_next_skips_ternary_expression_containers() {
+    let cases = [
+        "function f(getSimilarNodes, node) {\n  return getSimilarNodes(\n    'state',\n    /* v8 ignore next -- @preserve */\n    node.type === 'integration'\n      ? node.properties.name\n      : undefined,\n    'nodeId',\n  )\n}",
+        "function f(items) {\n  return items\n    .sort((a, b) =>\n      /* v8 ignore next -- @preserve */ a.ranking < b.ranking ? -1 : 1,\n    )\n}",
+    ];
+
+    for source in cases {
+        let result = instrument_js(source);
+        assert!(result.unhandled_pragmas.is_empty());
+        assert_eq!(
+            result.coverage_map.branch_map.len(),
+            0,
+            "ternary branch should be ignored:\n{source}"
+        );
+    }
+}
+
+#[test]
+fn pragma_ignore_next_skips_switch_case_branches() {
+    let cases = [
+        "function f(item) {\n  switch (item.type) {\n    case 'html': return 'a'\n    /* v8 ignore next -- @preserve */\n    case 'link': return 'b'\n  }\n}",
+        "function f(item) {\n  switch (item.type) {\n    case 'html': return 'a'\n    /* v8 ignore start -- @preserve */\n    case 'link': return 'b'\n    /* v8 ignore stop -- @preserve */\n  }\n}",
+        "function f(item) {\n  switch (item.type) {\n    case 'html': return 'a'\n    case 'link':\n      /* v8 ignore next -- @preserve */\n      return 'b'\n  }\n}",
+    ];
+
+    for source in cases {
+        let result = instrument_js(source);
+        assert!(result.unhandled_pragmas.is_empty());
+        assert_eq!(
+            result.coverage_map.branch_map.len(),
+            1,
+            "switch branch should remain:\n{source}"
+        );
+        assert_eq!(
+            result.coverage_map.branch_map["0"].locations.len(),
+            1,
+            "ignored case should be pruned from switch branch locations:\n{source}"
+        );
+    }
+}
+
+#[test]
 fn pragma_whitespace_tolerance_matches_canonical() {
     // Istanbul accepts any ASCII whitespace between the tool name, `ignore`, and
     // the kind keyword. Tab-between-tokens was previously treated as an unknown

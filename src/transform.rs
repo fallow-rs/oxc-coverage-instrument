@@ -475,6 +475,14 @@ fn collect_logical_leaves_inner(expr: &Expression, pragmas: &PragmaMap, spans: &
     }
 }
 
+fn is_ignored_case(case: &SwitchCase, pragmas: &PragmaMap) -> bool {
+    pragmas.get(case.span.start) == Some(IgnoreType::Next)
+        || case
+            .consequent
+            .first()
+            .is_some_and(|stmt| pragmas.get(stmt.span().start) == Some(IgnoreType::Next))
+}
+
 struct LogicalWrapState<'b> {
     cov_fn_name: &'b str,
     branch_id: usize,
@@ -901,10 +909,16 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
     ) {
         let is_method_like =
             prop.method || matches!(prop.kind, PropertyKind::Get | PropertyKind::Set);
-        let has_ignore_next = is_method_like
-            && (ctx.state.pragmas.get(prop.span.start) == Some(IgnoreType::Next)
-                || ctx.state.pragmas.get(prop.key.span().start) == Some(IgnoreType::Next)
-                || self.skip_next);
+        let key_has_ignore_next = ctx.state.pragmas.get(prop.span.start) == Some(IgnoreType::Next)
+            || ctx.state.pragmas.get(prop.key.span().start) == Some(IgnoreType::Next)
+            || self.skip_next;
+        let has_ignore_next = is_method_like && key_has_ignore_next;
+        let is_function_valued = matches!(
+            prop.value,
+            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+        );
+        let value_has_ignore_next = !is_method_like && !is_function_valued && key_has_ignore_next;
+        let has_ignore_next = has_ignore_next || value_has_ignore_next;
         self.ignored_prop_stack.push(has_ignore_next);
         if has_ignore_next {
             self.skip_next = false;
@@ -1140,7 +1154,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         expr: &mut ConditionalExpression<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        if self.in_ignored_subtree() {
+        if self.in_ignored_subtree()
+            || ctx.state.pragmas.get(expr.span.start) == Some(IgnoreType::Next)
+        {
             return;
         }
         let branch_id = self.add_branch("cond-expr", expr.span);
@@ -1186,6 +1202,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
 
         let cov_fn = self.cov_fn_name.clone();
         for case in &mut stmt.cases {
+            if is_ignored_case(case, &ctx.state.pragmas) {
+                continue;
+            }
             let path_idx = self.add_branch_path(branch_id, case.span);
             let branch_stmt = build_branch_counter_stmt(cov_fn.as_str(), branch_id, path_idx, ctx);
             case.consequent.insert(0, branch_stmt);
@@ -1197,7 +1216,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         expr: &mut LogicalExpression<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        if self.in_ignored_subtree() {
+        if self.in_ignored_subtree()
+            || ctx.state.pragmas.get(expr.span.start) == Some(IgnoreType::Next)
+        {
             return;
         }
         match expr.operator {
