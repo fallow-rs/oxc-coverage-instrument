@@ -242,6 +242,50 @@ impl<'src> CoverageTransform<'src> {
         path_idx
     }
 
+    fn drain_pending_insertions_for_target(&mut self, target_start: u32) -> Vec<PendingInsertion> {
+        let mut drained = Vec::new();
+        let mut remaining = Vec::with_capacity(self.pending_stmts.len());
+        for pending in self.pending_stmts.drain(..) {
+            if pending.target_start == target_start {
+                drained.push(pending);
+            } else {
+                remaining.push(pending);
+            }
+        }
+        self.pending_stmts = remaining;
+        drained
+    }
+
+    fn inject_pending_counters_into_loop_body<'a>(
+        &mut self,
+        body: &mut Statement<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        if matches!(body, Statement::BlockStatement(_)) {
+            return;
+        }
+
+        let span = body.span();
+        if span.start == 0 && span.end == 0 {
+            return;
+        }
+
+        let pending = self.drain_pending_insertions_for_target(span.start);
+        if pending.is_empty() {
+            return;
+        }
+
+        let cov_fn = self.cov_fn_name.as_str();
+        let scope_id = ctx.create_child_scope_of_current(oxc_syntax::scope::ScopeFlags::empty());
+        let original = mem::replace(body, ctx.ast.statement_empty(SPAN));
+        let mut stmts = ctx.ast.vec();
+        for insertion in pending {
+            stmts.push(build_pending_counter_stmt(cov_fn, &insertion, ctx));
+        }
+        stmts.push(original);
+        *body = ctx.ast.statement_block_with_scope_id(SPAN, stmts, scope_id);
+    }
+
     fn resolve_function_name(&mut self, func: &Function) -> String {
         if let Some(name) = self.pending_name.take() {
             return name;
@@ -366,6 +410,19 @@ fn build_branch_counter_stmt<'a>(
 ) -> Statement<'a> {
     let expr = build_branch_counter_expr(cov_fn_name, branch_id, path_idx, ctx);
     ctx.ast.statement_expression(SPAN, expr)
+}
+
+fn build_pending_counter_stmt<'a>(
+    cov_fn_name: &str,
+    pending: &PendingInsertion,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) -> Statement<'a> {
+    match pending.counter_type {
+        CounterType::Statement => build_counter_stmt(cov_fn_name, "s", pending.counter_id, ctx),
+        CounterType::BranchLeft => {
+            build_branch_counter_stmt(cov_fn_name, pending.counter_id, 0, ctx)
+        }
+    }
 }
 
 /// Generate the preamble as source text.
@@ -1042,14 +1099,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
             while i < pending.len() {
                 if pending[i].target_start == start {
                     let p = pending.swap_remove(i);
-                    let counter = match p.counter_type {
-                        CounterType::Statement => {
-                            build_counter_stmt(cov_fn, "s", p.counter_id, ctx)
-                        }
-                        CounterType::BranchLeft => {
-                            build_branch_counter_stmt(cov_fn, p.counter_id, 0, ctx)
-                        }
-                    };
+                    let counter = build_pending_counter_stmt(cov_fn, &p, ctx);
                     insertions.push((idx, counter));
                 } else {
                     i += 1;
@@ -1250,6 +1300,46 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
 
     // Note: Istanbul does NOT instrument for/while/do-while loops as branches.
     // Loop coverage is tracked purely via statement counters on the body.
+
+    fn exit_do_while_statement(
+        &mut self,
+        stmt: &mut DoWhileStatement<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.inject_pending_counters_into_loop_body(&mut stmt.body, ctx);
+    }
+
+    fn exit_while_statement(
+        &mut self,
+        stmt: &mut WhileStatement<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.inject_pending_counters_into_loop_body(&mut stmt.body, ctx);
+    }
+
+    fn exit_for_statement(
+        &mut self,
+        stmt: &mut ForStatement<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.inject_pending_counters_into_loop_body(&mut stmt.body, ctx);
+    }
+
+    fn exit_for_in_statement(
+        &mut self,
+        stmt: &mut ForInStatement<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.inject_pending_counters_into_loop_body(&mut stmt.body, ctx);
+    }
+
+    fn exit_for_of_statement(
+        &mut self,
+        stmt: &mut ForOfStatement<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.inject_pending_counters_into_loop_body(&mut stmt.body, ctx);
+    }
 
     fn enter_formal_parameter(
         &mut self,

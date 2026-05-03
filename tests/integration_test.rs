@@ -243,6 +243,39 @@ fn loops_do_not_create_branch_entries() {
     );
 }
 
+#[test]
+fn no_block_loop_bodies_emit_statement_counters() {
+    let sources = [
+        ("while", "function f() { let i = 0; while (i < 3) i++; return i; }"),
+        (
+            "for",
+            "function f() { let total = 0; for (let i = 0; i < 3; i++) total++; return total; }",
+        ),
+        (
+            "for-of",
+            "function f(items) { let total = 0; for (const x of items) total += x; return total; }",
+        ),
+        (
+            "for-in",
+            "function f(obj) { let total = 0; for (const k in obj) total++; return total; }",
+        ),
+        ("do-while", "function f() { let i = 0; do i++; while (i < 3); return i; }"),
+    ];
+
+    for (name, source) in sources {
+        let result = instrument_js(source);
+        assert!(
+            result.coverage_map.branch_map.is_empty(),
+            "{name} should still use statement coverage rather than branch coverage"
+        );
+        assert_eq!(
+            result.code.matches("().s[").count(),
+            result.coverage_map.statement_map.len(),
+            "{name} should emit one executable statement counter for every statementMap entry"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pragma handling
 // ---------------------------------------------------------------------------

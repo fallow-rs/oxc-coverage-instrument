@@ -227,4 +227,59 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] Issue regression runtime parity');
 }
 
+// Test 11: No-block loop bodies increment their own statement counters
+{
+  const cases = [
+    {
+      name: 'while',
+      filename: 'loop-while.js',
+      source: 'function f() { let i = 0; while (i < 3) i++; return i; }',
+      call: "eval('f')();",
+    },
+    {
+      name: 'for',
+      filename: 'loop-for.js',
+      source: 'function f() { let total = 0; for (let i = 0; i < 3; i++) total++; return total; }',
+      call: "eval('f')();",
+    },
+    {
+      name: 'for-of',
+      filename: 'loop-for-of.js',
+      source: 'function f(items) { let total = 0; for (const x of items) total += x; return total; }',
+      call: "eval('f')([1, 2, 3]);",
+    },
+    {
+      name: 'for-in',
+      filename: 'loop-for-in.js',
+      source: 'function f(obj) { let total = 0; for (const k in obj) total++; return total; }',
+      call: "eval('f')({ a: 1, b: 2, c: 3 });",
+    },
+    {
+      name: 'do-while',
+      filename: 'loop-do-while.js',
+      source: 'function f() { let i = 0; do i++; while (i < 3); return i; }',
+      call: "eval('f')();",
+    },
+  ];
+
+  for (const item of cases) {
+    const result = instrument(item.source, item.filename);
+    const map = JSON.parse(result.coverageMap);
+    const emittedStatementCounters = result.code.match(/\+\+cov_[^(]+\(\)\.s\[\d+\]/g) ?? [];
+    assert.equal(
+      emittedStatementCounters.length,
+      Object.keys(map.statementMap).length,
+      `${item.name} should emit every statementMap counter`,
+    );
+
+    const coverage = runInstrumented(result, item.filename, item.call);
+    assert(
+      Object.entries(coverage.s).every(([, hits]) => hits > 0),
+      `${item.name} should hit every statement counter when the body runs`,
+    );
+  }
+
+  console.log('  [PASS] No-block loop body statement counters');
+}
+
 console.log('\nAll tests passed!');
