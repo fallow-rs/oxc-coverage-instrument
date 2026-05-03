@@ -30,7 +30,7 @@ const { instrument } = require('./index.js');
  * @param {object} [options]
  * @param {string} [options.coverageVariable] - Global variable for coverage data.
  *   Vitest passes its internal `__VITEST_COVERAGE__`; defaults to `__coverage__`.
- * @param {string[]} [options.ignoreClassMethods] - Class methods to skip.
+ * @param {string[]} [options.ignoreClassMethods] - Class method names to skip.
  * @param {boolean} [options.reportLogic] - Enable truthy-value tracking (bT).
  * @returns {{ instrumentSync, lastSourceMap, lastFileCoverage }}
  */

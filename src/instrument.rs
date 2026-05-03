@@ -30,9 +30,9 @@ pub struct InstrumentOptions {
     /// This enables nyc-style logic coverage that tracks not just which branch was
     /// taken, but whether each operand evaluated to a truthy value.
     pub report_logic: bool,
-    /// Class method names to exclude from function coverage instrumentation.
-    /// The method body is still instrumented for statement/branch coverage,
-    /// but no function counter is created.
+    /// Class method names to exclude from coverage instrumentation.
+    /// Matches Istanbul's `ignoreClassMethods` behavior for class methods and
+    /// named function expressions with a matching id.
     pub ignore_class_methods: Vec<String>,
 }
 

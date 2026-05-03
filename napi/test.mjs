@@ -207,6 +207,33 @@ function runInstrumented(result, filename, callExpression) {
     0,
     'ignored class method body should not add branches',
   );
+  assert.equal(
+    Object.keys(classMethodMap.statementMap).length,
+    1,
+    'ignored class method body should not add statements',
+  );
+
+  const ignoreClassMethods = instrument(
+    `function TestClass() {}
+    TestClass.prototype.testMethod = function testMethod(i) { return i; };
+    TestClass.prototype.goodMethod = function goodMethod(i) { return i; };
+    var testClass = new TestClass();
+    testClass.goodMethod();
+    testClass.testMethod(1);`,
+    'ignore-class-methods.js',
+    { ignoreClassMethods: ['testMethod'] },
+  );
+  const ignoreClassMethodsMap = JSON.parse(ignoreClassMethods.coverageMap);
+  assert.deepEqual(
+    Object.values(ignoreClassMethodsMap.fnMap).map((entry) => entry.name),
+    ['TestClass', 'goodMethod'],
+    'ignoreClassMethods should skip matching named function expressions',
+  );
+  assert.deepEqual(
+    Object.values(ignoreClassMethodsMap.statementMap).map((loc) => loc.start.line),
+    [2, 3, 3, 4, 5, 6],
+    'ignoreClassMethods should skip matching function expression bodies',
+  );
 
   const ignoreIf = instrument(
     `function f(x) {
@@ -222,6 +249,28 @@ function runInstrumented(result, filename, callExpression) {
     Object.keys(ignoreIfMap.statementMap).length,
     2,
     'ignore if should skip statement counters in the ignored arm',
+  );
+
+  const ignoredSwitchCase = instrument(
+    `function f(item) {
+      switch (item.type) {
+        case 'html': return 'a'
+        /* istanbul ignore next */
+        default: return 'b'
+      }
+    }`,
+    'ignored-switch-case.js',
+  );
+  const ignoredSwitchCaseMap = JSON.parse(ignoredSwitchCase.coverageMap);
+  assert.equal(
+    ignoredSwitchCaseMap.branchMap['0'].locations.length,
+    1,
+    'ignored switch case should be pruned from branch paths',
+  );
+  assert.deepEqual(
+    Object.values(ignoredSwitchCaseMap.statementMap).map((loc) => loc.start.line),
+    [2, 3],
+    'ignored switch case statements should be pruned',
   );
 
   console.log('  [PASS] Issue regression runtime parity');
@@ -280,6 +329,55 @@ function runInstrumented(result, filename, callExpression) {
   }
 
   console.log('  [PASS] No-block loop body statement counters');
+}
+
+// Test 12: Other no-block statement-child containers increment body counters
+{
+  const cases = [
+    {
+      name: 'with',
+      filename: 'with-no-block.js',
+      source: 'function f(obj) { with (obj) x++; return obj.x; }',
+      call: "eval('f')({ x: 0 });",
+    },
+    {
+      name: 'label',
+      filename: 'label-no-block.js',
+      source: 'function f() { let n = 0; label: n++; return n; }',
+      call: "eval('f')();",
+    },
+    {
+      name: 'loop-label',
+      filename: 'loop-label-no-block.js',
+      source: 'function f() { let n = 0; while (n < 3) label: n++; return n; }',
+      call: "eval('f')();",
+    },
+    {
+      name: 'label-loop',
+      filename: 'label-loop.js',
+      source: 'function f() { let n = 0; label: while (n < 3) { n++; continue label; } return n; }',
+      call: "eval('f')();",
+    },
+  ];
+
+  for (const item of cases) {
+    const result = instrument(item.source, item.filename);
+    const map = JSON.parse(result.coverageMap);
+    const emittedStatementCounters = result.code.match(/\+\+cov_[^(]+\(\)\.s\[\d+\]/g) ?? [];
+    assert.equal(
+      emittedStatementCounters.length,
+      Object.keys(map.statementMap).length,
+      `${item.name} should emit every statementMap counter`,
+    );
+
+    const coverage = runInstrumented(result, item.filename, item.call);
+    assert(
+      Object.entries(coverage.s).every(([, hits]) => hits > 0),
+      `${item.name} should hit every statement counter when the body runs`,
+    );
+  }
+
+  console.log('  [PASS] No-block statement-child body counters');
 }
 
 console.log('\nAll tests passed!');

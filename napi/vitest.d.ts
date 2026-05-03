@@ -7,7 +7,7 @@
 export interface OxcInstrumenterOptions {
   /** Global variable name for coverage data (Vitest passes `__VITEST_COVERAGE__`). */
   coverageVariable?: string
-  /** Class method names to exclude from function coverage. */
+  /** Class method names to exclude from coverage instrumentation. */
   ignoreClassMethods?: string[]
   /** When true, adds truthy-value tracking (bT) for logical expressions. */
   reportLogic?: boolean

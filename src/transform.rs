@@ -61,6 +61,9 @@ pub struct CoverageTransform<'src> {
     /// the property. Property definitions are not statements in Oxc's AST, but
     /// Istanbul still treats their initializer subtree as skippable.
     ignored_prop_stack: Vec<bool>,
+    /// Per-switch-case record of whether an `ignore next` pragma targets the
+    /// case label or its first consequent statement.
+    ignored_switch_case_stack: Vec<bool>,
     /// Spans for `if` arms suppressed by `/* istanbul ignore if */` or
     /// `/* istanbul ignore else */`. The branch visitor decides which arm is
     /// suppressed, while statement/function visitors use this to skip nested
@@ -72,8 +75,8 @@ pub struct CoverageTransform<'src> {
     /// When true, skip instrumentation for the next node.
     skip_next: bool,
     /// When true, the next function/arrow should skip its own function counter
-    /// but keep instrumenting its body. Used by the `ignoreClassMethods` option,
-    /// which is a softer skip than `/* istanbul ignore next */`.
+    /// without setting `skip_next`. Used for private class methods: Istanbul
+    /// instruments their bodies but does not add function counters for them.
     skip_fn_counter_only: bool,
     /// True while traversing a `VariableDeclaration` carrying an `ignore next`
     /// pragma. Consumed by `enter_variable_declarator` to skip both the
@@ -83,7 +86,7 @@ pub struct CoverageTransform<'src> {
     cov_fn_name: String,
     /// When true, adds truthy-value tracking (`bT`) for logical expression operands.
     report_logic: bool,
-    /// Class method names to exclude from function coverage.
+    /// Class method names to exclude from coverage instrumentation.
     ignore_class_methods: Vec<String>,
     /// Branch IDs of logical expression branches (for building the `bT` map).
     pub logical_branch_ids: Vec<usize>,
@@ -137,6 +140,7 @@ impl<'src> CoverageTransform<'src> {
             ignored_fn_stack: Vec::new(),
             ignored_stmt_stack: Vec::new(),
             ignored_prop_stack: Vec::new(),
+            ignored_switch_case_stack: Vec::new(),
             ignored_if_arm_spans: Vec::new(),
             ignored_if_arm_push_counts: Vec::new(),
             skip_next: false,
@@ -160,6 +164,7 @@ impl<'src> CoverageTransform<'src> {
         self.ignored_fn_stack.iter().any(|&ignored| ignored)
             || self.ignored_stmt_stack.iter().any(|&ignored| ignored)
             || self.ignored_prop_stack.iter().any(|&ignored| ignored)
+            || self.ignored_switch_case_stack.iter().any(|&ignored| ignored)
     }
 
     fn is_in_ignored_if_arm(&self, span: Span) -> bool {
@@ -256,7 +261,15 @@ impl<'src> CoverageTransform<'src> {
         drained
     }
 
-    fn inject_pending_counters_into_loop_body<'a>(
+    fn retarget_pending_insertions(&mut self, from_start: u32, to_start: u32) {
+        for pending in &mut self.pending_stmts {
+            if pending.target_start == from_start {
+                pending.target_start = to_start;
+            }
+        }
+    }
+
+    fn inject_pending_counters_into_statement_child<'a>(
         &mut self,
         body: &mut Statement<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
@@ -660,13 +673,20 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         let has_pragma = ctx.state.pragmas.get(func.span.start) == Some(IgnoreType::Next);
-        // Pragma-driven skip cascades into the body (Istanbul subtree semantics).
-        let pragma_skip = has_pragma || self.skip_next || self.in_ignored_subtree();
-        // `ignoreClassMethods` is a softer skip: drop the fn counter but keep body.
+        let ignored_named_function_expression = func.r#type == FunctionType::FunctionExpression
+            && func
+                .id
+                .as_ref()
+                .is_some_and(|id| self.ignore_class_methods.contains(&id.name.to_string()));
+        // Subtree skips cascade into the body (Istanbul semantics for pragmas
+        // and ignoreClassMethods).
+        let pragma_skip = has_pragma
+            || self.skip_next
+            || self.in_ignored_subtree()
+            || ignored_named_function_expression;
         let fn_counter_only_skip = self.skip_fn_counter_only;
         self.skip_next = false;
         self.skip_fn_counter_only = false;
-        // Only pragma-driven skips suppress body statements.
         self.ignored_fn_stack.push(pragma_skip);
         if pragma_skip || fn_counter_only_skip {
             self.pending_name = None;
@@ -870,15 +890,16 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         let parent_ignored = self.in_ignored_subtree();
         let key_span = method.key.span();
         let is_private = matches!(method.key, PropertyKey::PrivateIdentifier(_));
-        let has_ignore_next = !is_private
+        let ignore_by_pragma = !is_private
             && (ctx.state.pragmas.get(method.span.start) == Some(IgnoreType::Next)
                 || ctx.state.pragmas.get(key_span.start) == Some(IgnoreType::Next)
                 || self.skip_next);
-        self.ignored_prop_stack.push(has_ignore_next);
-        if has_ignore_next {
+        if ignore_by_pragma {
+            self.ignored_prop_stack.push(true);
             self.skip_next = false;
             return;
         }
+        self.ignored_prop_stack.push(false);
         if parent_ignored {
             return;
         }
@@ -894,8 +915,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
             _ => return,
         };
         if self.ignore_class_methods.contains(&name) {
-            // Softer skip: drop the fn counter but keep body statement counters.
-            self.skip_fn_counter_only = true;
+            if let Some(ignored) = self.ignored_prop_stack.last_mut() {
+                *ignored = true;
+            }
             return;
         }
         self.pending_name = Some(name);
@@ -1261,6 +1283,22 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         }
     }
 
+    fn enter_switch_case(
+        &mut self,
+        case: &mut SwitchCase<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.ignored_switch_case_stack.push(is_ignored_case(case, &ctx.state.pragmas));
+    }
+
+    fn exit_switch_case(
+        &mut self,
+        _case: &mut SwitchCase<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.ignored_switch_case_stack.pop();
+    }
+
     fn enter_logical_expression(
         &mut self,
         expr: &mut LogicalExpression<'a>,
@@ -1301,12 +1339,33 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
     // Note: Istanbul does NOT instrument for/while/do-while loops as branches.
     // Loop coverage is tracked purely via statement counters on the body.
 
+    fn exit_with_statement(
+        &mut self,
+        stmt: &mut WithStatement<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.inject_pending_counters_into_statement_child(&mut stmt.body, ctx);
+    }
+
+    fn exit_labeled_statement(
+        &mut self,
+        stmt: &mut LabeledStatement<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        let body_span = stmt.body.span();
+        if body_span.start != 0 || body_span.end != 0 {
+            // Preserve labels on loops: wrapping `label: while (...)` in a block
+            // would break `continue label`, so emit the child counter before the label.
+            self.retarget_pending_insertions(body_span.start, stmt.span.start);
+        }
+    }
+
     fn exit_do_while_statement(
         &mut self,
         stmt: &mut DoWhileStatement<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        self.inject_pending_counters_into_loop_body(&mut stmt.body, ctx);
+        self.inject_pending_counters_into_statement_child(&mut stmt.body, ctx);
     }
 
     fn exit_while_statement(
@@ -1314,7 +1373,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         stmt: &mut WhileStatement<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        self.inject_pending_counters_into_loop_body(&mut stmt.body, ctx);
+        self.inject_pending_counters_into_statement_child(&mut stmt.body, ctx);
     }
 
     fn exit_for_statement(
@@ -1322,7 +1381,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         stmt: &mut ForStatement<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        self.inject_pending_counters_into_loop_body(&mut stmt.body, ctx);
+        self.inject_pending_counters_into_statement_child(&mut stmt.body, ctx);
     }
 
     fn exit_for_in_statement(
@@ -1330,7 +1389,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         stmt: &mut ForInStatement<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        self.inject_pending_counters_into_loop_body(&mut stmt.body, ctx);
+        self.inject_pending_counters_into_statement_child(&mut stmt.body, ctx);
     }
 
     fn exit_for_of_statement(
@@ -1338,7 +1397,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         stmt: &mut ForOfStatement<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        self.inject_pending_counters_into_loop_body(&mut stmt.body, ctx);
+        self.inject_pending_counters_into_statement_child(&mut stmt.body, ctx);
     }
 
     fn enter_formal_parameter(

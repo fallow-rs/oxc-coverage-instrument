@@ -18,7 +18,7 @@ pub struct InstrumentOptions {
     pub input_source_map: Option<String>,
     /// When true, adds truthy-value tracking (bT) for logical expression operands.
     pub report_logic: Option<bool>,
-    /// Class method names to exclude from function coverage instrumentation.
+    /// Class method names to exclude from coverage instrumentation.
     pub ignore_class_methods: Option<Vec<String>>,
 }
 

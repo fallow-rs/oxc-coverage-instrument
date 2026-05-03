@@ -276,6 +276,28 @@ fn no_block_loop_bodies_emit_statement_counters() {
     }
 }
 
+#[test]
+fn no_block_statement_child_containers_emit_body_counters() {
+    let sources = [
+        ("with", "function f(obj) { with (obj) x++; return obj.x; }"),
+        ("label", "function f() { let n = 0; label: n++; return n; }"),
+        ("loop-label", "function f() { let n = 0; while (n < 3) label: n++; return n; }"),
+        (
+            "label-loop",
+            "function f() { let n = 0; label: while (n < 3) { n++; continue label; } return n; }",
+        ),
+    ];
+
+    for (name, source) in sources {
+        let result = instrument_js(source);
+        assert_eq!(
+            result.code.matches("().s[").count(),
+            result.coverage_map.statement_map.len(),
+            "{name} should emit one executable statement counter for every statementMap entry"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pragma handling
 // ---------------------------------------------------------------------------
@@ -1124,15 +1146,45 @@ fn ignore_class_methods_skips_function_counter() {
 }
 
 #[test]
-fn ignore_class_methods_still_instruments_body() {
+fn ignore_class_methods_skips_method_body() {
     let opts =
         InstrumentOptions { ignore_class_methods: vec!["render".to_string()], ..default_opts() };
     let result =
         instrument("class App { render() { const x = 1; return x; } }", "test.js", &opts).unwrap();
-    // No function counter for render, but body statements are still counted
+    // Istanbul's ignoreClassMethods skips the whole matched method body.
     assert_eq!(result.coverage_map.fn_map.len(), 0);
-    // Class declaration is a container; only body statements count: const x = 1, return x.
-    assert_eq!(result.coverage_map.statement_map.len(), 2);
+    assert_eq!(result.coverage_map.statement_map.len(), 0);
+}
+
+#[test]
+fn ignore_class_methods_skips_named_function_expression_body() {
+    let opts = InstrumentOptions {
+        ignore_class_methods: vec!["testMethod".to_string()],
+        ..default_opts()
+    };
+    let result = instrument(
+        "function TestClass() {}\n\
+         TestClass.prototype.testMethod = function testMethod(i) { return i; };\n\
+         TestClass.prototype.goodMethod = function goodMethod(i) { return i; };\n\
+         var testClass = new TestClass();\n\
+         testClass.goodMethod();\n\
+         testClass.testMethod(1);",
+        "test.js",
+        &opts,
+    )
+    .unwrap();
+
+    let function_names: Vec<&str> =
+        result.coverage_map.fn_map.values().map(|entry| entry.name.as_str()).collect();
+    assert_eq!(function_names, vec!["TestClass", "goodMethod"]);
+
+    let statement_lines: Vec<u32> =
+        result.coverage_map.statement_map.values().map(|loc| loc.start.line).collect();
+    assert_eq!(
+        statement_lines,
+        vec![2, 3, 3, 4, 5, 6],
+        "ignored function expression body should not add a return statement"
+    );
 }
 
 #[test]
@@ -1827,12 +1879,25 @@ fn pragma_ignore_next_skips_ternary_expression_containers() {
 #[test]
 fn pragma_ignore_next_skips_switch_case_branches() {
     let cases = [
-        "function f(item) {\n  switch (item.type) {\n    case 'html': return 'a'\n    /* v8 ignore next -- @preserve */\n    case 'link': return 'b'\n  }\n}",
-        "function f(item) {\n  switch (item.type) {\n    case 'html': return 'a'\n    /* v8 ignore start -- @preserve */\n    case 'link': return 'b'\n    /* v8 ignore stop -- @preserve */\n  }\n}",
-        "function f(item) {\n  switch (item.type) {\n    case 'html': return 'a'\n    case 'link':\n      /* v8 ignore next -- @preserve */\n      return 'b'\n  }\n}",
+        (
+            "function f(item) {\n  switch (item.type) {\n    case 'html': return 'a'\n    /* v8 ignore next -- @preserve */\n    case 'link': return 'b'\n  }\n}",
+            vec![2, 3],
+        ),
+        (
+            "function f(item) {\n  switch (item.type) {\n    case 'html': return 'a'\n    /* v8 ignore start -- @preserve */\n    case 'link': return 'b'\n    /* v8 ignore stop -- @preserve */\n  }\n}",
+            vec![2, 3],
+        ),
+        (
+            "function f(item) {\n  switch (item.type) {\n    case 'html': return 'a'\n    case 'link':\n      /* v8 ignore next -- @preserve */\n      return 'b'\n  }\n}",
+            vec![2, 3],
+        ),
+        (
+            "function f(item) {\n  switch (item.type) {\n    case 'html': return 'a'\n    /* istanbul ignore next */\n    default: return 'b'\n  }\n}",
+            vec![2, 3],
+        ),
     ];
 
-    for source in cases {
+    for (source, expected_statement_lines) in cases {
         let result = instrument_js(source);
         assert!(result.unhandled_pragmas.is_empty());
         assert_eq!(
@@ -1844,6 +1909,12 @@ fn pragma_ignore_next_skips_switch_case_branches() {
             result.coverage_map.branch_map["0"].locations.len(),
             1,
             "ignored case should be pruned from switch branch locations:\n{source}"
+        );
+        let statement_lines: Vec<u32> =
+            result.coverage_map.statement_map.values().map(|loc| loc.start.line).collect();
+        assert_eq!(
+            statement_lines, expected_statement_lines,
+            "ignored case consequent statements should be pruned:\n{source}"
         );
     }
 }
