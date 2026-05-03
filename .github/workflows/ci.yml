@@ -116,6 +116,8 @@ jobs:
       - name: Run napi tests
         working-directory: napi
         run: node test.mjs
+      - name: Run upstream Istanbul spec subset
+        run: node scripts/istanbul-upstream-specs.mjs
 
   istanbul-diff:
     # Byte-for-byte diff against istanbul-lib-instrument on the shared
