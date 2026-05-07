@@ -122,27 +122,11 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         report_logic: bool,
         ignore_class_methods: Vec<String>,
     ) -> Self {
-        let line_offsets: Vec<u32> = std::iter::once(0)
-            .chain(
-                source
-                    .bytes()
-                    .enumerate()
-                    .filter(|(_, b)| *b == b'\n')
-                    .map(|(i, _)| (i + 1) as u32),
-            )
-            .collect();
-        let source_is_ascii = source.is_ascii();
         let cov_fn_name = allocator.alloc_str(cov_fn_name);
-        let cov_fn_bt_name = if report_logic {
-            Some(allocator.alloc_str(&format!("{cov_fn_name}_bt")))
-        } else {
-            None
-        };
-
         Self {
             source,
-            line_offsets,
-            source_is_ascii,
+            line_offsets: compute_line_offsets(source),
+            source_is_ascii: source.is_ascii(),
             fn_map: Vec::new(),
             statement_map: Vec::new(),
             branch_map: Vec::new(),
@@ -160,7 +144,8 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             skip_fn_counter_only: false,
             skip_current_var_decl: false,
             cov_fn_name,
-            cov_fn_bt_name,
+            cov_fn_bt_name: report_logic
+                .then(|| allocator.alloc_str(&format!("{cov_fn_name}_bt"))),
             report_logic,
             ignore_class_methods,
             logical_branch_ids: Vec::new(),
@@ -538,6 +523,20 @@ pub fn generate_cov_fn_name(file_path: &str) -> String {
 /// Create a dummy expression for `mem::replace` operations.
 fn dummy_expr<'a>(ctx: &TraverseCtx<'a, CoverageState>) -> Expression<'a> {
     ctx.ast.expression_numeric_literal(SPAN, 0.0, None, oxc_syntax::number::NumberBase::Decimal)
+}
+
+// Pre-compute byte offsets for the start of each line, used for
+// fast position lookups during traversal.
+fn compute_line_offsets(source: &str) -> Vec<u32> {
+    std::iter::once(0)
+        .chain(
+            source
+                .bytes()
+                .enumerate()
+                .filter(|(_, b)| *b == b'\n')
+                .map(|(i, _)| (i + 1) as u32),
+        )
+        .collect()
 }
 
 // istanbul-lib-instrument treats these variants as containers, not statements:

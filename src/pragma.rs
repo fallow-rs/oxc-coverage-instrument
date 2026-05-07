@@ -38,53 +38,29 @@ pub struct PragmaMap {
 impl PragmaMap {
     /// Build a pragma map from the program's comments and source text.
     pub fn from_program(program: &Program, source: &str) -> (Self, Vec<UnhandledPragma>) {
-        let mut ignores = BTreeMap::new();
-        let mut ignored_ranges = Vec::new();
-        let mut active_ignore_start = None;
-        let mut ignore_file = false;
-        let mut unhandled = Vec::new();
-
+        let mut state = PragmaCollect::default();
         let mut comments: Vec<_> = program.comments.iter().collect();
         comments.sort_by_key(|comment| comment.span.start);
 
         for comment in comments {
-            // Only process block comments that Oxc tagged as coverage-related,
-            // or manually scan for istanbul/v8 patterns in all comments
             let text = Self::comment_text(comment, source);
-
-            if let Some(ignore_type) = Self::parse_pragma(&text) {
-                match ignore_type {
-                    PragmaResult::Ignore(it) => {
-                        let token_start = Self::pragma_target_start(source, comment)
-                            .unwrap_or(comment.attached_to);
-                        ignores.insert(token_start, it);
-                    }
-                    PragmaResult::File => {
-                        ignore_file = true;
-                    }
-                    PragmaResult::Start => {
-                        active_ignore_start.get_or_insert(comment.span.end);
-                    }
-                    PragmaResult::Stop => {
-                        if let Some(start) = active_ignore_start.take()
-                            && start <= comment.span.start
-                        {
-                            ignored_ranges.push((start, comment.span.start));
-                        }
-                    }
-                    PragmaResult::Unknown(comment_text) => {
-                        let (line, column) = Self::line_column(source, comment.span.start);
-                        unhandled.push(UnhandledPragma { comment: comment_text, line, column });
-                    }
-                }
+            if let Some(result) = Self::parse_pragma(&text) {
+                state.apply(result, comment, source);
             }
         }
 
-        if let Some(start) = active_ignore_start {
-            ignored_ranges.push((start, source.len() as u32));
+        if let Some(start) = state.active_ignore_start {
+            state.ignored_ranges.push((start, source.len() as u32));
         }
 
-        (Self { ignores, ignored_ranges, ignore_file }, unhandled)
+        (
+            Self {
+                ignores: state.ignores,
+                ignored_ranges: state.ignored_ranges,
+                ignore_file: state.ignore_file,
+            },
+            state.unhandled,
+        )
     }
 
     /// Get the ignore type for a given token start offset.
@@ -194,4 +170,40 @@ enum PragmaResult {
     Start,
     Stop,
     Unknown(String),
+}
+
+#[derive(Default)]
+struct PragmaCollect {
+    ignores: BTreeMap<u32, IgnoreType>,
+    ignored_ranges: Vec<(u32, u32)>,
+    active_ignore_start: Option<u32>,
+    ignore_file: bool,
+    unhandled: Vec<UnhandledPragma>,
+}
+
+impl PragmaCollect {
+    fn apply(&mut self, result: PragmaResult, comment: &Comment, source: &str) {
+        match result {
+            PragmaResult::Ignore(it) => {
+                let token_start = PragmaMap::pragma_target_start(source, comment)
+                    .unwrap_or(comment.attached_to);
+                self.ignores.insert(token_start, it);
+            }
+            PragmaResult::File => self.ignore_file = true,
+            PragmaResult::Start => {
+                self.active_ignore_start.get_or_insert(comment.span.end);
+            }
+            PragmaResult::Stop => {
+                if let Some(start) = self.active_ignore_start.take()
+                    && start <= comment.span.start
+                {
+                    self.ignored_ranges.push((start, comment.span.start));
+                }
+            }
+            PragmaResult::Unknown(comment_text) => {
+                let (line, column) = PragmaMap::line_column(source, comment.span.start);
+                self.unhandled.push(UnhandledPragma { comment: comment_text, line, column });
+            }
+        }
+    }
 }
