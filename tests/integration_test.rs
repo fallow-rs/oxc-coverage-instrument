@@ -1114,7 +1114,7 @@ fn private_class_property_initializer_gets_statement() {
 #[test]
 fn class_property_initializer_wraps_value() {
     let result = instrument_js("class Foo {\n  x = 1;\n  y = computeDefault();\n}");
-    // Initializer values should be wrapped: x = (++cov().s[N], value)
+    // Initializer values should be wrapped: x = (++cov.s[N], value)
     assert!(result.code.contains(".s["), "Should contain statement counters in class body");
 }
 
@@ -1346,7 +1346,7 @@ fn export_function_has_no_statement_counter() {
 #[test]
 fn export_const_arrow_gets_per_declarator_counter() {
     // istanbul-lib-instrument wraps the declarator init with a statement
-    // counter: `export const add = (++cov().s[N], (a, b) => …)`.
+    // counter: `export const add = (++cov.s[N], (a, b) => …)`.
     // The counter appears AFTER `export`, inline in the init expression.
     let result = instrument_js("export const add = (a, b) => a + b;");
     assert_eq!(result.coverage_map.fn_map.len(), 1);

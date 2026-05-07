@@ -611,7 +611,7 @@ impl<'b> LogicalWrapState<'b> {
 }
 
 /// Wrap a single logical expression leaf with its branch counter.
-/// Without report_logic: `(cov().b[id][pathIdx]++, operand)`
+/// Without report_logic: `(cov.b[id][pathIdx]++, operand)`
 /// With report_logic: additionally wrapped with truthy tracking via a
 /// preamble helper function.
 fn wrap_expression_with_branch_counter<'a>(
@@ -672,7 +672,7 @@ fn wrap_logical_leaf<'a>(
 }
 
 /// Recursively wrap each leaf operand in a chained logical expression with
-/// its branch counter: `(cov().b[id][pathIdx]++, operand)`. Looks through
+/// its branch counter: `(cov.b[id][pathIdx]++, operand)`. Looks through
 /// `ParenthesizedExpression` so `a && (b || c)` wraps all three leaves.
 fn wrap_logical_leaves<'a>(
     expr: &mut LogicalExpression<'a>,
@@ -889,7 +889,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             self.pending_name = Some(id.name.to_string());
         }
 
-        // Per-declarator statement counter: wrap the init with (++cov().s[N], init).
+        // Per-declarator statement counter: wrap the init with (++cov.s[N], init).
         // Mirrors istanbul-lib-instrument's coverVariableDeclarator, which calls
         // insertStatementCounter on path.get('init'). Declarators without an init
         // (`let x;`) produce no statement counter.
@@ -995,7 +995,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // Class property initializers: class Foo { x = expr; #y = expr; }
         // Istanbul creates a statement counter for each initializer expression.
         // Since PropertyDefinition is a class element (not a Statement), enter_statement
-        // won't catch it. We wrap the initializer: x = (++cov().s[N], expr).
+        // won't catch it. We wrap the initializer: x = (++cov.s[N], expr).
         let Some(value) = &prop.value else { return };
         let span = value.span();
         if span.start == 0 && span.end == 0 {
@@ -1275,7 +1275,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
 
         let cov_fn = self.cov_fn_name;
 
-        // Wrap consequent: (cov().b[id][path]++, originalExpr)
+        // Wrap consequent: (cov.b[id][path]++, originalExpr)
         let path_idx = self.add_branch_path(branch_id, expr.consequent.span());
         let counter = build_branch_counter_expr(cov_fn, branch_id, path_idx, ctx);
         let orig_consequent = mem::replace(&mut expr.consequent, dummy_expr(ctx));
@@ -1284,7 +1284,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         items.push(orig_consequent);
         expr.consequent = ctx.ast.expression_sequence(SPAN, items);
 
-        // Wrap alternate: (cov().b[id][path]++, originalExpr)
+        // Wrap alternate: (cov.b[id][path]++, originalExpr)
         let path_idx = self.add_branch_path(branch_id, expr.alternate.span());
         let counter = build_branch_counter_expr(cov_fn, branch_id, path_idx, ctx);
         let orig_alternate = mem::replace(&mut expr.alternate, dummy_expr(ctx));
