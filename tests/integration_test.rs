@@ -1976,3 +1976,125 @@ fn source_map_composition_with_partial_input_map() {
     // The composed map must still decode — mappings string should be non-empty.
     assert!(sm["mappings"].as_str().is_some_and(|m| !m.is_empty()));
 }
+
+#[test]
+fn source_map_composition_preserves_input_names() {
+    // Names from the input source map must be carried into the composed map so
+    // downstream reporters can still resolve symbolicated identifiers. The
+    // input map below declares two names; both should survive composition.
+    let opts = InstrumentOptions {
+        source_map: true,
+        input_source_map: Some(
+            r#"{"version":3,"sources":["original.ts"],"sourcesContent":["const foo = bar;"],"names":["foo","bar"],"mappings":"AAAA"}"#
+                .to_string(),
+        ),
+        ..InstrumentOptions::default()
+    };
+    let result = instrument("const x = 1;", "test.js", &opts).unwrap();
+    let sm: serde_json::Value = serde_json::from_str(result.source_map.as_ref().unwrap()).unwrap();
+    let names: Vec<&str> =
+        sm["names"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
+    assert!(names.contains(&"foo"), "names should include 'foo', got {names:?}");
+    assert!(names.contains(&"bar"), "names should include 'bar', got {names:?}");
+}
+
+// ---------------------------------------------------------------------------
+// Error type Display impls — cover all enum arms so format strings can't drift.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn instrument_error_display_serialization_error() {
+    let err =
+        oxc_coverage_instrument::InstrumentError::SerializationError("circular ref".to_string());
+    assert_eq!(format!("{err}"), "serialization error: circular ref");
+}
+
+// ---------------------------------------------------------------------------
+// Pragma parser edge cases — exercise the unmatched-block, unsupported-tool,
+// and intervening-comment paths in PragmaMap that no existing fixture hits.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn pragma_block_ignore_start_without_stop_extends_to_end_of_file() {
+    // An `ignore start` with no matching `ignore stop` should ignore the
+    // remainder of the file — every statement after the start comment must
+    // produce zero statement counters.
+    let source = "function before() { return 1; }\n\
+                  /* istanbul ignore start */\n\
+                  function ignored_a() { return 2; }\n\
+                  function ignored_b() { return 3; }\n";
+    let result = instrument(source, "test.js", &InstrumentOptions::default()).unwrap();
+    assert_eq!(
+        result.coverage_map.statement_map.len(),
+        1,
+        "only `before`'s body statement should be counted"
+    );
+    let names: Vec<&str> = result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, vec!["before"], "fnMap should only include `before`");
+}
+
+#[test]
+fn pragma_with_unsupported_tool_word_is_ignored() {
+    // Comments whose first token is not istanbul/v8/c8 must not register as
+    // pragmas, even if the rest looks pragma-shaped.
+    let source = "/* eslint ignore next */\nconst x = 1;\n";
+    let result = instrument(source, "test.js", &InstrumentOptions::default()).unwrap();
+    assert_eq!(result.coverage_map.statement_map.len(), 1);
+    assert!(result.unhandled_pragmas.is_empty());
+}
+
+#[test]
+fn pragma_with_only_tool_word_does_not_register() {
+    // `/* istanbul */` is missing the `ignore` keyword and therefore is not a
+    // recognised pragma; the following statement should still be counted.
+    let source = "/* istanbul */\nconst x = 1;\n";
+    let result = instrument(source, "test.js", &InstrumentOptions::default()).unwrap();
+    assert_eq!(result.coverage_map.statement_map.len(), 1);
+    assert!(result.unhandled_pragmas.is_empty());
+}
+
+#[test]
+fn pragma_with_tool_and_non_ignore_keyword_does_not_register() {
+    // `/* istanbul something-else */` has the right tool prefix but the second
+    // token isn't `ignore`, so it should not match.
+    let source = "/* istanbul something-else */\nconst x = 1;\n";
+    let result = instrument(source, "test.js", &InstrumentOptions::default()).unwrap();
+    assert_eq!(result.coverage_map.statement_map.len(), 1);
+    assert!(result.unhandled_pragmas.is_empty());
+}
+
+#[test]
+fn pragma_attaches_to_token_after_intervening_block_comment() {
+    // The pragma is followed by an unrelated /* ... */ block, then a
+    // statement. The next-token scanner must skip past the closing `*/` and
+    // attach the pragma to the statement that follows.
+    let source = "/* istanbul ignore next */ /* unrelated */ const x = 1;\nconst y = 2;\n";
+    let result = instrument(source, "test.js", &InstrumentOptions::default()).unwrap();
+    let lines: Vec<u32> =
+        result.coverage_map.statement_map.values().map(|loc| loc.start.line).collect();
+    assert_eq!(lines, vec![2], "only line 2 (`y`) should be counted, got {lines:?}");
+}
+
+#[test]
+fn pragma_attaches_to_token_after_intervening_line_comment() {
+    // Same idea as above but with a // line comment between the pragma and the
+    // target statement. The scanner must skip past the newline and attach to
+    // the statement that follows.
+    let source = "/* istanbul ignore next */ // throwaway line\nconst x = 1;\nconst y = 2;\n";
+    let result = instrument(source, "test.js", &InstrumentOptions::default()).unwrap();
+    let lines: Vec<u32> =
+        result.coverage_map.statement_map.values().map(|loc| loc.start.line).collect();
+    assert_eq!(lines, vec![3], "only line 3 (`y`) should be counted, got {lines:?}");
+}
+
+#[test]
+fn unhandled_pragma_on_later_line_uses_correct_line_number() {
+    // Existing tests cover line==1 only. Place an unknown pragma on line 3 to
+    // exercise the multi-line line/column lookup (rfind('\n') Some branch).
+    let source = "const a = 1;\nconst b = 2;\n/* istanbul ignore bogus */ const c = 3;\n";
+    let result = instrument(source, "test.js", &InstrumentOptions::default()).unwrap();
+    assert_eq!(result.unhandled_pragmas.len(), 1);
+    let pragma = &result.unhandled_pragmas[0];
+    assert_eq!(pragma.line, 3, "pragma should be reported on line 3, got {pragma:?}");
+    assert_eq!(pragma.column, 0, "pragma column should be 0 (start of line 3), got {pragma:?}");
+}
