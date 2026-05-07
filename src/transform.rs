@@ -30,6 +30,9 @@ pub struct CoverageState {
 pub struct CoverageTransform<'src> {
     source: &'src str,
     line_offsets: Vec<u32>,
+    /// True when the source is pure ASCII so columns can be reported as
+    /// `offset - line_start` without walking chars for UTF-16 width.
+    source_is_ascii: bool,
     fn_counter: usize,
     stmt_counter: usize,
     branch_counter: usize,
@@ -123,10 +126,12 @@ impl<'src> CoverageTransform<'src> {
                     .map(|(i, _)| (i + 1) as u32),
             )
             .collect();
+        let source_is_ascii = source.is_ascii();
 
         Self {
             source,
             line_offsets,
+            source_is_ascii,
             fn_counter: 0,
             stmt_counter: 0,
             branch_counter: 0,
@@ -178,9 +183,13 @@ impl<'src> CoverageTransform<'src> {
         let line_start = self.line_offsets[line] as usize;
         let end = (offset as usize).min(self.source.len());
         // Istanbul/Babel report columns as UTF-16 code units (JavaScript string indices),
-        // not UTF-8 bytes. Convert by walking chars from line start to the offset.
-        let column =
-            self.source[line_start..end].chars().map(char::len_utf16).sum::<usize>() as u32;
+        // not UTF-8 bytes. For ASCII sources the byte distance equals the UTF-16
+        // distance; otherwise walk chars and sum their UTF-16 widths.
+        let column = if self.source_is_ascii {
+            (end - line_start) as u32
+        } else {
+            self.source[line_start..end].chars().map(char::len_utf16).sum::<usize>() as u32
+        };
         Position { line: (line + 1) as u32, column }
     }
 
