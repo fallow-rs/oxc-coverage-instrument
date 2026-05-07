@@ -55,6 +55,11 @@ pub struct InstrumentResult {
     pub code: String,
     /// Istanbul-compatible coverage map for this file.
     pub coverage_map: FileCoverage,
+    /// Pre-serialized JSON of `coverage_map`. Produced once internally for the
+    /// preamble's `coverageData` literal and the hash guard, then exposed here
+    /// so language bindings (napi-rs, etc.) and downstream JSON sinks can avoid
+    /// a second serialization of the same `BTreeMap` tree.
+    pub coverage_map_json: String,
     /// Output source map JSON string (only present if `InstrumentOptions::source_map` is true).
     pub source_map: Option<String>,
     /// Unhandled pragma comments found during instrumentation.
@@ -130,9 +135,12 @@ pub fn instrument(
     if pragmas.ignore_file {
         let coverage_map =
             FileCoverage::from_maps(filename.to_string(), Vec::new(), Vec::new(), Vec::new(), &[]);
+        let coverage_map_json = serde_json::to_string(&coverage_map)
+            .expect("FileCoverage serializes to JSON infallibly");
         return Ok(InstrumentResult {
             code: source.to_string(),
             coverage_map,
+            coverage_map_json,
             source_map: None,
             unhandled_pragmas,
         });
@@ -231,7 +239,13 @@ pub fn instrument(
         offset_sm.to_json_string()
     });
 
-    Ok(InstrumentResult { code, coverage_map, source_map: source_map_json, unhandled_pragmas })
+    Ok(InstrumentResult {
+        code,
+        coverage_map,
+        coverage_map_json: coverage_json,
+        source_map: source_map_json,
+        unhandled_pragmas,
+    })
 }
 
 /// Compose two source maps: for each mapping in `output_sm` (instrumented → intermediate),

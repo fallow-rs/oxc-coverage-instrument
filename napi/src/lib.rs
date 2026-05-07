@@ -70,9 +70,6 @@ pub fn instrument(
     let result = oxc_coverage_instrument::instrument(&source, &filename, &opts)
         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;
 
-    let coverage_map = serde_json::to_string(&result.coverage_map)
-        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;
-
     let unhandled_pragmas = result
         .unhandled_pragmas
         .into_iter()
@@ -81,7 +78,7 @@ pub fn instrument(
 
     Ok(InstrumentResult {
         code: result.code,
-        coverage_map,
+        coverage_map: result.coverage_map_json,
         source_map: result.source_map,
         unhandled_pragmas,
     })

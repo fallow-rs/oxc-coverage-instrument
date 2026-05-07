@@ -75,10 +75,48 @@ fn bench_instrument_scaling(c: &mut Criterion) {
     group.finish();
 }
 
+/// Mirrors what the napi binding does end-to-end: instrument, then surface a
+/// JSON string of the coverage map. Pre-round-5 the binding ran a second
+/// `serde_json::to_string(&coverage_map)` after `instrument()`; post-round-5
+/// it consumes `result.coverage_map_json` directly. Two benches let us see
+/// how much the napi-side serialization cost.
+fn bench_napi_path(c: &mut Criterion) {
+    let fixtures = [
+        ("small_pragma", "pragmas.js"),
+        ("medium_app", "medium-app.js"),
+        ("medium_typescript", "typescript-advanced.ts"),
+        ("large_module", "large-module.js"),
+    ];
+    let opts = InstrumentOptions { source_map: true, ..InstrumentOptions::default() };
+
+    let mut group = c.benchmark_group("napi_path");
+    for (label, filename) in &fixtures {
+        let source = read_fixture(filename);
+
+        // Old napi path: re-serializes the coverage map.
+        group.bench_with_input(BenchmarkId::new("legacy", label), &source, |b, source| {
+            b.iter(|| {
+                let r = instrument(source, filename, &opts).unwrap();
+                std::hint::black_box(serde_json::to_string(&r.coverage_map).unwrap());
+            });
+        });
+
+        // New napi path: consumes the cached JSON produced internally.
+        group.bench_with_input(BenchmarkId::new("cached", label), &source, |b, source| {
+            b.iter(|| {
+                let r = instrument(source, filename, &opts).unwrap();
+                std::hint::black_box(r.coverage_map_json);
+            });
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_instrument_fixtures,
     bench_instrument_with_source_map,
-    bench_instrument_scaling
+    bench_instrument_scaling,
+    bench_napi_path
 );
 criterion_main!(benches);
