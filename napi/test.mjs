@@ -419,4 +419,84 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] No-block statement-child body counters');
 }
 
+// Test 13: reportLogic adds bT (truthy-value tracking) for logical operands
+{
+  const source = 'function f(a, b) { return a && b; }';
+
+  const off = instrument(source, 'logic.js');
+  const cmOff = JSON.parse(off.coverageMap);
+  const binaryIdsOff = Object.entries(cmOff.branchMap)
+    .filter(([, entry]) => entry.type === 'binary-expr')
+    .map(([id]) => id);
+  assert(binaryIdsOff.length > 0, 'Should record binary-expr branches');
+  assert.equal(cmOff.bT, undefined, 'bT must be omitted when reportLogic is off');
+
+  const on = instrument(source, 'logic.js', { reportLogic: true });
+  const cmOn = JSON.parse(on.coverageMap);
+  assert(cmOn.bT, 'bT must be present when reportLogic is on');
+  for (const id of binaryIdsOff) {
+    assert(Array.isArray(cmOn.bT[id]), `bT[${id}] should be an array`);
+    assert.equal(
+      cmOn.bT[id].length,
+      cmOn.b[id].length,
+      `bT[${id}] arity should match b[${id}] arity`,
+    );
+  }
+  console.log('  [PASS] reportLogic adds bT counters');
+}
+
+// Test 14: inputSourceMap is composed into the coverage map
+{
+  const inputSourceMap = JSON.stringify({
+    version: 3,
+    sources: ['original.ts'],
+    names: [],
+    mappings: 'AAAA',
+    file: 'pre-transform.js',
+  });
+
+  const result = instrument('const x = 1;', 'after-transform.js', { inputSourceMap });
+  const cm = JSON.parse(result.coverageMap);
+  assert(cm.inputSourceMap, 'inputSourceMap must be attached to the coverage map');
+  assert.equal(cm.inputSourceMap.version, 3);
+  assert.deepEqual(cm.inputSourceMap.sources, ['original.ts']);
+  console.log('  [PASS] inputSourceMap composed into coverage map');
+}
+
+// Test 15: ignoreClassMethods drops fnMap entries for matching methods
+{
+  const source = `
+    class C {
+      keep() { return 1; }
+      drop() { return 2; }
+    }
+  `;
+
+  const baseline = instrument(source, 'class.js');
+  const baselineNames = Object.values(JSON.parse(baseline.coverageMap).fnMap).map((f) => f.name);
+  assert(baselineNames.includes('keep') && baselineNames.includes('drop'), 'Baseline should include both methods');
+
+  const filtered = instrument(source, 'class.js', { ignoreClassMethods: ['drop'] });
+  const filteredNames = Object.values(JSON.parse(filtered.coverageMap).fnMap).map((f) => f.name);
+  assert(filteredNames.includes('keep'), 'Non-ignored method should still be tracked');
+  assert(!filteredNames.includes('drop'), 'Ignored class method should be omitted from fnMap');
+  console.log('  [PASS] ignoreClassMethods drops fnMap entries');
+}
+
+// Test 16: unhandledPragmas surfaces unrecognized istanbul/v8 directives
+{
+  const source = '/* istanbul ignore bogus */ const x = 1;';
+  const result = instrument(source, 'pragma.js');
+  assert(Array.isArray(result.unhandledPragmas), 'unhandledPragmas must be an array');
+  assert.equal(result.unhandledPragmas.length, 1, 'Should report exactly one unhandled pragma');
+  const [pragma] = result.unhandledPragmas;
+  assert(pragma.comment.includes('istanbul ignore bogus'), 'Comment text should include the directive');
+  assert.equal(pragma.line, 1, 'Line should be 1-based');
+  assert.equal(pragma.column, 0, 'Column should be 0-based');
+
+  const clean = instrument('const x = 1;', 'clean.js');
+  assert.equal(clean.unhandledPragmas.length, 0, 'Clean source should have no unhandled pragmas');
+  console.log('  [PASS] unhandledPragmas surfaces unknown directives');
+}
+
 console.log('\nAll tests passed!');
