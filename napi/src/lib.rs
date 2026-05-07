@@ -51,8 +51,6 @@ pub struct InstrumentResult {
 ///
 /// Parses the source with Oxc, injects Istanbul-compatible coverage counters
 /// via AST mutation, and returns the instrumented code with a coverage map.
-///
-/// 58x faster than istanbul-lib-instrument.
 #[napi]
 pub fn instrument(
     source: String,
