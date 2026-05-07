@@ -81,11 +81,15 @@ build_oxc() {
 }
 
 build_napi() {
-  if [[ ! -f "${NAPI_DIR}/coverage-instrument.darwin-arm64.node" ]] && \
-     [[ ! -f "${NAPI_DIR}/coverage-instrument.darwin-x64.node" ]] && \
-     [[ ! -f "${NAPI_DIR}/coverage-instrument.linux-x64-gnu.node" ]]; then
+  local node_bin
+  node_bin=$(ls "${NAPI_DIR}"/coverage-instrument.*.node 2>/dev/null | head -1)
+  local newest_src
+  newest_src=$(find "$ROOT_DIR/src" "$NAPI_DIR/src" "$NAPI_DIR/Cargo.toml" "$ROOT_DIR/Cargo.toml" \
+    -type f -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)
+  if [[ -z "$node_bin" ]] || [[ -n "$newest_src" && "$newest_src" -nt "$node_bin" ]]; then
     echo "  building napi bindings (release)..." >&2
-    (cd "$NAPI_DIR" && npm run build 2>&1 | tail -1)
+    (cd "$NAPI_DIR" && cargo clean -p oxc_coverage_instrument_napi >/dev/null 2>&1; \
+                      npm run build 2>&1 | tail -1)
   fi
 }
 
