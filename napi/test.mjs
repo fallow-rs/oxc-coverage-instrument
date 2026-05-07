@@ -425,41 +425,49 @@ function runInstrumented(result, filename, callExpression) {
 
   const off = instrument(source, 'logic.js');
   const cmOff = JSON.parse(off.coverageMap);
-  const binaryIdsOff = Object.entries(cmOff.branchMap)
+  const binaryIds = Object.entries(cmOff.branchMap)
     .filter(([, entry]) => entry.type === 'binary-expr')
     .map(([id]) => id);
-  assert(binaryIdsOff.length > 0, 'Should record binary-expr branches');
+  assert.equal(binaryIds.length, 1, 'Should record exactly one binary-expr branch for `a && b`');
   assert.equal(cmOff.bT, undefined, 'bT must be omitted when reportLogic is off');
 
   const on = instrument(source, 'logic.js', { reportLogic: true });
-  const cmOn = JSON.parse(on.coverageMap);
-  assert(cmOn.bT, 'bT must be present when reportLogic is on');
-  for (const id of binaryIdsOff) {
-    assert(Array.isArray(cmOn.bT[id]), `bT[${id}] should be an array`);
-    assert.equal(
-      cmOn.bT[id].length,
-      cmOn.b[id].length,
-      `bT[${id}] arity should match b[${id}] arity`,
-    );
-  }
-  console.log('  [PASS] reportLogic adds bT counters');
+  const coverage = runInstrumented(
+    on,
+    'logic.js',
+    'globalThis.f = f;\nf(0, 0); f(1, 0); f(1, 1);',
+  );
+  const [id] = binaryIds;
+
+  // Three calls: f(0,0), f(1,0), f(1,1)
+  // b[0] (a evaluated) = 3; b[1] (b evaluated when a truthy) = 2
+  assert.deepEqual(coverage.b[id], [3, 2], 'b counts should reflect short-circuit semantics');
+  // bT[0] (a truthy) = 2 (calls 2,3); bT[1] (b truthy) = 1 (call 3)
+  assert.deepEqual(coverage.bT[id], [2, 1], 'bT counts should reflect truthy outcomes per operand');
+  console.log('  [PASS] reportLogic tracks truthy hits at runtime');
 }
 
 // Test 14: inputSourceMap is composed into the coverage map
 {
-  const inputSourceMap = JSON.stringify({
+  const inputSourceMap = {
     version: 3,
     sources: ['original.ts'],
-    names: [],
-    mappings: 'AAAA',
+    names: ['x'],
+    mappings: 'AAAA,EAAA',
+    sourcesContent: ['const x: number = 1;\n'],
     file: 'pre-transform.js',
-  });
+  };
 
-  const result = instrument('const x = 1;', 'after-transform.js', { inputSourceMap });
+  const result = instrument('const x = 1;', 'after-transform.js', {
+    inputSourceMap: JSON.stringify(inputSourceMap),
+  });
   const cm = JSON.parse(result.coverageMap);
   assert(cm.inputSourceMap, 'inputSourceMap must be attached to the coverage map');
   assert.equal(cm.inputSourceMap.version, 3);
-  assert.deepEqual(cm.inputSourceMap.sources, ['original.ts']);
+  assert.deepEqual(cm.inputSourceMap.sources, inputSourceMap.sources);
+  assert.equal(cm.inputSourceMap.mappings, inputSourceMap.mappings, 'mappings should pass through verbatim');
+  assert.deepEqual(cm.inputSourceMap.names, inputSourceMap.names);
+  assert.deepEqual(cm.inputSourceMap.sourcesContent, inputSourceMap.sourcesContent);
   console.log('  [PASS] inputSourceMap composed into coverage map');
 }
 
