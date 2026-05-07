@@ -445,22 +445,20 @@ fn build_pending_counter_stmt<'a>(
 /// This matches the approach used by istanbul-lib-instrument.
 pub fn generate_preamble_source(
     coverage: &FileCoverage,
+    coverage_json: &str,
     coverage_hash: &str,
     coverage_var: &str,
     cov_fn_name: &str,
     report_logic: bool,
 ) -> Result<String, serde_json::Error> {
-    let estimated_size = 256
-        + coverage.statement_map.len() * 80
-        + coverage.fn_map.len() * 120
-        + coverage.branch_map.len() * 120;
+    let estimated_size = 256 + coverage_json.len();
     let mut buf = String::with_capacity(estimated_size);
     let _ = write!(buf, "var {cov_fn_name} = (function () {{ var path = ");
     buf.push_str(&serde_json::to_string(&coverage.path)?);
     let _ = write!(buf, "; var hash = ");
     buf.push_str(&serde_json::to_string(coverage_hash)?);
     let _ = write!(buf, "; var gcv = '{coverage_var}'; var coverageData = ");
-    buf.push_str(&serde_json::to_string(coverage)?);
+    buf.push_str(coverage_json);
     let _ = writeln!(
         buf,
         "; coverageData.hash = hash; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path] || coverage[gcv][path].hash !== hash) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }});"

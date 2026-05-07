@@ -175,16 +175,18 @@ pub fn instrument(
         coverage_map.input_source_map = serde_json::from_str(input_sm).ok();
     }
 
-    // Refresh stale coverage objects when the same path is reinstrumented with a
-    // different shape in the same runtime. Istanbul does this with a hash guard.
-    let coverage_hash = stable_hex_hash(
-        &serde_json::to_string(&coverage_map)
-            .map_err(|e| InstrumentError::SerializationError(e.to_string()))?,
-    );
+    // Serialize the coverage map once and reuse it for both the hash guard and
+    // the preamble's coverageData literal. Istanbul refreshes stale coverage
+    // objects when the same path is reinstrumented with a different shape, and
+    // the hash is computed over the same JSON we embed in the preamble.
+    let coverage_json = serde_json::to_string(&coverage_map)
+        .map_err(|e| InstrumentError::SerializationError(e.to_string()))?;
+    let coverage_hash = stable_hex_hash(&coverage_json);
 
     // Phase 2: Generate preamble source and prepend to program
     let preamble = generate_preamble_source(
         &coverage_map,
+        &coverage_json,
         &coverage_hash,
         &options.coverage_variable,
         &cov_fn_name,
