@@ -560,6 +560,36 @@ fn is_ignored_case(case: &SwitchCase, pragmas: &PragmaMap) -> bool {
             .is_some_and(|stmt| pragmas.get(stmt.span().start) == Some(IgnoreType::Next))
 }
 
+fn jsx_attribute_ignored(attr: &JSXAttribute, pragmas: &PragmaMap, skip_next: bool) -> bool {
+    pragmas.get(attr.span.start) == Some(IgnoreType::Next)
+        || pragmas.get(attr.name.span().start) == Some(IgnoreType::Next)
+        || skip_next
+}
+
+fn jsx_spread_attribute_ignored(
+    attr: &JSXSpreadAttribute,
+    pragmas: &PragmaMap,
+    skip_next: bool,
+) -> bool {
+    pragmas.get(attr.span.start) == Some(IgnoreType::Next)
+        || pragmas.get(attr.argument.span().start) == Some(IgnoreType::Next)
+        || skip_next
+}
+
+fn jsx_child_ignored(child: &JSXChild, pragmas: &PragmaMap, skip_next: bool) -> bool {
+    pragmas.get(child.span().start) == Some(IgnoreType::Next)
+        || match child {
+            JSXChild::ExpressionContainer(container) => {
+                pragmas.get(container.expression.span().start) == Some(IgnoreType::Next)
+            }
+            JSXChild::Spread(spread) => {
+                pragmas.get(spread.expression.span().start) == Some(IgnoreType::Next)
+            }
+            _ => false,
+        }
+        || skip_next
+}
+
 struct LogicalWrapState<'b> {
     cov_fn_name: &'b str,
     /// Pre-interned `${cov_fn_name}_bt` helper, only set when `report_logic` is true.
@@ -1241,35 +1271,35 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         {
             return;
         }
-        let branch_id = self.add_branch("cond-expr", expr.span);
         let ignore_consequent =
             ctx.state.pragmas.get(expr.consequent.span().start) == Some(IgnoreType::Next);
         let ignore_alternate =
             ctx.state.pragmas.get(expr.alternate.span().start) == Some(IgnoreType::Next);
+        if ignore_consequent || ignore_alternate {
+            return;
+        }
+
+        let branch_id = self.add_branch("cond-expr", expr.span);
 
         let cov_fn = self.cov_fn_name;
 
-        if !ignore_consequent {
-            // Wrap consequent: (cov().b[id][path]++, originalExpr)
-            let path_idx = self.add_branch_path(branch_id, expr.consequent.span());
-            let counter = build_branch_counter_expr(cov_fn, branch_id, path_idx, ctx);
-            let orig_consequent = mem::replace(&mut expr.consequent, dummy_expr(ctx));
-            let mut items = ctx.ast.vec();
-            items.push(counter);
-            items.push(orig_consequent);
-            expr.consequent = ctx.ast.expression_sequence(SPAN, items);
-        }
+        // Wrap consequent: (cov().b[id][path]++, originalExpr)
+        let path_idx = self.add_branch_path(branch_id, expr.consequent.span());
+        let counter = build_branch_counter_expr(cov_fn, branch_id, path_idx, ctx);
+        let orig_consequent = mem::replace(&mut expr.consequent, dummy_expr(ctx));
+        let mut items = ctx.ast.vec();
+        items.push(counter);
+        items.push(orig_consequent);
+        expr.consequent = ctx.ast.expression_sequence(SPAN, items);
 
-        if !ignore_alternate {
-            // Wrap alternate: (cov().b[id][path]++, originalExpr)
-            let path_idx = self.add_branch_path(branch_id, expr.alternate.span());
-            let counter = build_branch_counter_expr(cov_fn, branch_id, path_idx, ctx);
-            let orig_alternate = mem::replace(&mut expr.alternate, dummy_expr(ctx));
-            let mut items = ctx.ast.vec();
-            items.push(counter);
-            items.push(orig_alternate);
-            expr.alternate = ctx.ast.expression_sequence(SPAN, items);
-        }
+        // Wrap alternate: (cov().b[id][path]++, originalExpr)
+        let path_idx = self.add_branch_path(branch_id, expr.alternate.span());
+        let counter = build_branch_counter_expr(cov_fn, branch_id, path_idx, ctx);
+        let orig_alternate = mem::replace(&mut expr.alternate, dummy_expr(ctx));
+        let mut items = ctx.ast.vec();
+        items.push(counter);
+        items.push(orig_alternate);
+        expr.alternate = ctx.ast.expression_sequence(SPAN, items);
     }
 
     fn enter_switch_statement(
@@ -1309,6 +1339,66 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         self.ignored_switch_case_stack.pop();
     }
 
+    fn enter_jsx_attribute(
+        &mut self,
+        attr: &mut JSXAttribute<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        let ignored = jsx_attribute_ignored(attr, &ctx.state.pragmas, self.skip_next);
+        self.ignored_prop_stack.push(ignored);
+        if ignored {
+            self.skip_next = false;
+        }
+    }
+
+    fn exit_jsx_attribute(
+        &mut self,
+        _attr: &mut JSXAttribute<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.ignored_prop_stack.pop();
+    }
+
+    fn enter_jsx_spread_attribute(
+        &mut self,
+        attr: &mut JSXSpreadAttribute<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        let ignored = jsx_spread_attribute_ignored(attr, &ctx.state.pragmas, self.skip_next);
+        self.ignored_prop_stack.push(ignored);
+        if ignored {
+            self.skip_next = false;
+        }
+    }
+
+    fn exit_jsx_spread_attribute(
+        &mut self,
+        _attr: &mut JSXSpreadAttribute<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.ignored_prop_stack.pop();
+    }
+
+    fn enter_jsx_child(
+        &mut self,
+        child: &mut JSXChild<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        let ignored = jsx_child_ignored(child, &ctx.state.pragmas, self.skip_next);
+        self.ignored_prop_stack.push(ignored);
+        if ignored {
+            self.skip_next = false;
+        }
+    }
+
+    fn exit_jsx_child(
+        &mut self,
+        _child: &mut JSXChild<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.ignored_prop_stack.pop();
+    }
+
     fn enter_logical_expression(
         &mut self,
         expr: &mut LogicalExpression<'a>,
@@ -1329,8 +1419,13 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                     return;
                 }
 
+                let leaf_spans = collect_logical_leaf_spans(expr, &ctx.state.pragmas);
+                if leaf_spans.len() < 2 {
+                    return;
+                }
+
                 let branch_id = self.add_branch("binary-expr", expr.span);
-                for span in collect_logical_leaf_spans(expr, &ctx.state.pragmas) {
+                for span in leaf_spans {
                     self.add_branch_path(branch_id, span);
                 }
 
