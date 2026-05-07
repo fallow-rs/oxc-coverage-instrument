@@ -213,15 +213,31 @@ impl FileCoverage {
         serde_json::from_str(json)
     }
 
-    /// Create a new `FileCoverage` with empty hit counts initialized from the maps.
+    /// Create a new `FileCoverage` with empty hit counts from sequential
+    /// id-indexed Vecs collected during AST traversal. The Vecs are converted
+    /// once into the Istanbul-shaped `BTreeMap<String, _>` here so the hot
+    /// traversal path avoids per-add String allocations and tree rebalancing.
     pub(crate) fn from_maps(
         path: String,
-        statement_map: BTreeMap<String, Location>,
-        fn_map: BTreeMap<String, FnEntry>,
-        mut branch_map: BTreeMap<String, BranchEntry>,
+        statement_locs: Vec<Location>,
+        fn_entries: Vec<FnEntry>,
+        branch_entries: Vec<BranchEntry>,
         logical_branch_ids: &[usize],
     ) -> Self {
-        branch_map.retain(|_, entry| !entry.locations.is_empty());
+        let statement_map: BTreeMap<String, Location> =
+            statement_locs.into_iter().enumerate().map(|(i, loc)| (i.to_string(), loc)).collect();
+        let fn_map: BTreeMap<String, FnEntry> =
+            fn_entries.into_iter().enumerate().map(|(i, e)| (i.to_string(), e)).collect();
+        // Drop branches that never got any path locations (e.g. an `if` arm
+        // suppressed by `/* istanbul ignore if */`). Original ids are preserved
+        // so logical_branch_ids can index back into the surviving entries.
+        let branch_map: BTreeMap<String, BranchEntry> = branch_entries
+            .into_iter()
+            .enumerate()
+            .filter(|(_, entry)| !entry.locations.is_empty())
+            .map(|(i, entry)| (i.to_string(), entry))
+            .collect();
+
         let s = statement_map.keys().map(|k| (k.clone(), 0)).collect();
         let f = fn_map.keys().map(|k| (k.clone(), 0)).collect();
         let b = branch_map

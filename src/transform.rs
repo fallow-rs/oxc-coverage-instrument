@@ -7,7 +7,6 @@
 //! 3. Converts arrow expression bodies to block bodies when needed
 //! 4. Prepends the coverage initialization preamble to the program
 
-use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::mem;
 
@@ -33,12 +32,13 @@ pub struct CoverageTransform<'src, 'arena> {
     /// True when the source is pure ASCII so columns can be reported as
     /// `offset - line_start` without walking chars for UTF-16 width.
     source_is_ascii: bool,
-    fn_counter: usize,
-    stmt_counter: usize,
-    branch_counter: usize,
-    pub fn_map: BTreeMap<String, FnEntry>,
-    pub statement_map: BTreeMap<String, Location>,
-    pub branch_map: BTreeMap<String, BranchEntry>,
+    /// Function entries indexed by sequential id. Materialized into a
+    /// `BTreeMap<String, FnEntry>` once in `FileCoverage::from_maps`.
+    pub fn_map: Vec<FnEntry>,
+    /// Statement locations indexed by sequential id.
+    pub statement_map: Vec<Location>,
+    /// Branch entries indexed by sequential id.
+    pub branch_map: Vec<BranchEntry>,
     /// Name inherited from a parent node (variable declarator, method definition).
     pending_name: Option<String>,
     /// `decl` span inherited from a class `MethodDefinition`. A method's inner
@@ -143,12 +143,9 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             source,
             line_offsets,
             source_is_ascii,
-            fn_counter: 0,
-            stmt_counter: 0,
-            branch_counter: 0,
-            fn_map: BTreeMap::new(),
-            statement_map: BTreeMap::new(),
-            branch_map: BTreeMap::new(),
+            fn_map: Vec::new(),
+            statement_map: Vec::new(),
+            branch_map: Vec::new(),
             pending_name: None,
             pending_method_decl: None,
             pending_stmts: Vec::new(),
@@ -206,40 +203,33 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
     }
 
     fn add_function(&mut self, name: String, decl_span: Span, body_span: Span) -> usize {
-        let id_num = self.fn_counter;
-        let id = id_num.to_string();
-        self.fn_counter += 1;
+        let id_num = self.fn_map.len();
         let line = self.offset_to_position(decl_span.start).line;
-        self.fn_map.insert(
-            id,
-            FnEntry {
-                name,
-                line,
-                decl: self.span_to_location(decl_span),
-                loc: self.span_to_location(body_span),
-            },
-        );
+        self.fn_map.push(FnEntry {
+            name,
+            line,
+            decl: self.span_to_location(decl_span),
+            loc: self.span_to_location(body_span),
+        });
         id_num
     }
 
     fn add_statement(&mut self, span: Span) -> usize {
-        let id_num = self.stmt_counter;
-        let id = id_num.to_string();
-        self.stmt_counter += 1;
-        self.statement_map.insert(id, self.span_to_location(span));
+        let id_num = self.statement_map.len();
+        self.statement_map.push(self.span_to_location(span));
         id_num
     }
 
     fn add_branch(&mut self, branch_type: &str, span: Span) -> usize {
-        let id_num = self.branch_counter;
-        let id = id_num.to_string();
-        self.branch_counter += 1;
+        let id_num = self.branch_map.len();
         let loc = self.span_to_location(span);
         let line = loc.start.line;
-        self.branch_map.insert(
-            id,
-            BranchEntry { loc, line, branch_type: branch_type.to_string(), locations: Vec::new() },
-        );
+        self.branch_map.push(BranchEntry {
+            loc,
+            line,
+            branch_type: branch_type.to_string(),
+            locations: Vec::new(),
+        });
         id_num
     }
 
@@ -261,7 +251,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
     fn add_branch_path_location(&mut self, branch_id: usize, location: Location) -> usize {
         let entry = self
             .branch_map
-            .get_mut(&branch_id.to_string())
+            .get_mut(branch_id)
             .expect("branch path must reference an existing branch");
         let path_idx = entry.locations.len();
         entry.locations.push(location);
@@ -327,7 +317,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         if let Some(id) = &func.id {
             return id.name.to_string();
         }
-        format!("(anonymous_{})", self.fn_counter)
+        format!("(anonymous_{})", self.fn_map.len())
     }
 }
 
@@ -778,8 +768,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             return;
         }
 
-        let name =
-            self.pending_name.take().unwrap_or_else(|| format!("(anonymous_{})", self.fn_counter));
+        let name = self
+            .pending_name
+            .take()
+            .unwrap_or_else(|| format!("(anonymous_{})", self.fn_map.len()));
         let fn_id = self.add_function(
             name,
             Span::new(arrow.span.start, arrow.span.start + 1),

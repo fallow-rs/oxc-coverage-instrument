@@ -128,13 +128,8 @@ pub fn instrument(
 
     // If the entire file is ignored, return empty coverage
     if pragmas.ignore_file {
-        let coverage_map = FileCoverage::from_maps(
-            filename.to_string(),
-            std::collections::BTreeMap::new(),
-            std::collections::BTreeMap::new(),
-            std::collections::BTreeMap::new(),
-            &[],
-        );
+        let coverage_map =
+            FileCoverage::from_maps(filename.to_string(), Vec::new(), Vec::new(), Vec::new(), &[]);
         return Ok(InstrumentResult {
             code: source.to_string(),
             coverage_map,
