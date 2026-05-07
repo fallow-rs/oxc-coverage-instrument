@@ -41,6 +41,8 @@ fi
 
 # ---------- helpers ----------
 
+BENCH_FILES=()
+
 setup_files() {
   mkdir -p "$FILES_DIR"
   local urls=(
@@ -61,6 +63,7 @@ setup_files() {
       echo "  downloading ${name}..." >&2
       curl -sL "$url" -o "${FILES_DIR}/${name}"
     fi
+    BENCH_FILES+=("${FILES_DIR}/${name}")
   done
 }
 
@@ -229,7 +232,7 @@ printf "|%-27s|%10s|%12s|%14s|%12s|%14s|\n" \
   "$(printf -- '-%.0s' {1..12})" "$(printf -- '-%.0s' {1..14})" \
   "$(printf -- '-%.0s' {1..12})" "$(printf -- '-%.0s' {1..14})"
 
-for filepath in "$FILES_DIR"/*.js; do
+for filepath in "${BENCH_FILES[@]}"; do
   name=$(basename "$filepath")
   size_bytes=$(wc -c < "$filepath" | tr -d ' ')
   if (( size_bytes > 1048576 )); then
@@ -254,7 +257,7 @@ printf "| %-25s | %8s | %12s |\n" "File" "Size" "oxc (native)"
 printf "|%-27s|%10s|%14s|\n" \
   "$(printf -- '-%.0s' {1..27})" "$(printf -- '-%.0s' {1..10})" "$(printf -- '-%.0s' {1..14})"
 
-for filepath in "$FILES_DIR"/*.js; do
+for filepath in "${BENCH_FILES[@]}"; do
   name=$(basename "$filepath")
   size_bytes=$(wc -c < "$filepath" | tr -d ' ')
   if (( size_bytes > 1048576 )); then
