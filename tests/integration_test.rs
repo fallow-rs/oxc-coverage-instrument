@@ -269,7 +269,7 @@ fn no_block_loop_bodies_emit_statement_counters() {
             "{name} should still use statement coverage rather than branch coverage"
         );
         assert_eq!(
-            result.code.matches("().s[").count(),
+            result.code.matches(".s[").count(),
             result.coverage_map.statement_map.len(),
             "{name} should emit one executable statement counter for every statementMap entry"
         );
@@ -291,7 +291,7 @@ fn no_block_statement_child_containers_emit_body_counters() {
     for (name, source) in sources {
         let result = instrument_js(source);
         assert_eq!(
-            result.code.matches("().s[").count(),
+            result.code.matches(".s[").count(),
             result.coverage_map.statement_map.len(),
             "{name} should emit one executable statement counter for every statementMap entry"
         );
@@ -1041,6 +1041,22 @@ fn preamble_refreshes_stale_coverage_by_hash() {
 
     assert!(first.code.contains("coverageData.hash = hash;"));
     assert!(second.code.contains("coverage[gcv][path].hash !== hash"));
+}
+
+#[test]
+fn preamble_invokes_setup_once_and_counters_use_cached_coverage() {
+    let result = instrument_js("function f() { return 1; }");
+    let cov_start = result.code.find("var cov_").unwrap() + 4;
+    let cov_end = result.code[cov_start..].find(' ').unwrap() + cov_start;
+    let cov_name = &result.code[cov_start..cov_end];
+    assert!(
+        result.code.contains("return actualCoverage; })();"),
+        "coverage setup should be invoked once in the preamble"
+    );
+    assert!(
+        !result.code.contains(&format!("{cov_name}().")),
+        "counter sites should not call the coverage setup function"
+    );
 }
 
 // ---------------------------------------------------------------------------

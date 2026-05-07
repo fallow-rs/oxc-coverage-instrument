@@ -3,7 +3,7 @@
 //! Replaces the source-level text injection approach with proper AST mutation.
 //! The transform:
 //! 1. Collects coverage span metadata (same as the old visitor)
-//! 2. Injects counter expression statements (`cov_fn().s[N]++`) into the AST
+//! 2. Injects counter expression statements (`cov_fn.s[N]++`) into the AST
 //! 3. Converts arrow expression bodies to block bodies when needed
 //! 4. Prepends the coverage initialization preamble to the program
 
@@ -326,25 +326,17 @@ fn alloc_str<'a>(s: &str, ctx: &TraverseCtx<'a, CoverageState>) -> &'a str {
     ctx.ast.allocator.alloc_str(s)
 }
 
-/// Build a counter expression: `cov_fn().type[id]++`
+/// Build a counter expression: `cov_fn.type[id]++`
 fn build_counter_expr<'a>(
     cov_fn_name: &'a str,
     counter_type: &str,
     counter_id: usize,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) -> Expression<'a> {
-    let callee = ctx.ast.expression_identifier(SPAN, cov_fn_name);
-    let call = ctx.ast.expression_call(
-        SPAN,
-        callee,
-        None::<TSTypeParameterInstantiation>,
-        ctx.ast.vec(),
-        false,
-    );
-
+    let coverage = ctx.ast.expression_identifier(SPAN, cov_fn_name);
     let ct = alloc_str(counter_type, ctx);
     let member =
-        ctx.ast.member_expression_static(SPAN, call, ctx.ast.identifier_name(SPAN, ct), false);
+        ctx.ast.member_expression_static(SPAN, coverage, ctx.ast.identifier_name(SPAN, ct), false);
     let member_expr = Expression::from(member);
 
     let computed = ctx.ast.member_expression_computed(
@@ -363,24 +355,16 @@ fn build_counter_expr<'a>(
     ctx.ast.expression_update(SPAN, UpdateOperator::Increment, true, target)
 }
 
-/// Build a branch counter expression: `cov_fn().b[branch_id][path_idx]++`
+/// Build a branch counter expression: `cov_fn.b[branch_id][path_idx]++`
 fn build_branch_counter_expr<'a>(
     cov_fn_name: &'a str,
     branch_id: usize,
     path_idx: usize,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) -> Expression<'a> {
-    let callee = ctx.ast.expression_identifier(SPAN, cov_fn_name);
-    let call = ctx.ast.expression_call(
-        SPAN,
-        callee,
-        None::<TSTypeParameterInstantiation>,
-        ctx.ast.vec(),
-        false,
-    );
-
+    let coverage = ctx.ast.expression_identifier(SPAN, cov_fn_name);
     let member =
-        ctx.ast.member_expression_static(SPAN, call, ctx.ast.identifier_name(SPAN, "b"), false);
+        ctx.ast.member_expression_static(SPAN, coverage, ctx.ast.identifier_name(SPAN, "b"), false);
     let member_expr = Expression::from(member);
 
     let computed1 = ctx.ast.member_expression_computed(
@@ -412,7 +396,7 @@ fn build_branch_counter_expr<'a>(
     ctx.ast.expression_update(SPAN, UpdateOperator::Increment, true, target)
 }
 
-/// Build a counter expression statement: `cov_fn().type[id]++;`
+/// Build a counter expression statement: `cov_fn.type[id]++;`
 fn build_counter_stmt<'a>(
     cov_fn_name: &'a str,
     counter_type: &str,
@@ -423,7 +407,7 @@ fn build_counter_stmt<'a>(
     ctx.ast.statement_expression(SPAN, expr)
 }
 
-/// Build a branch counter statement: `cov_fn().b[branch_id][path_idx]++;`
+/// Build a branch counter statement: `cov_fn.b[branch_id][path_idx]++;`
 fn build_branch_counter_stmt<'a>(
     cov_fn_name: &'a str,
     branch_id: usize,
@@ -470,7 +454,7 @@ pub fn generate_preamble_source(
     buf.push_str(coverage_json);
     let _ = writeln!(
         buf,
-        "; coverageData.hash = hash; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path] || coverage[gcv][path].hash !== hash) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }});"
+        "; coverageData.hash = hash; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path] || coverage[gcv][path].hash !== hash) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }})();"
     );
     if report_logic {
         // Declare temp variable and truthy tracking helper function.
@@ -487,7 +471,7 @@ pub fn generate_preamble_source(
         let _ = writeln!(buf, "var {cov_fn_name}_temp;");
         let _ = writeln!(
             buf,
-            "function {cov_fn_name}_bt(val, id, idx) {{ {cov_fn_name}_temp = val; if ({cov_fn_name}_temp && (!Array.isArray({cov_fn_name}_temp) || {cov_fn_name}_temp.length) && (Object.getPrototypeOf({cov_fn_name}_temp) !== Object.prototype || Object.values({cov_fn_name}_temp).length)) {{ ++{cov_fn_name}().bT[id][idx]; }} return {cov_fn_name}_temp; }}"
+            "function {cov_fn_name}_bt(val, id, idx) {{ {cov_fn_name}_temp = val; if ({cov_fn_name}_temp && (!Array.isArray({cov_fn_name}_temp) || {cov_fn_name}_temp.length) && (Object.getPrototypeOf({cov_fn_name}_temp) !== Object.prototype || Object.values({cov_fn_name}_temp).length)) {{ ++{cov_fn_name}.bT[id][idx]; }} return {cov_fn_name}_temp; }}"
         );
     }
     Ok(buf)
@@ -1582,7 +1566,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                 counter_type: CounterType::BranchLeft,
             });
 
-            // Wrap the right side: x ??= (++cov().b[id][1], y)
+            // Wrap the right side: x ??= (++cov.b[id][1], y)
             let counter = build_branch_counter_expr(cov_fn, branch_id, 1, ctx);
             let orig_right = mem::replace(&mut expr.right, dummy_expr(ctx));
             let mut items = ctx.ast.vec();

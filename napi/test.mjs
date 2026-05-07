@@ -214,6 +214,15 @@ function runInstrumented(result, filename, callExpression) {
     assert.equal(Object.keys(map.branchMap).length, 0, `${label} should not leave branch entries`);
   }
 
+  const cachedSetup = instrument('function f() { return 1; }\nf();', 'issue-34.js');
+  const covName = cachedSetup.code.match(/var (cov_[a-f0-9]+)/)?.[1];
+  assert(covName, 'instrumented code should declare a coverage binding');
+  assert(cachedSetup.code.includes('return actualCoverage; })();'), 'coverage setup should be invoked once');
+  assert(!cachedSetup.code.includes(`${covName}().`), 'counter sites should use cached coverage data');
+  const issue34Coverage = runInstrumented(cachedSetup, 'issue-34.js', "eval('f')();");
+  assert.equal(issue34Coverage.f['0'], 2, 'cached coverage object should still record runtime function hits');
+  assert.equal(issue34Coverage.s['0'], 2, 'cached coverage object should still record runtime statement hits');
+
   const classMethod = instrument(
     `class C {
       /* istanbul ignore next */
@@ -344,7 +353,7 @@ function runInstrumented(result, filename, callExpression) {
   for (const item of cases) {
     const result = instrument(item.source, item.filename);
     const map = JSON.parse(result.coverageMap);
-    const emittedStatementCounters = result.code.match(/\+\+cov_[^(]+\(\)\.s\[\d+\]/g) ?? [];
+    const emittedStatementCounters = result.code.match(/\+\+cov_[a-f0-9]+\.s\[\d+\]/g) ?? [];
     assert.equal(
       emittedStatementCounters.length,
       Object.keys(map.statementMap).length,
@@ -393,7 +402,7 @@ function runInstrumented(result, filename, callExpression) {
   for (const item of cases) {
     const result = instrument(item.source, item.filename);
     const map = JSON.parse(result.coverageMap);
-    const emittedStatementCounters = result.code.match(/\+\+cov_[^(]+\(\)\.s\[\d+\]/g) ?? [];
+    const emittedStatementCounters = result.code.match(/\+\+cov_[a-f0-9]+\.s\[\d+\]/g) ?? [];
     assert.equal(
       emittedStatementCounters.length,
       Object.keys(map.statementMap).length,
