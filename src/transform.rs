@@ -117,10 +117,18 @@ enum CounterType {
 /// Inputs to [`CoverageTransform::new`], grouped so the constructor stays at
 /// a single parameter even as new options accrete.
 pub struct TransformInit<'src, 'arena> {
+    /// Bump allocator owning the AST being traversed.
     pub allocator: &'arena Allocator,
+    /// The source text; used for line-offset precomputation and span lookups.
     pub source: &'src str,
+    /// Per-file IIFE function name (e.g. `cov_<hash>`); copied into the arena
+    /// so AST identifiers can refer to it for the lifetime of the traversal.
     pub cov_fn_name: &'src str,
+    /// When true, emits the truthy-value tracker (`bT` counters) for logical
+    /// expression operands.
     pub report_logic: bool,
+    /// Class method and named-function-expression identifiers to skip,
+    /// matching Istanbul's `ignoreClassMethods` semantics.
     pub ignore_class_methods: Vec<String>,
 }
 

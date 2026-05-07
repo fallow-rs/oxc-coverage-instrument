@@ -262,9 +262,16 @@ impl FileCoverage {
 /// Inputs to [`FileCoverage::from_maps`], grouped so callers thread one value
 /// instead of five.
 pub struct CoverageMaps {
+    /// File path stored on the resulting `FileCoverage`.
     pub path: String,
+    /// Statement spans collected during traversal, indexed by counter id.
     pub statement_locs: Vec<Location>,
+    /// Function metadata (name, decl span, body span) indexed by counter id.
     pub fn_entries: Vec<FnEntry>,
+    /// Branch metadata indexed by counter id; entries with empty `locations`
+    /// are dropped during map construction.
     pub branch_entries: Vec<BranchEntry>,
+    /// Counter ids of branches that should also be tracked in the truthy
+    /// (`bT`) map; only populated when `report_logic` is on.
     pub logical_branch_ids: Vec<usize>,
 }
