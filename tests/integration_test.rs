@@ -1752,13 +1752,13 @@ fn pragma_ignore_next_skips_ternary_branch_counter() {
     let source = "function f(x) {\n  return x.set ? { a: 1 } : /* v8 ignore next */ {};\n}";
     let result = instrument_js(source);
     assert!(result.unhandled_pragmas.is_empty());
-    assert_eq!(result.coverage_map.branch_map.len(), 1);
     assert_eq!(
-        result.coverage_map.branch_map["0"].locations.len(),
-        1,
-        "ignored ternary arm should not remain as an uncovered branch path"
+        result.coverage_map.branch_map.len(),
+        0,
+        "ternary branches with only one tracked path should be pruned"
     );
-    assert!(result.code.contains(".b[0][0]"));
+    assert_eq!(result.coverage_map.b.len(), 0);
+    assert!(!result.code.contains(".b[0][0]"));
     assert!(!result.code.contains(".b[0][1]"));
 }
 
@@ -1768,13 +1768,13 @@ fn pragma_ignore_next_skips_nested_object_spread_ternary_arm() {
     let result = instrument_js(source);
     assert!(result.unhandled_pragmas.is_empty());
     assert_eq!(result.coverage_map.fn_map.len(), 1, "the enclosing function should still count");
-    assert_eq!(result.coverage_map.branch_map.len(), 1, "the non-ignored ternary arm should count");
     assert_eq!(
-        result.coverage_map.branch_map["0"].locations.len(),
-        1,
-        "ignored object-spread ternary arm should not remain as an uncovered branch path"
+        result.coverage_map.branch_map.len(),
+        0,
+        "one-path ternary branches should be removed from the public map"
     );
-    assert!(result.code.contains(".b[0][0]"));
+    assert_eq!(result.coverage_map.b.len(), 0);
+    assert!(!result.code.contains(".b[0][0]"));
     assert!(!result.code.contains(".b[0][1]"));
 }
 
@@ -1797,14 +1797,87 @@ fn pragma_ignore_next_skips_logical_expression_leaf() {
     let source = "function f(a, b) {\n  return a && /* v8 ignore next */ b;\n}";
     let result = instrument_js(source);
     assert!(result.unhandled_pragmas.is_empty());
-    assert_eq!(result.coverage_map.branch_map.len(), 1);
     assert_eq!(
-        result.coverage_map.branch_map["0"].locations.len(),
-        1,
-        "ignored logical leaf should not remain as an uncovered branch path"
+        result.coverage_map.branch_map.len(),
+        0,
+        "logical branches with only one tracked leaf should be pruned"
     );
-    assert!(result.code.contains(".b[0][0]"));
+    assert_eq!(result.coverage_map.b.len(), 0);
+    assert!(!result.code.contains(".b[0][0]"));
     assert!(!result.code.contains(".b[0][1]"));
+}
+
+#[test]
+fn pragma_ignore_next_prunes_binary_and_conditional_rhs_stub_branches() {
+    let cases = [
+        "function f(x) { return x ?? /* v8 ignore next -- @preserve */ [] }",
+        "function f(x) { return x || /* v8 ignore next -- @preserve */ true }",
+        "function f(x) { return x && /* v8 ignore next -- @preserve */ true }",
+        "function f(x) { return x ? 1 : /* v8 ignore next -- @preserve */ 2 }",
+    ];
+
+    for source in cases {
+        let result = instrument_js(source);
+        assert!(result.unhandled_pragmas.is_empty());
+        assert_eq!(
+            result.coverage_map.branch_map.len(),
+            0,
+            "ignored rhs must not leave a one-location branch stub:\n{source}"
+        );
+        assert_eq!(result.coverage_map.b.len(), 0, "hit arrays should match branchMap:\n{source}");
+        assert!(
+            !result.code.contains(".b[0][0]"),
+            "branch counter should not be emitted:\n{source}"
+        );
+    }
+}
+
+#[test]
+fn pragma_ignore_next_skips_jsx_attribute_value_subtree() {
+    let cases = [
+        (
+            "function f() {\n  return <Tag\n    /* v8 ignore next -- @preserve */\n    onClick={() => doSomething()}\n  />\n}",
+            1,
+            0,
+        ),
+        (
+            "function f(pass) {\n  return <Tag\n    /* v8 ignore next -- @preserve */\n    text={pass ? 'Pass' : 'Fail'}\n  />\n}",
+            1,
+            0,
+        ),
+        (
+            "function f(name) {\n  return <Tag\n    /* v8 ignore next -- @preserve */\n    name={name || 'fallback'}\n  />\n}",
+            1,
+            0,
+        ),
+    ];
+
+    for (source, expected_fns, expected_branches) in cases {
+        let result = instrument(source, "test.tsx", &InstrumentOptions::default()).unwrap();
+        assert!(result.unhandled_pragmas.is_empty());
+        assert_eq!(
+            result.coverage_map.fn_map.len(),
+            expected_fns,
+            "JSX attribute pragma should skip nested functions:\n{source}"
+        );
+        assert_eq!(
+            result.coverage_map.branch_map.len(),
+            expected_branches,
+            "JSX attribute pragma should skip nested branches:\n{source}"
+        );
+    }
+}
+
+#[test]
+fn jsx_expression_container_pragma_ignore_next_skips_next_child_subtree() {
+    let source = "function f(x) {\n  return <div>\n    {/* v8 ignore next -- @preserve */}\n    {x ? <a/> : <b/>}\n  </div>\n}";
+    let result = instrument(source, "test.tsx", &InstrumentOptions::default()).unwrap();
+    assert!(result.unhandled_pragmas.is_empty());
+    assert_eq!(
+        result.coverage_map.branch_map.len(),
+        0,
+        "JSX comment-style ignore next should skip the following JSX child"
+    );
 }
 
 #[test]

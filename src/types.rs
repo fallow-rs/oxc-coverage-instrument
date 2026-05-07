@@ -228,9 +228,9 @@ impl FileCoverage {
             statement_locs.into_iter().enumerate().map(|(i, loc)| (i.to_string(), loc)).collect();
         let fn_map: BTreeMap<String, FnEntry> =
             fn_entries.into_iter().enumerate().map(|(i, e)| (i.to_string(), e)).collect();
-        // Drop branches that never got any path locations (e.g. an `if` arm
-        // suppressed by `/* istanbul ignore if */`). Original ids are preserved
-        // so logical_branch_ids can index back into the surviving entries.
+        // Drop branches that never got any path locations (e.g. both `if` arms
+        // suppressed by pragmas). Original ids are preserved so generated
+        // counter ids still line up with the public maps.
         let branch_map: BTreeMap<String, BranchEntry> = branch_entries
             .into_iter()
             .enumerate()
@@ -250,10 +250,10 @@ impl FileCoverage {
             Some(
                 logical_branch_ids
                     .iter()
-                    .map(|&id| {
+                    .filter_map(|&id| {
                         let key = id.to_string();
-                        let len = branch_map[&key].locations.len();
-                        (key, vec![0; len])
+                        let len = branch_map.get(&key)?.locations.len();
+                        Some((key, vec![0; len]))
                     })
                     .collect(),
             )

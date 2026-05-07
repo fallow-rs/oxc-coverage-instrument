@@ -55,7 +55,7 @@ impl PragmaMap {
             if let Some(ignore_type) = Self::parse_pragma(&text) {
                 match ignore_type {
                     PragmaResult::Ignore(it) => {
-                        let token_start = Self::next_token_start(source, comment.span.end)
+                        let token_start = Self::pragma_target_start(source, comment)
                             .unwrap_or(comment.attached_to);
                         ignores.insert(token_start, it);
                     }
@@ -142,6 +142,22 @@ impl PragmaMap {
             return Some(cursor as u32);
         }
         None
+    }
+
+    fn pragma_target_start(source: &str, comment: &Comment) -> Option<u32> {
+        let token_start = Self::next_token_start(source, comment.span.end)?;
+        if source[token_start as usize..].starts_with('}')
+            && Self::previous_non_whitespace(source, comment.span.start) == Some('{')
+            && let Some(after_close) = Self::next_token_start(source, token_start + 1)
+            && source[after_close as usize..].starts_with(['{', '<'])
+        {
+            return Some(after_close);
+        }
+        Some(token_start)
+    }
+
+    fn previous_non_whitespace(source: &str, offset: u32) -> Option<char> {
+        source[..offset as usize].chars().rev().find(|ch| !ch.is_whitespace())
     }
 
     /// Parse a pragma comment text into an ignore type.

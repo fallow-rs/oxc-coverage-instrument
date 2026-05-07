@@ -165,8 +165,8 @@ function runInstrumented(result, filename, callExpression) {
   );
   const ternaryMap = JSON.parse(ternary.coverageMap);
   assert.equal(Object.keys(ternaryMap.fnMap).length, 1, 'enclosing function should still be tracked');
-  assert.equal(Object.keys(ternaryMap.branchMap).length, 1, 'non-ignored ternary arm should still be tracked');
-  assert.equal(ternaryMap.branchMap['0'].locations.length, 1, 'ignored ternary arm should be pruned from branch paths');
+  assert.equal(Object.keys(ternaryMap.branchMap).length, 0, 'one-path ternary branch stubs should be pruned');
+  assert.equal(Object.keys(ternaryMap.b).length, 0, 'branch hit arrays should match pruned branchMap');
 
   const fullyIgnoredTernary = instrument(
     'function f(x) { return x ? /* v8 ignore next */ 1 : /* v8 ignore next */ 2; }',
@@ -179,10 +179,40 @@ function runInstrumented(result, filename, callExpression) {
     'logical-leaf.js',
   );
   assert.equal(
-    JSON.parse(logicalLeaf.coverageMap).branchMap['0'].locations.length,
-    1,
-    'ignored logical leaf should be pruned from branch paths',
+    Object.keys(JSON.parse(logicalLeaf.coverageMap).branchMap).length,
+    0,
+    'one-path logical branch stubs should be pruned',
   );
+
+  for (const [label, source, path] of [
+    ['nullish rhs', 'function f(x) { return x ?? /* v8 ignore next -- @preserve */ [] }', 'issue-27-nullish.js'],
+    ['or rhs', 'function f(x) { return x || /* v8 ignore next -- @preserve */ true }', 'issue-27-or.js'],
+    ['and rhs', 'function f(x) { return x && /* v8 ignore next -- @preserve */ true }', 'issue-27-and.js'],
+    ['conditional rhs', 'function f(x) { return x ? 1 : /* v8 ignore next -- @preserve */ 2 }', 'issue-27-cond.js'],
+    [
+      'jsx attribute',
+      `function f(pass) {
+        return <Tag
+          /* v8 ignore next -- @preserve */
+          text={pass ? 'Pass' : 'Fail'}
+        />
+      }`,
+      'issue-28.tsx',
+    ],
+    [
+      'jsx child',
+      `function f(x) {
+        return <div>
+          {/* v8 ignore next -- @preserve */}
+          {x ? <a/> : <b/>}
+        </div>
+      }`,
+      'issue-29.tsx',
+    ],
+  ]) {
+    const map = JSON.parse(instrument(source, path).coverageMap);
+    assert.equal(Object.keys(map.branchMap).length, 0, `${label} should not leave branch entries`);
+  }
 
   const classMethod = instrument(
     `class C {
