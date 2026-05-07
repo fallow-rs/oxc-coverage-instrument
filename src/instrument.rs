@@ -3,9 +3,10 @@
 use std::path::PathBuf;
 
 use oxc_allocator::Allocator;
+use oxc_ast::ast::Program;
 use oxc_codegen::{Codegen, CodegenOptions};
-use oxc_parser::Parser;
-use oxc_semantic::SemanticBuilder;
+use oxc_parser::{Parser, ParserReturn};
+use oxc_semantic::{Scoping, SemanticBuilder};
 use oxc_span::SourceType;
 use oxc_traverse::traverse_mut;
 
@@ -118,42 +119,16 @@ pub fn instrument(
     }
 
     let allocator = Allocator::default();
-    let source_type = SourceType::from_path(filename).unwrap_or_default();
-    let parser = Parser::new(&allocator, source, source_type);
-    let mut parsed = parser.parse();
+    let mut parsed = parse_program(&allocator, source, filename)?;
 
-    if !parsed.errors.is_empty() {
-        return Err(InstrumentError::ParseError(
-            parsed.errors.iter().map(|e| format!("{e}")).collect::<Vec<_>>().join("; "),
-        ));
-    }
-
-    // Build pragma map from comments before semantic analysis modifies anything
     let (pragmas, unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
-
-    // If the entire file is ignored, return empty coverage
     if pragmas.ignore_file {
-        let coverage_map =
-            FileCoverage::from_maps(filename.to_string(), Vec::new(), Vec::new(), Vec::new(), &[]);
-        let coverage_map_json = serde_json::to_string(&coverage_map)
-            .expect("FileCoverage serializes to JSON infallibly");
-        return Ok(InstrumentResult {
-            code: source.to_string(),
-            coverage_map,
-            coverage_map_json,
-            source_map: None,
-            unhandled_pragmas,
-        });
+        return Ok(empty_coverage_result(filename, source, unhandled_pragmas));
     }
 
-    // Build semantic analysis for Scoping (required by traverse_mut)
-    let semantic_ret = SemanticBuilder::new().build(&parsed.program);
-    let scoping = semantic_ret.semantic.into_scoping();
-
-    // Generate deterministic coverage function name
+    let scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
     let cov_fn_name = generate_cov_fn_name(filename);
 
-    // Phase 1: Traverse AST, collect coverage spans, and inject counter expressions
     let mut transform = CoverageTransform::new(
         &allocator,
         source,
@@ -162,22 +137,9 @@ pub fn instrument(
         options.ignore_class_methods.clone(),
     );
     let state = CoverageState { pragmas };
-
     let scoping = traverse_mut(&mut transform, &allocator, &mut parsed.program, scoping, state);
 
-    // Build coverage map from collected metadata
-    let mut coverage_map = FileCoverage::from_maps(
-        filename.to_string(),
-        transform.statement_map,
-        transform.fn_map,
-        transform.branch_map,
-        &transform.logical_branch_ids,
-    );
-
-    // Store input source map on coverage data for downstream tools (matches Istanbul behavior)
-    if let Some(ref input_sm) = options.input_source_map {
-        coverage_map.input_source_map = serde_json::from_str(input_sm).ok();
-    }
+    let coverage_map = build_coverage_map(filename, transform, options.input_source_map.as_deref());
 
     // Serialize the coverage map once and reuse it for both the hash guard and
     // the preamble's coverageData literal. Istanbul refreshes stale coverage
@@ -192,7 +154,6 @@ pub fn instrument(
         serde_json::to_string(&coverage_map).expect("FileCoverage serializes to JSON infallibly");
     let coverage_hash = stable_hex_hash(&coverage_json);
 
-    // Phase 2: Generate preamble source and prepend to program
     let preamble = generate_preamble_source(
         &coverage_map,
         &coverage_json,
@@ -202,50 +163,118 @@ pub fn instrument(
         options.report_logic,
     );
 
-    // Phase 3: Emit instrumented code via codegen
-    let codegen_options = CodegenOptions {
-        source_map_path: if options.source_map { Some(PathBuf::from(filename)) } else { None },
-        ..CodegenOptions::default()
-    };
-
-    let codegen_ret = Codegen::new()
-        .with_options(codegen_options)
-        .with_source_text(source)
-        .with_scoping(Some(scoping))
-        .build(&parsed.program);
-
-    let code = format!("{preamble}{}", codegen_ret.code);
-
-    // If source map was generated, offset all mappings by the preamble line count
-    // so positions in the combined output map correctly back to the original source.
-    let source_map_json = codegen_ret.map.map(|sm| {
-        let preamble_lines = preamble.chars().filter(|&c| c == '\n').count() as u32;
-        let offset_sm = if preamble_lines > 0 {
-            let builder =
-                oxc_sourcemap::ConcatSourceMapBuilder::from_sourcemaps(&[(&sm, preamble_lines)]);
-            builder.into_sourcemap()
-        } else {
-            sm
-        };
-
-        // If an input source map was provided, compose it with the output source map
-        // so the final map chains back to the original source (e.g., TypeScript).
-        if let Some(ref input_sm_json) = options.input_source_map
-            && let Ok(input_sm) = oxc_sourcemap::SourceMap::from_json_string(input_sm_json)
-        {
-            return compose_source_maps(&offset_sm, &input_sm).to_json_string();
-        }
-
-        offset_sm.to_json_string()
-    });
+    let (code, raw_source_map) =
+        emit_code(&parsed.program, scoping, source, filename, &preamble, options);
+    let source_map = raw_source_map
+        .map(|sm| finalize_source_map(sm, &preamble, options.input_source_map.as_deref()));
 
     Ok(InstrumentResult {
         code,
         coverage_map,
         coverage_map_json: coverage_json,
-        source_map: source_map_json,
+        source_map,
         unhandled_pragmas,
     })
+}
+
+fn parse_program<'a>(
+    allocator: &'a Allocator,
+    source: &'a str,
+    filename: &str,
+) -> Result<ParserReturn<'a>, InstrumentError> {
+    let source_type = SourceType::from_path(filename).unwrap_or_default();
+    let parsed = Parser::new(allocator, source, source_type).parse();
+    if parsed.errors.is_empty() {
+        Ok(parsed)
+    } else {
+        Err(InstrumentError::ParseError(
+            parsed.errors.iter().map(|e| format!("{e}")).collect::<Vec<_>>().join("; "),
+        ))
+    }
+}
+
+fn empty_coverage_result(
+    filename: &str,
+    source: &str,
+    unhandled_pragmas: Vec<UnhandledPragma>,
+) -> InstrumentResult {
+    let coverage_map =
+        FileCoverage::from_maps(filename.to_string(), Vec::new(), Vec::new(), Vec::new(), &[]);
+    let coverage_map_json =
+        serde_json::to_string(&coverage_map).expect("FileCoverage serializes to JSON infallibly");
+    InstrumentResult {
+        code: source.to_string(),
+        coverage_map,
+        coverage_map_json,
+        source_map: None,
+        unhandled_pragmas,
+    }
+}
+
+fn build_coverage_map(
+    filename: &str,
+    transform: CoverageTransform<'_, '_>,
+    input_source_map: Option<&str>,
+) -> FileCoverage {
+    let mut coverage_map = FileCoverage::from_maps(
+        filename.to_string(),
+        transform.statement_map,
+        transform.fn_map,
+        transform.branch_map,
+        &transform.logical_branch_ids,
+    );
+    if let Some(input_sm) = input_source_map {
+        coverage_map.input_source_map = serde_json::from_str(input_sm).ok();
+    }
+    coverage_map
+}
+
+fn emit_code(
+    program: &Program<'_>,
+    scoping: Scoping,
+    source: &str,
+    filename: &str,
+    preamble: &str,
+    options: &InstrumentOptions,
+) -> (String, Option<oxc_sourcemap::SourceMap>) {
+    let codegen_options = CodegenOptions {
+        source_map_path: if options.source_map { Some(PathBuf::from(filename)) } else { None },
+        ..CodegenOptions::default()
+    };
+    let codegen_ret = Codegen::new()
+        .with_options(codegen_options)
+        .with_source_text(source)
+        .with_scoping(Some(scoping))
+        .build(program);
+    let code = format!("{preamble}{}", codegen_ret.code);
+    (code, codegen_ret.map)
+}
+
+fn finalize_source_map(
+    sm: oxc_sourcemap::SourceMap,
+    preamble: &str,
+    input_source_map: Option<&str>,
+) -> String {
+    // Offset mappings by preamble line count so generated positions in the combined
+    // output map correctly resolve back to the original source.
+    let preamble_lines = u32::try_from(preamble.chars().filter(|&c| c == '\n').count())
+        .unwrap_or(u32::MAX);
+    let offset_sm = if preamble_lines > 0 {
+        oxc_sourcemap::ConcatSourceMapBuilder::from_sourcemaps(&[(&sm, preamble_lines)])
+            .into_sourcemap()
+    } else {
+        sm
+    };
+
+    // If an input source map was provided, compose it with the output map so the
+    // final map chains back to the original source (e.g., TypeScript).
+    if let Some(input_sm_json) = input_source_map
+        && let Ok(input_sm) = oxc_sourcemap::SourceMap::from_json_string(input_sm_json)
+    {
+        return compose_source_maps(&offset_sm, &input_sm).to_json_string();
+    }
+
+    offset_sm.to_json_string()
 }
 
 /// Compose two source maps: for each mapping in `output_sm` (instrumented → intermediate),
