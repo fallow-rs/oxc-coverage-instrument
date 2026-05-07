@@ -270,7 +270,11 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             } else {
                 self.add_branch_path(branch_id, alt.span())
             };
-            inject_branch_counter_into_statement(alt, cov_fn, branch_id, path_idx, ctx);
+            inject_branch_counter_into_statement(
+                alt,
+                CounterKind::branch(cov_fn, branch_id, path_idx),
+                ctx,
+            );
         }
     }
 
@@ -330,7 +334,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         let original = mem::replace(body, ctx.ast.statement_empty(SPAN));
         let mut stmts = ctx.ast.vec();
         for insertion in pending {
-            stmts.push(build_pending_counter_stmt(cov_fn, &insertion, ctx));
+            stmts.push(build_counter_stmt(CounterKind::from_pending(cov_fn, &insertion), ctx));
         }
         stmts.push(original);
         *body = ctx.ast.statement_block_with_scope_id(SPAN, stmts, scope_id);
@@ -352,109 +356,97 @@ fn alloc_str<'a>(s: &str, ctx: &TraverseCtx<'a, CoverageState>) -> &'a str {
     ctx.ast.allocator.alloc_str(s)
 }
 
-/// Build a counter expression: `cov_fn.type[id]++`
-fn build_counter_expr<'a>(
-    cov_fn_name: &'a str,
-    counter_type: &str,
-    counter_id: usize,
-    ctx: &TraverseCtx<'a, CoverageState>,
-) -> Expression<'a> {
-    let coverage = ctx.ast.expression_identifier(SPAN, cov_fn_name);
-    let ct = alloc_str(counter_type, ctx);
-    let member =
-        ctx.ast.member_expression_static(SPAN, coverage, ctx.ast.identifier_name(SPAN, ct), false);
-    let member_expr = Expression::from(member);
-
-    let computed = ctx.ast.member_expression_computed(
-        SPAN,
-        member_expr,
-        ctx.ast.expression_numeric_literal(
-            SPAN,
-            counter_id as f64,
-            None,
-            oxc_syntax::number::NumberBase::Decimal,
-        ),
-        false,
-    );
-
-    let target = SimpleAssignmentTarget::from(computed);
-    ctx.ast.expression_update(SPAN, UpdateOperator::Increment, true, target)
+// Identifies a counter slot in the coverage map. Bundles cov_fn_name with the
+// per-slot indices so AST-builder helpers take a single value instead of
+// threading 3-4 primitives through every call site.
+#[derive(Clone, Copy)]
+enum CounterKind<'a> {
+    /// `cov_fn.s[id]` or `cov_fn.f[id]` slot.
+    Statement { cov_fn_name: &'a str, type_: &'static str, id: usize },
+    /// `cov_fn.b[branch_id][path_idx]` slot.
+    Branch { cov_fn_name: &'a str, branch_id: usize, path_idx: usize },
 }
 
-/// Build a branch counter expression: `cov_fn.b[branch_id][path_idx]++`
-fn build_branch_counter_expr<'a>(
-    cov_fn_name: &'a str,
-    branch_id: usize,
-    path_idx: usize,
-    ctx: &TraverseCtx<'a, CoverageState>,
-) -> Expression<'a> {
-    let coverage = ctx.ast.expression_identifier(SPAN, cov_fn_name);
-    let member =
-        ctx.ast.member_expression_static(SPAN, coverage, ctx.ast.identifier_name(SPAN, "b"), false);
-    let member_expr = Expression::from(member);
+impl<'a> CounterKind<'a> {
+    const fn stmt(cov_fn_name: &'a str, id: usize) -> Self {
+        Self::Statement { cov_fn_name, type_: "s", id }
+    }
+    const fn func(cov_fn_name: &'a str, id: usize) -> Self {
+        Self::Statement { cov_fn_name, type_: "f", id }
+    }
+    const fn branch(cov_fn_name: &'a str, branch_id: usize, path_idx: usize) -> Self {
+        Self::Branch { cov_fn_name, branch_id, path_idx }
+    }
 
-    let computed1 = ctx.ast.member_expression_computed(
-        SPAN,
-        member_expr,
-        ctx.ast.expression_numeric_literal(
-            SPAN,
-            branch_id as f64,
-            None,
-            oxc_syntax::number::NumberBase::Decimal,
-        ),
-        false,
-    );
-    let computed1_expr = Expression::from(computed1);
-
-    let computed2 = ctx.ast.member_expression_computed(
-        SPAN,
-        computed1_expr,
-        ctx.ast.expression_numeric_literal(
-            SPAN,
-            path_idx as f64,
-            None,
-            oxc_syntax::number::NumberBase::Decimal,
-        ),
-        false,
-    );
-
-    let target = SimpleAssignmentTarget::from(computed2);
-    ctx.ast.expression_update(SPAN, UpdateOperator::Increment, true, target)
-}
-
-/// Build a counter expression statement: `cov_fn.type[id]++;`
-fn build_counter_stmt<'a>(
-    cov_fn_name: &'a str,
-    counter_type: &str,
-    counter_id: usize,
-    ctx: &TraverseCtx<'a, CoverageState>,
-) -> Statement<'a> {
-    let expr = build_counter_expr(cov_fn_name, counter_type, counter_id, ctx);
-    ctx.ast.statement_expression(SPAN, expr)
-}
-
-/// Build a branch counter statement: `cov_fn.b[branch_id][path_idx]++;`
-fn build_branch_counter_stmt<'a>(
-    cov_fn_name: &'a str,
-    branch_id: usize,
-    path_idx: usize,
-    ctx: &TraverseCtx<'a, CoverageState>,
-) -> Statement<'a> {
-    let expr = build_branch_counter_expr(cov_fn_name, branch_id, path_idx, ctx);
-    ctx.ast.statement_expression(SPAN, expr)
-}
-
-fn build_pending_counter_stmt<'a>(
-    cov_fn_name: &'a str,
-    pending: &PendingInsertion,
-    ctx: &TraverseCtx<'a, CoverageState>,
-) -> Statement<'a> {
-    match pending.counter_type {
-        CounterType::Statement => build_counter_stmt(cov_fn_name, "s", pending.counter_id, ctx),
-        CounterType::BranchLeft => {
-            build_branch_counter_stmt(cov_fn_name, pending.counter_id, 0, ctx)
+    fn from_pending(cov_fn_name: &'a str, pending: &PendingInsertion) -> Self {
+        match pending.counter_type {
+            CounterType::Statement => Self::stmt(cov_fn_name, pending.counter_id),
+            CounterType::BranchLeft => Self::branch(cov_fn_name, pending.counter_id, 0),
         }
     }
+}
+
+/// Build a counter increment expression: `cov_fn.s[id]++`, `cov_fn.f[id]++`,
+/// or `cov_fn.b[branch_id][path_idx]++` depending on the kind.
+fn build_counter_expr<'a>(
+    kind: CounterKind<'a>,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) -> Expression<'a> {
+    let target = match kind {
+        CounterKind::Statement { cov_fn_name, type_, id } => {
+            let coverage = ctx.ast.expression_identifier(SPAN, cov_fn_name);
+            let ct = alloc_str(type_, ctx);
+            let member = ctx.ast.member_expression_static(
+                SPAN,
+                coverage,
+                ctx.ast.identifier_name(SPAN, ct),
+                false,
+            );
+            let computed = ctx.ast.member_expression_computed(
+                SPAN,
+                Expression::from(member),
+                numeric_literal(ctx, id as f64),
+                false,
+            );
+            SimpleAssignmentTarget::from(computed)
+        }
+        CounterKind::Branch { cov_fn_name, branch_id, path_idx } => {
+            let coverage = ctx.ast.expression_identifier(SPAN, cov_fn_name);
+            let member = ctx.ast.member_expression_static(
+                SPAN,
+                coverage,
+                ctx.ast.identifier_name(SPAN, "b"),
+                false,
+            );
+            let outer = ctx.ast.member_expression_computed(
+                SPAN,
+                Expression::from(member),
+                numeric_literal(ctx, branch_id as f64),
+                false,
+            );
+            let inner = ctx.ast.member_expression_computed(
+                SPAN,
+                Expression::from(outer),
+                numeric_literal(ctx, path_idx as f64),
+                false,
+            );
+            SimpleAssignmentTarget::from(inner)
+        }
+    };
+    ctx.ast.expression_update(SPAN, UpdateOperator::Increment, true, target)
+}
+
+/// Build a counter increment statement wrapping the matching expression.
+fn build_counter_stmt<'a>(
+    kind: CounterKind<'a>,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) -> Statement<'a> {
+    let expr = build_counter_expr(kind, ctx);
+    ctx.ast.statement_expression(SPAN, expr)
+}
+
+fn numeric_literal<'a>(ctx: &TraverseCtx<'a, CoverageState>, value: f64) -> Expression<'a> {
+    ctx.ast.expression_numeric_literal(SPAN, value, None, oxc_syntax::number::NumberBase::Decimal)
 }
 
 /// Generate the preamble as source text.
@@ -687,10 +679,8 @@ fn wrap_expression_with_branch_counter<'a>(
     state: &LogicalWrapState<'a>,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) {
-    let counter = build_branch_counter_expr(
-        state.cov_fn_name,
-        state.branch_id,
-        state.current_path_idx(),
+    let counter = build_counter_expr(
+        CounterKind::branch(state.cov_fn_name, state.branch_id, state.current_path_idx()),
         ctx,
     );
     let orig = mem::replace(operand, dummy_expr(ctx));
@@ -837,7 +827,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         }
         if let Some(fn_id) = self.pending_fn_counters.pop() {
             let cov_fn = self.cov_fn_name;
-            let counter = build_counter_stmt(cov_fn, "f", fn_id, ctx);
+            let counter = build_counter_stmt(CounterKind::func(cov_fn, fn_id), ctx);
             body.statements.insert(0, counter);
         }
     }
@@ -972,7 +962,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         }
         let stmt_id = self.add_statement(init_span);
         let cov_fn = self.cov_fn_name;
-        let counter = build_counter_expr(cov_fn, "s", stmt_id, ctx);
+        let counter = build_counter_expr(CounterKind::stmt(cov_fn, stmt_id), ctx);
         let orig = mem::replace(init, dummy_expr(ctx));
         let mut items = ctx.ast.vec();
         items.push(counter);
@@ -1071,7 +1061,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         }
         let stmt_id = self.add_statement(span);
         let cov_fn = self.cov_fn_name;
-        let counter = build_counter_expr(cov_fn, "s", stmt_id, ctx);
+        let counter = build_counter_expr(CounterKind::stmt(cov_fn, stmt_id), ctx);
         let orig = mem::replace(prop.value.as_mut().unwrap(), dummy_expr(ctx));
         let mut items = ctx.ast.vec();
         items.push(counter);
@@ -1192,7 +1182,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             while i < pending.len() {
                 if pending[i].target_start == start {
                     let p = pending.swap_remove(i);
-                    let counter = build_pending_counter_stmt(cov_fn, &p, ctx);
+                    let counter = build_counter_stmt(CounterKind::from_pending(cov_fn, &p), ctx);
                     insertions.push((idx, counter));
                 } else {
                     i += 1;
@@ -1236,9 +1226,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             let path_idx = self.add_branch_path(branch_id, consequent_span);
             inject_branch_counter_into_statement(
                 &mut stmt.consequent,
-                cov_fn,
-                branch_id,
-                path_idx,
+                CounterKind::branch(cov_fn, branch_id, path_idx),
                 ctx,
             );
         }
@@ -1283,7 +1271,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
 
         // Wrap consequent: (cov.b[id][path]++, originalExpr)
         let path_idx = self.add_branch_path(branch_id, expr.consequent.span());
-        let counter = build_branch_counter_expr(cov_fn, branch_id, path_idx, ctx);
+        let counter = build_counter_expr(CounterKind::branch(cov_fn, branch_id, path_idx), ctx);
         let orig_consequent = mem::replace(&mut expr.consequent, dummy_expr(ctx));
         let mut items = ctx.ast.vec();
         items.push(counter);
@@ -1292,7 +1280,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
 
         // Wrap alternate: (cov.b[id][path]++, originalExpr)
         let path_idx = self.add_branch_path(branch_id, expr.alternate.span());
-        let counter = build_branch_counter_expr(cov_fn, branch_id, path_idx, ctx);
+        let counter = build_counter_expr(CounterKind::branch(cov_fn, branch_id, path_idx), ctx);
         let orig_alternate = mem::replace(&mut expr.alternate, dummy_expr(ctx));
         let mut items = ctx.ast.vec();
         items.push(counter);
@@ -1316,7 +1304,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                 continue;
             }
             let path_idx = self.add_branch_path(branch_id, case.span);
-            let branch_stmt = build_branch_counter_stmt(cov_fn, branch_id, path_idx, ctx);
+            let branch_stmt =
+                build_counter_stmt(CounterKind::branch(cov_fn, branch_id, path_idx), ctx);
             case.consequent.insert(0, branch_stmt);
         }
     }
@@ -1581,7 +1570,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             });
 
             // Wrap the right side: x ??= (++cov.b[id][1], y)
-            let counter = build_branch_counter_expr(cov_fn, branch_id, 1, ctx);
+            let counter = build_counter_expr(CounterKind::branch(cov_fn, branch_id, 1), ctx);
             let orig_right = mem::replace(&mut expr.right, dummy_expr(ctx));
             let mut items = ctx.ast.vec();
             items.push(counter);
@@ -1594,12 +1583,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
 /// Inject a branch counter into a statement, wrapping in a block if necessary.
 fn inject_branch_counter_into_statement<'a>(
     stmt: &mut Statement<'a>,
-    cov_fn_name: &'a str,
-    branch_id: usize,
-    path_idx: usize,
+    kind: CounterKind<'a>,
     ctx: &mut TraverseCtx<'a, CoverageState>,
 ) {
-    let counter_stmt = build_branch_counter_stmt(cov_fn_name, branch_id, path_idx, ctx);
+    let counter_stmt = build_counter_stmt(kind, ctx);
 
     match stmt {
         Statement::BlockStatement(block) => {
