@@ -217,13 +217,9 @@ impl FileCoverage {
     /// id-indexed Vecs collected during AST traversal. The Vecs are converted
     /// once into the Istanbul-shaped `BTreeMap<String, _>` here so the hot
     /// traversal path avoids per-add String allocations and tree rebalancing.
-    pub(crate) fn from_maps(
-        path: String,
-        statement_locs: Vec<Location>,
-        fn_entries: Vec<FnEntry>,
-        branch_entries: Vec<BranchEntry>,
-        logical_branch_ids: &[usize],
-    ) -> Self {
+    pub(crate) fn from_maps(maps: CoverageMaps) -> Self {
+        let CoverageMaps { path, statement_locs, fn_entries, branch_entries, logical_branch_ids } =
+            maps;
         let statement_map: BTreeMap<String, Location> =
             statement_locs.into_iter().enumerate().map(|(i, loc)| (i.to_string(), loc)).collect();
         let fn_map: BTreeMap<String, FnEntry> =
@@ -261,4 +257,14 @@ impl FileCoverage {
 
         Self { path, statement_map, fn_map, branch_map, s, f, b, b_t, input_source_map: None }
     }
+}
+
+/// Inputs to [`FileCoverage::from_maps`], grouped so callers thread one value
+/// instead of five.
+pub struct CoverageMaps {
+    pub path: String,
+    pub statement_locs: Vec<Location>,
+    pub fn_entries: Vec<FnEntry>,
+    pub branch_entries: Vec<BranchEntry>,
+    pub logical_branch_ids: Vec<usize>,
 }

@@ -114,14 +114,20 @@ enum CounterType {
     BranchLeft,
 }
 
+/// Inputs to [`CoverageTransform::new`], grouped so the constructor stays at
+/// a single parameter even as new options accrete.
+pub struct TransformInit<'src, 'arena> {
+    pub allocator: &'arena Allocator,
+    pub source: &'src str,
+    pub cov_fn_name: &'src str,
+    pub report_logic: bool,
+    pub ignore_class_methods: Vec<String>,
+}
+
 impl<'src, 'arena> CoverageTransform<'src, 'arena> {
-    pub fn new(
-        allocator: &'arena Allocator,
-        source: &'src str,
-        cov_fn_name: &str,
-        report_logic: bool,
-        ignore_class_methods: Vec<String>,
-    ) -> Self {
+    pub fn new(init: TransformInit<'src, 'arena>) -> Self {
+        let TransformInit { allocator, source, cov_fn_name, report_logic, ignore_class_methods } =
+            init;
         let cov_fn_name = allocator.alloc_str(cov_fn_name);
         Self {
             source,
@@ -449,25 +455,36 @@ fn numeric_literal<'a>(ctx: &TraverseCtx<'a, CoverageState>, value: f64) -> Expr
     ctx.ast.expression_numeric_literal(SPAN, value, None, oxc_syntax::number::NumberBase::Decimal)
 }
 
+/// Inputs to [`generate_preamble_source`], grouped so the generator stays
+/// at a single parameter even as new options accrete.
+pub struct PreambleInputs<'a> {
+    /// The full coverage map for the file (used for the `path` field only).
+    pub coverage: &'a FileCoverage,
+    /// Pre-serialized JSON of `coverage`, embedded as the `coverageData` literal.
+    pub coverage_json: &'a str,
+    /// Stable hex hash of `coverage_json` used by Istanbul's stale-cache guard.
+    pub coverage_hash: &'a str,
+    /// Name of the global coverage variable (default `__coverage__`).
+    pub coverage_var: &'a str,
+    /// Per-file IIFE function name (e.g. `cov_<hash>`).
+    pub cov_fn_name: &'a str,
+    /// Whether to emit the truthy-value tracking helper (`_bt`).
+    pub report_logic: bool,
+}
+
 /// Generate the preamble as source text.
 ///
 /// Since building the IIFE via AST nodes is verbose and error-prone,
 /// we generate the preamble as a source string and prepend it.
 /// This matches the approach used by istanbul-lib-instrument.
-pub fn generate_preamble_source(
-    coverage: &FileCoverage,
-    coverage_json: &str,
-    coverage_hash: &str,
-    coverage_var: &str,
-    cov_fn_name: &str,
-    report_logic: bool,
-) -> String {
+pub fn generate_preamble_source(inputs: &PreambleInputs<'_>) -> String {
+    let PreambleInputs { coverage, coverage_json, coverage_hash, coverage_var, cov_fn_name, report_logic } =
+        *inputs;
     // The two `serde_json::to_string` calls below operate on plain strings and
     // cannot fail. The caller already serialized the full coverage map (which
     // is composed of std collections + first-party serde types) and passes the
     // result in as `coverage_json`, so this whole function is JSON-infallible.
-    let estimated_size = 256 + coverage_json.len();
-    let mut buf = String::with_capacity(estimated_size);
+    let mut buf = String::with_capacity(256 + coverage_json.len());
     let _ = write!(buf, "var {cov_fn_name} = (function () {{ var path = ");
     buf.push_str(
         &serde_json::to_string(&coverage.path).expect("serializing a String to JSON is infallible"),
@@ -483,24 +500,20 @@ pub fn generate_preamble_source(
         "; coverageData.hash = hash; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path] || coverage[gcv][path].hash !== hash) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }})();"
     );
     if report_logic {
-        // Declare temp variable and truthy tracking helper function.
-        // The helper captures the value, checks if it's a "non-trivial" truthy
-        // value, and if so increments the bT counter. Returns the original value.
-        //
-        // Istanbul's non-trivial check:
-        //   _temp && (!Array.isArray(_temp) || _temp.length)
-        //         && (Object.getPrototypeOf(_temp) !== Object.prototype
-        //             || Object.values(_temp).length)
-        //
-        // This means empty arrays [] and empty plain objects {} are NOT counted
-        // as truthy. Non-plain objects (class instances, etc.) are always counted.
-        let _ = writeln!(buf, "var {cov_fn_name}_temp;");
-        let _ = writeln!(
-            buf,
-            "function {cov_fn_name}_bt(val, id, idx) {{ {cov_fn_name}_temp = val; if ({cov_fn_name}_temp && (!Array.isArray({cov_fn_name}_temp) || {cov_fn_name}_temp.length) && (Object.getPrototypeOf({cov_fn_name}_temp) !== Object.prototype || Object.values({cov_fn_name}_temp).length)) {{ ++{cov_fn_name}.bT[id][idx]; }} return {cov_fn_name}_temp; }}"
-        );
+        append_logic_helper(&mut buf, cov_fn_name);
     }
     buf
+}
+
+// Truthy-value tracker (`cov_fn_bt`). Counts values that are truthy and
+// "non-trivial" per Istanbul's check: not an empty array, not an empty
+// plain object. Non-plain objects (class instances etc.) always count.
+fn append_logic_helper(buf: &mut String, cov_fn_name: &str) {
+    let _ = writeln!(buf, "var {cov_fn_name}_temp;");
+    let _ = writeln!(
+        buf,
+        "function {cov_fn_name}_bt(val, id, idx) {{ {cov_fn_name}_temp = val; if ({cov_fn_name}_temp && (!Array.isArray({cov_fn_name}_temp) || {cov_fn_name}_temp.length) && (Object.getPrototypeOf({cov_fn_name}_temp) !== Object.prototype || Object.values({cov_fn_name}_temp).length)) {{ ++{cov_fn_name}.bT[id][idx]; }} return {cov_fn_name}_temp; }}"
+    );
 }
 
 /// Generate a deterministic coverage function name from the file path.

@@ -12,9 +12,10 @@ use oxc_traverse::traverse_mut;
 
 use crate::pragma::PragmaMap;
 use crate::transform::{
-    CoverageState, CoverageTransform, generate_cov_fn_name, generate_preamble_source,
+    CoverageState, CoverageTransform, PreambleInputs, TransformInit, generate_cov_fn_name,
+    generate_preamble_source,
 };
-use crate::types::{FileCoverage, UnhandledPragma};
+use crate::types::{CoverageMaps, FileCoverage, UnhandledPragma};
 
 /// Options for the `instrument` function.
 #[derive(Debug, Clone)]
@@ -129,13 +130,13 @@ pub fn instrument(
     let scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
     let cov_fn_name = generate_cov_fn_name(filename);
 
-    let mut transform = CoverageTransform::new(
-        &allocator,
+    let mut transform = CoverageTransform::new(TransformInit {
+        allocator: &allocator,
         source,
-        &cov_fn_name,
-        options.report_logic,
-        options.ignore_class_methods.clone(),
-    );
+        cov_fn_name: &cov_fn_name,
+        report_logic: options.report_logic,
+        ignore_class_methods: options.ignore_class_methods.clone(),
+    });
     let state = CoverageState { pragmas };
     let scoping = traverse_mut(&mut transform, &allocator, &mut parsed.program, scoping, state);
 
@@ -154,17 +155,23 @@ pub fn instrument(
         serde_json::to_string(&coverage_map).expect("FileCoverage serializes to JSON infallibly");
     let coverage_hash = stable_hex_hash(&coverage_json);
 
-    let preamble = generate_preamble_source(
-        &coverage_map,
-        &coverage_json,
-        &coverage_hash,
-        &options.coverage_variable,
-        &cov_fn_name,
-        options.report_logic,
-    );
+    let preamble = generate_preamble_source(&PreambleInputs {
+        coverage: &coverage_map,
+        coverage_json: &coverage_json,
+        coverage_hash: &coverage_hash,
+        coverage_var: &options.coverage_variable,
+        cov_fn_name: &cov_fn_name,
+        report_logic: options.report_logic,
+    });
 
-    let (code, raw_source_map) =
-        emit_code(&parsed.program, scoping, source, filename, &preamble, options);
+    let (code, raw_source_map) = emit_code(EmitInputs {
+        program: &parsed.program,
+        scoping,
+        source,
+        filename,
+        preamble: &preamble,
+        options,
+    });
     let source_map = raw_source_map
         .map(|sm| finalize_source_map(sm, &preamble, options.input_source_map.as_deref()));
 
@@ -198,8 +205,13 @@ fn empty_coverage_result(
     source: &str,
     unhandled_pragmas: Vec<UnhandledPragma>,
 ) -> InstrumentResult {
-    let coverage_map =
-        FileCoverage::from_maps(filename.to_string(), Vec::new(), Vec::new(), Vec::new(), &[]);
+    let coverage_map = FileCoverage::from_maps(CoverageMaps {
+        path: filename.to_string(),
+        statement_locs: Vec::new(),
+        fn_entries: Vec::new(),
+        branch_entries: Vec::new(),
+        logical_branch_ids: Vec::new(),
+    });
     let coverage_map_json =
         serde_json::to_string(&coverage_map).expect("FileCoverage serializes to JSON infallibly");
     InstrumentResult {
@@ -216,27 +228,30 @@ fn build_coverage_map(
     transform: CoverageTransform<'_, '_>,
     input_source_map: Option<&str>,
 ) -> FileCoverage {
-    let mut coverage_map = FileCoverage::from_maps(
-        filename.to_string(),
-        transform.statement_map,
-        transform.fn_map,
-        transform.branch_map,
-        &transform.logical_branch_ids,
-    );
+    let mut coverage_map = FileCoverage::from_maps(CoverageMaps {
+        path: filename.to_string(),
+        statement_locs: transform.statement_map,
+        fn_entries: transform.fn_map,
+        branch_entries: transform.branch_map,
+        logical_branch_ids: transform.logical_branch_ids,
+    });
     if let Some(input_sm) = input_source_map {
         coverage_map.input_source_map = serde_json::from_str(input_sm).ok();
     }
     coverage_map
 }
 
-fn emit_code(
-    program: &Program<'_>,
+struct EmitInputs<'a, 'arena> {
+    program: &'a Program<'arena>,
     scoping: Scoping,
-    source: &str,
-    filename: &str,
-    preamble: &str,
-    options: &InstrumentOptions,
-) -> (String, Option<oxc_sourcemap::SourceMap>) {
+    source: &'a str,
+    filename: &'a str,
+    preamble: &'a str,
+    options: &'a InstrumentOptions,
+}
+
+fn emit_code(inputs: EmitInputs<'_, '_>) -> (String, Option<oxc_sourcemap::SourceMap>) {
+    let EmitInputs { program, scoping, source, filename, preamble, options } = inputs;
     let codegen_options = CodegenOptions {
         source_map_path: if options.source_map { Some(PathBuf::from(filename)) } else { None },
         ..CodegenOptions::default()
