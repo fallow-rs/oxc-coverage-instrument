@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::mem;
 
-use oxc_allocator::Vec as ArenaVec;
+use oxc_allocator::{Allocator, Vec as ArenaVec};
 use oxc_ast::ast::*;
 use oxc_span::{GetSpan, SPAN, Span};
 use oxc_syntax::operator::{LogicalOperator, UpdateOperator};
@@ -27,7 +27,7 @@ pub struct CoverageState {
 }
 
 /// Collects coverage metadata and injects counter expressions via AST mutation.
-pub struct CoverageTransform<'src> {
+pub struct CoverageTransform<'src, 'arena> {
     source: &'src str,
     line_offsets: Vec<u32>,
     /// True when the source is pure ASCII so columns can be reported as
@@ -85,8 +85,12 @@ pub struct CoverageTransform<'src> {
     /// pragma. Consumed by `enter_variable_declarator` to skip both the
     /// per-declarator statement counter and any inner function counter.
     skip_current_var_decl: bool,
-    /// Coverage function name, cached to avoid cloning from state on every hook.
-    cov_fn_name: String,
+    /// Coverage function name, pre-allocated in the AST arena so counter
+    /// builders can reference it as `&'arena str` without re-interning per call.
+    cov_fn_name: &'arena str,
+    /// `${cov_fn_name}_bt` helper name, also pre-interned. Only set when
+    /// `report_logic` is enabled.
+    cov_fn_bt_name: Option<&'arena str>,
     /// When true, adds truthy-value tracking (`bT`) for logical expression operands.
     report_logic: bool,
     /// Class method names to exclude from coverage instrumentation.
@@ -110,10 +114,11 @@ enum CounterType {
     BranchLeft,
 }
 
-impl<'src> CoverageTransform<'src> {
+impl<'src, 'arena> CoverageTransform<'src, 'arena> {
     pub fn new(
+        allocator: &'arena Allocator,
         source: &'src str,
-        cov_fn_name: String,
+        cov_fn_name: &str,
         report_logic: bool,
         ignore_class_methods: Vec<String>,
     ) -> Self {
@@ -127,6 +132,12 @@ impl<'src> CoverageTransform<'src> {
             )
             .collect();
         let source_is_ascii = source.is_ascii();
+        let cov_fn_name = allocator.alloc_str(cov_fn_name);
+        let cov_fn_bt_name = if report_logic {
+            Some(allocator.alloc_str(&format!("{cov_fn_name}_bt")))
+        } else {
+            None
+        };
 
         Self {
             source,
@@ -152,6 +163,7 @@ impl<'src> CoverageTransform<'src> {
             skip_fn_counter_only: false,
             skip_current_var_decl: false,
             cov_fn_name,
+            cov_fn_bt_name,
             report_logic,
             ignore_class_methods,
             logical_branch_ids: Vec::new(),
@@ -278,10 +290,10 @@ impl<'src> CoverageTransform<'src> {
         }
     }
 
-    fn inject_pending_counters_into_statement_child<'a>(
+    fn inject_pending_counters_into_statement_child(
         &mut self,
-        body: &mut Statement<'a>,
-        ctx: &mut TraverseCtx<'a, CoverageState>,
+        body: &mut Statement<'arena>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         if matches!(body, Statement::BlockStatement(_)) {
             return;
@@ -297,7 +309,7 @@ impl<'src> CoverageTransform<'src> {
             return;
         }
 
-        let cov_fn = self.cov_fn_name.as_str();
+        let cov_fn = self.cov_fn_name;
         let scope_id = ctx.create_child_scope_of_current(oxc_syntax::scope::ScopeFlags::empty());
         let original = mem::replace(body, ctx.ast.statement_empty(SPAN));
         let mut stmts = ctx.ast.vec();
@@ -326,13 +338,12 @@ fn alloc_str<'a>(s: &str, ctx: &TraverseCtx<'a, CoverageState>) -> &'a str {
 
 /// Build a counter expression: `cov_fn().type[id]++`
 fn build_counter_expr<'a>(
-    cov_fn_name: &str,
+    cov_fn_name: &'a str,
     counter_type: &str,
     counter_id: usize,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) -> Expression<'a> {
-    let name = alloc_str(cov_fn_name, ctx);
-    let callee = ctx.ast.expression_identifier(SPAN, name);
+    let callee = ctx.ast.expression_identifier(SPAN, cov_fn_name);
     let call = ctx.ast.expression_call(
         SPAN,
         callee,
@@ -364,13 +375,12 @@ fn build_counter_expr<'a>(
 
 /// Build a branch counter expression: `cov_fn().b[branch_id][path_idx]++`
 fn build_branch_counter_expr<'a>(
-    cov_fn_name: &str,
+    cov_fn_name: &'a str,
     branch_id: usize,
     path_idx: usize,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) -> Expression<'a> {
-    let name = alloc_str(cov_fn_name, ctx);
-    let callee = ctx.ast.expression_identifier(SPAN, name);
+    let callee = ctx.ast.expression_identifier(SPAN, cov_fn_name);
     let call = ctx.ast.expression_call(
         SPAN,
         callee,
@@ -414,7 +424,7 @@ fn build_branch_counter_expr<'a>(
 
 /// Build a counter expression statement: `cov_fn().type[id]++;`
 fn build_counter_stmt<'a>(
-    cov_fn_name: &str,
+    cov_fn_name: &'a str,
     counter_type: &str,
     counter_id: usize,
     ctx: &TraverseCtx<'a, CoverageState>,
@@ -425,7 +435,7 @@ fn build_counter_stmt<'a>(
 
 /// Build a branch counter statement: `cov_fn().b[branch_id][path_idx]++;`
 fn build_branch_counter_stmt<'a>(
-    cov_fn_name: &str,
+    cov_fn_name: &'a str,
     branch_id: usize,
     path_idx: usize,
     ctx: &TraverseCtx<'a, CoverageState>,
@@ -435,7 +445,7 @@ fn build_branch_counter_stmt<'a>(
 }
 
 fn build_pending_counter_stmt<'a>(
-    cov_fn_name: &str,
+    cov_fn_name: &'a str,
     pending: &PendingInsertion,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) -> Statement<'a> {
@@ -562,14 +572,21 @@ fn is_ignored_case(case: &SwitchCase, pragmas: &PragmaMap) -> bool {
 
 struct LogicalWrapState<'b> {
     cov_fn_name: &'b str,
+    /// Pre-interned `${cov_fn_name}_bt` helper, only set when `report_logic` is true.
+    cov_fn_bt_name: Option<&'b str>,
     branch_id: usize,
     report_logic: bool,
     path_idx: usize,
 }
 
 impl<'b> LogicalWrapState<'b> {
-    fn new(cov_fn_name: &'b str, branch_id: usize, report_logic: bool) -> Self {
-        Self { cov_fn_name, branch_id, report_logic, path_idx: 0 }
+    fn new(
+        cov_fn_name: &'b str,
+        cov_fn_bt_name: Option<&'b str>,
+        branch_id: usize,
+        report_logic: bool,
+    ) -> Self {
+        Self { cov_fn_name, cov_fn_bt_name, branch_id, report_logic, path_idx: 0 }
     }
 
     fn current_path_idx(&self) -> usize {
@@ -587,7 +604,7 @@ impl<'b> LogicalWrapState<'b> {
 /// preamble helper function.
 fn wrap_expression_with_branch_counter<'a>(
     operand: &mut Expression<'a>,
-    state: &LogicalWrapState<'_>,
+    state: &LogicalWrapState<'a>,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) {
     let counter = build_branch_counter_expr(
@@ -605,7 +622,7 @@ fn wrap_expression_with_branch_counter<'a>(
 
 fn wrap_logical_leaf<'a>(
     operand: &mut Expression<'a>,
-    state: &mut LogicalWrapState<'_>,
+    state: &mut LogicalWrapState<'a>,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) {
     wrap_expression_with_branch_counter(operand, state, ctx);
@@ -613,7 +630,7 @@ fn wrap_logical_leaf<'a>(
 
     if state.report_logic {
         // Wrap with truthy tracking helper: cov_fn_bt(wrapped, branch_id, path_idx)
-        let bt_name = alloc_str(&format!("{}_bt", state.cov_fn_name), ctx);
+        let bt_name = state.cov_fn_bt_name.expect("report_logic requires cov_fn_bt_name");
         let callee = ctx.ast.expression_identifier(SPAN, bt_name);
         let mut args = ctx.ast.vec();
         args.push(Argument::from(branch_wrapped));
@@ -647,7 +664,7 @@ fn wrap_logical_leaf<'a>(
 /// `ParenthesizedExpression` so `a && (b || c)` wraps all three leaves.
 fn wrap_logical_leaves<'a>(
     expr: &mut LogicalExpression<'a>,
-    state: &mut LogicalWrapState<'_>,
+    state: &mut LogicalWrapState<'a>,
     ctx: &mut TraverseCtx<'a, CoverageState>,
 ) {
     wrap_logical_operand(&mut expr.left, state, ctx);
@@ -656,7 +673,7 @@ fn wrap_logical_leaves<'a>(
 
 fn wrap_logical_operand<'a>(
     operand: &mut Expression<'a>,
-    state: &mut LogicalWrapState<'_>,
+    state: &mut LogicalWrapState<'a>,
     ctx: &mut TraverseCtx<'a, CoverageState>,
 ) {
     // Unwrap parens transparently (matches Babel's AST shape).
@@ -673,7 +690,7 @@ fn wrap_logical_operand<'a>(
     }
 }
 
-impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
+impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
     fn enter_function(
         &mut self,
         func: &mut Function<'a>,
@@ -739,7 +756,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
             return;
         }
         if let Some(fn_id) = self.pending_fn_counters.pop() {
-            let cov_fn = self.cov_fn_name.as_str();
+            let cov_fn = self.cov_fn_name;
             let counter = build_counter_stmt(cov_fn, "f", fn_id, ctx);
             body.statements.insert(0, counter);
         }
@@ -872,7 +889,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
             return;
         }
         let stmt_id = self.add_statement(init_span);
-        let cov_fn = self.cov_fn_name.as_str();
+        let cov_fn = self.cov_fn_name;
         let counter = build_counter_expr(cov_fn, "s", stmt_id, ctx);
         let orig = mem::replace(init, dummy_expr(ctx));
         let mut items = ctx.ast.vec();
@@ -971,7 +988,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
             return;
         }
         let stmt_id = self.add_statement(span);
-        let cov_fn = self.cov_fn_name.as_str();
+        let cov_fn = self.cov_fn_name;
         let counter = build_counter_expr(cov_fn, "s", stmt_id, ctx);
         let orig = mem::replace(prop.value.as_mut().unwrap(), dummy_expr(ctx));
         let mut items = ctx.ast.vec();
@@ -1110,7 +1127,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
             return;
         }
 
-        let cov_fn = self.cov_fn_name.as_str();
+        let cov_fn = self.cov_fn_name;
         let mut insertions: Vec<(usize, Statement<'a>)> = Vec::new();
         let pending = &mut self.pending_stmts;
 
@@ -1177,14 +1194,14 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         let consequent_span = stmt.span;
         let branch_id = self.add_branch("if", stmt.span);
 
-        let cov_fn = self.cov_fn_name.clone();
+        let cov_fn = self.cov_fn_name;
 
         // istanbul ignore if: skip the if-branch counter
         if pragma != Some(IgnoreType::If) {
             let path_idx = self.add_branch_path(branch_id, consequent_span);
             inject_branch_counter_into_statement(
                 &mut stmt.consequent,
-                cov_fn.as_str(),
+                cov_fn,
                 branch_id,
                 path_idx,
                 ctx,
@@ -1205,13 +1222,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
                 } else {
                     self.add_branch_path(branch_id, alt.span())
                 };
-                inject_branch_counter_into_statement(
-                    alt,
-                    cov_fn.as_str(),
-                    branch_id,
-                    path_idx,
-                    ctx,
-                );
+                inject_branch_counter_into_statement(alt, cov_fn, branch_id, path_idx, ctx);
             }
         }
     }
@@ -1244,12 +1255,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         let ignore_alternate =
             ctx.state.pragmas.get(expr.alternate.span().start) == Some(IgnoreType::Next);
 
-        let cov_fn = self.cov_fn_name.clone();
+        let cov_fn = self.cov_fn_name;
 
         if !ignore_consequent {
             // Wrap consequent: (cov().b[id][path]++, originalExpr)
             let path_idx = self.add_branch_path(branch_id, expr.consequent.span());
-            let counter = build_branch_counter_expr(cov_fn.as_str(), branch_id, path_idx, ctx);
+            let counter = build_branch_counter_expr(cov_fn, branch_id, path_idx, ctx);
             let orig_consequent = mem::replace(&mut expr.consequent, dummy_expr(ctx));
             let mut items = ctx.ast.vec();
             items.push(counter);
@@ -1260,7 +1271,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         if !ignore_alternate {
             // Wrap alternate: (cov().b[id][path]++, originalExpr)
             let path_idx = self.add_branch_path(branch_id, expr.alternate.span());
-            let counter = build_branch_counter_expr(cov_fn.as_str(), branch_id, path_idx, ctx);
+            let counter = build_branch_counter_expr(cov_fn, branch_id, path_idx, ctx);
             let orig_alternate = mem::replace(&mut expr.alternate, dummy_expr(ctx));
             let mut items = ctx.ast.vec();
             items.push(counter);
@@ -1279,13 +1290,13 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         }
         let branch_id = self.add_branch("switch", stmt.span);
 
-        let cov_fn = self.cov_fn_name.clone();
+        let cov_fn = self.cov_fn_name;
         for case in &mut stmt.cases {
             if is_ignored_case(case, &ctx.state.pragmas) {
                 continue;
             }
             let path_idx = self.add_branch_path(branch_id, case.span);
-            let branch_stmt = build_branch_counter_stmt(cov_fn.as_str(), branch_id, path_idx, ctx);
+            let branch_stmt = build_branch_counter_stmt(cov_fn, branch_id, path_idx, ctx);
             case.consequent.insert(0, branch_stmt);
         }
     }
@@ -1336,8 +1347,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
                 }
 
                 // Wrap each leaf operand with its branch counter
-                let cov_fn = self.cov_fn_name.as_str();
-                let mut state = LogicalWrapState::new(cov_fn, branch_id, self.report_logic);
+                let mut state = LogicalWrapState::new(
+                    self.cov_fn_name,
+                    self.cov_fn_bt_name,
+                    branch_id,
+                    self.report_logic,
+                );
                 wrap_logical_leaves(expr, &mut state, ctx);
             }
         }
@@ -1421,8 +1436,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
             let init_span = init.span();
             let branch_id = self.add_branch("default-arg", param.span);
             self.add_branch_path(branch_id, init_span);
-            let cov_fn = self.cov_fn_name.as_str();
-            let state = LogicalWrapState::new(cov_fn, branch_id, false);
+            let state = LogicalWrapState::new(self.cov_fn_name, None, branch_id, false);
             wrap_expression_with_branch_counter(init, &state, ctx);
         }
     }
@@ -1440,8 +1454,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
         let right_span = pattern.right.span();
         let branch_id = self.add_branch("default-arg", pattern.span);
         self.add_branch_path(branch_id, right_span);
-        let cov_fn = self.cov_fn_name.as_str();
-        let state = LogicalWrapState::new(cov_fn, branch_id, false);
+        let state = LogicalWrapState::new(self.cov_fn_name, None, branch_id, false);
         wrap_expression_with_branch_counter(&mut pattern.right, &state, ctx);
     }
 
@@ -1470,7 +1483,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
             self.add_branch_path(branch_id, left_span);
             self.add_branch_path(branch_id, right_span);
 
-            let cov_fn = self.cov_fn_name.as_str();
+            let cov_fn = self.cov_fn_name;
 
             // The left branch (no assignment) is always entered — increment before
             // the assignment. The right branch (assignment happens) is conditional.
@@ -1496,7 +1509,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_> {
 /// Inject a branch counter into a statement, wrapping in a block if necessary.
 fn inject_branch_counter_into_statement<'a>(
     stmt: &mut Statement<'a>,
-    cov_fn_name: &str,
+    cov_fn_name: &'a str,
     branch_id: usize,
     path_idx: usize,
     ctx: &mut TraverseCtx<'a, CoverageState>,

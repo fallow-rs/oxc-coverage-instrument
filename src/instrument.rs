@@ -152,8 +152,9 @@ pub fn instrument(
 
     // Phase 1: Traverse AST, collect coverage spans, and inject counter expressions
     let mut transform = CoverageTransform::new(
+        &allocator,
         source,
-        cov_fn_name.clone(),
+        &cov_fn_name,
         options.report_logic,
         options.ignore_class_methods.clone(),
     );
