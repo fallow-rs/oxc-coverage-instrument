@@ -150,8 +150,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             skip_fn_counter_only: false,
             skip_current_var_decl: false,
             cov_fn_name,
-            cov_fn_bt_name: report_logic
-                .then(|| allocator.alloc_str(&format!("{cov_fn_name}_bt"))),
+            cov_fn_bt_name: report_logic.then(|| allocator.alloc_str(&format!("{cov_fn_name}_bt"))),
             report_logic,
             ignore_class_methods,
             logical_branch_ids: Vec::new(),
@@ -478,8 +477,14 @@ pub struct PreambleInputs<'a> {
 /// we generate the preamble as a source string and prepend it.
 /// This matches the approach used by istanbul-lib-instrument.
 pub fn generate_preamble_source(inputs: &PreambleInputs<'_>) -> String {
-    let PreambleInputs { coverage, coverage_json, coverage_hash, coverage_var, cov_fn_name, report_logic } =
-        *inputs;
+    let PreambleInputs {
+        coverage,
+        coverage_json,
+        coverage_hash,
+        coverage_var,
+        cov_fn_name,
+        report_logic,
+    } = *inputs;
     // The two `serde_json::to_string` calls below operate on plain strings and
     // cannot fail. The caller already serialized the full coverage map (which
     // is composed of std collections + first-party serde types) and passes the
@@ -534,13 +539,7 @@ fn dummy_expr<'a>(ctx: &TraverseCtx<'a, CoverageState>) -> Expression<'a> {
 // fast position lookups during traversal.
 fn compute_line_offsets(source: &str) -> Vec<u32> {
     std::iter::once(0)
-        .chain(
-            source
-                .bytes()
-                .enumerate()
-                .filter(|(_, b)| *b == b'\n')
-                .map(|(i, _)| (i + 1) as u32),
-        )
+        .chain(source.bytes().enumerate().filter(|(_, b)| *b == b'\n').map(|(i, _)| (i + 1) as u32))
         .collect()
 }
 

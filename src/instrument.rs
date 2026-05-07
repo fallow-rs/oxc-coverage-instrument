@@ -272,8 +272,8 @@ fn finalize_source_map(
 ) -> String {
     // Offset mappings by preamble line count so generated positions in the combined
     // output map correctly resolve back to the original source.
-    let preamble_lines = u32::try_from(preamble.chars().filter(|&c| c == '\n').count())
-        .unwrap_or(u32::MAX);
+    let preamble_lines =
+        u32::try_from(preamble.chars().filter(|&c| c == '\n').count()).unwrap_or(u32::MAX);
     let offset_sm = if preamble_lines > 0 {
         oxc_sourcemap::ConcatSourceMapBuilder::from_sourcemaps(&[(&sm, preamble_lines)])
             .into_sourcemap()

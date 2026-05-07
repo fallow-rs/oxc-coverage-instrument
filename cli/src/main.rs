@@ -141,7 +141,11 @@ fn write_outputs(cli: &CliArgs, result: &InstrumentResult) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn write_code_and_map(path: &str, filename: &str, result: &InstrumentResult) -> Result<(), ExitCode> {
+fn write_code_and_map(
+    path: &str,
+    filename: &str,
+    result: &InstrumentResult,
+) -> Result<(), ExitCode> {
     if let Err(e) = std::fs::write(path, &result.code) {
         eprintln!("error: cannot write {path}: {e}");
         return Err(ExitCode::FAILURE);

@@ -185,8 +185,8 @@ impl PragmaCollect {
     fn apply(&mut self, result: PragmaResult, comment: &Comment, source: &str) {
         match result {
             PragmaResult::Ignore(it) => {
-                let token_start = PragmaMap::pragma_target_start(source, comment)
-                    .unwrap_or(comment.attached_to);
+                let token_start =
+                    PragmaMap::pragma_target_start(source, comment).unwrap_or(comment.attached_to);
                 self.ignores.insert(token_start, it);
             }
             PragmaResult::File => self.ignore_file = true,
