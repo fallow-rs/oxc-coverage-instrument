@@ -175,8 +175,13 @@ pub fn instrument(
     // the preamble's coverageData literal. Istanbul refreshes stale coverage
     // objects when the same path is reinstrumented with a different shape, and
     // the hash is computed over the same JSON we embed in the preamble.
-    let coverage_json = serde_json::to_string(&coverage_map)
-        .map_err(|e| InstrumentError::SerializationError(e.to_string()))?;
+    //
+    // `FileCoverage` is composed of `BTreeMap`, `Vec`, `String`, and primitive
+    // numbers, all with first-party serde implementations that cannot fail
+    // at runtime. The .expect call documents this rather than threading a
+    // never-produced error variant through the call chain.
+    let coverage_json =
+        serde_json::to_string(&coverage_map).expect("FileCoverage serializes to JSON infallibly");
     let coverage_hash = stable_hex_hash(&coverage_json);
 
     // Phase 2: Generate preamble source and prepend to program
@@ -187,8 +192,7 @@ pub fn instrument(
         &options.coverage_variable,
         &cov_fn_name,
         options.report_logic,
-    )
-    .map_err(|e| InstrumentError::SerializationError(e.to_string()))?;
+    );
 
     // Phase 3: Emit instrumented code via codegen
     let codegen_options = CodegenOptions {
@@ -284,7 +288,9 @@ pub enum InstrumentError {
     ParseError(String),
     /// The coverage variable name is not a valid JavaScript identifier.
     InvalidCoverageVariable(String),
-    /// Coverage data serialization failed.
+    /// Coverage data serialization failed. Reserved for future use: the current
+    /// `FileCoverage` shape only contains types whose serde implementations are
+    /// infallible, so `instrument()` does not currently construct this variant.
     SerializationError(String),
 }
 

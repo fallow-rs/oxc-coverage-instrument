@@ -443,13 +443,21 @@ pub fn generate_preamble_source(
     coverage_var: &str,
     cov_fn_name: &str,
     report_logic: bool,
-) -> Result<String, serde_json::Error> {
+) -> String {
+    // The two `serde_json::to_string` calls below operate on plain strings and
+    // cannot fail. The caller already serialized the full coverage map (which
+    // is composed of std collections + first-party serde types) and passes the
+    // result in as `coverage_json`, so this whole function is JSON-infallible.
     let estimated_size = 256 + coverage_json.len();
     let mut buf = String::with_capacity(estimated_size);
     let _ = write!(buf, "var {cov_fn_name} = (function () {{ var path = ");
-    buf.push_str(&serde_json::to_string(&coverage.path)?);
+    buf.push_str(
+        &serde_json::to_string(&coverage.path).expect("serializing a String to JSON is infallible"),
+    );
     let _ = write!(buf, "; var hash = ");
-    buf.push_str(&serde_json::to_string(coverage_hash)?);
+    buf.push_str(
+        &serde_json::to_string(coverage_hash).expect("serializing a &str to JSON is infallible"),
+    );
     let _ = write!(buf, "; var gcv = '{coverage_var}'; var coverageData = ");
     buf.push_str(coverage_json);
     let _ = writeln!(
@@ -474,7 +482,7 @@ pub fn generate_preamble_source(
             "function {cov_fn_name}_bt(val, id, idx) {{ {cov_fn_name}_temp = val; if ({cov_fn_name}_temp && (!Array.isArray({cov_fn_name}_temp) || {cov_fn_name}_temp.length) && (Object.getPrototypeOf({cov_fn_name}_temp) !== Object.prototype || Object.values({cov_fn_name}_temp).length)) {{ ++{cov_fn_name}.bT[id][idx]; }} return {cov_fn_name}_temp; }}"
         );
     }
-    Ok(buf)
+    buf
 }
 
 /// Generate a deterministic coverage function name from the file path.
