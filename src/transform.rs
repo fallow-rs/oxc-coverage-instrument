@@ -248,6 +248,47 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         )
     }
 
+    // Track which arm spans of an `if` are pragma-ignored so nested statements
+    // inside the ignored arm do not register their own statement counters.
+    fn record_ignored_if_arm(&mut self, stmt: &IfStatement<'arena>, pragma: Option<IgnoreType>) {
+        let mut ignored_arm_count = 0_usize;
+        if pragma == Some(IgnoreType::If) {
+            self.ignored_if_arm_spans.push(stmt.consequent.span());
+            ignored_arm_count += 1;
+        } else if pragma == Some(IgnoreType::Else)
+            && let Some(alt) = &stmt.alternate
+        {
+            self.ignored_if_arm_spans.push(alt.span());
+            ignored_arm_count += 1;
+        }
+        self.ignored_if_arm_push_counts.push(ignored_arm_count);
+    }
+
+    // Synthesize a missing else-arm block when needed and inject its branch
+    // counter, mirroring istanbul-lib-instrument's coverIfBranches behavior.
+    fn inject_else_branch_counter(
+        &mut self,
+        stmt: &mut IfStatement<'arena>,
+        branch_id: usize,
+        cov_fn: &'arena str,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
+    ) {
+        if stmt.alternate.is_none() {
+            let scope_id =
+                ctx.create_child_scope_of_current(oxc_syntax::scope::ScopeFlags::empty());
+            stmt.alternate =
+                Some(ctx.ast.statement_block_with_scope_id(SPAN, ctx.ast.vec(), scope_id));
+        }
+        if let Some(alt) = &mut stmt.alternate {
+            let path_idx = if alt.span().start == 0 && alt.span().end == 0 {
+                self.add_branch_path_unknown(branch_id)
+            } else {
+                self.add_branch_path(branch_id, alt.span())
+            };
+            inject_branch_counter_into_statement(alt, cov_fn, branch_id, path_idx, ctx);
+        }
+    }
+
     fn add_branch_path_location(&mut self, branch_id: usize, location: Location) -> usize {
         let entry = self
             .branch_map
@@ -497,6 +538,34 @@ pub fn generate_cov_fn_name(file_path: &str) -> String {
 /// Create a dummy expression for `mem::replace` operations.
 fn dummy_expr<'a>(ctx: &TraverseCtx<'a, CoverageState>) -> Expression<'a> {
     ctx.ast.expression_numeric_literal(SPAN, 0.0, None, oxc_syntax::number::NumberBase::Decimal)
+}
+
+// istanbul-lib-instrument treats these variants as containers, not statements:
+//   FunctionDeclaration / ClassDeclaration: covered via function counters
+//   VariableDeclaration: covered per-declarator (see enter_variable_declarator)
+//   Import / Export* / TS type-only decls: skipped entirely
+//   BlockStatement / EmptyStatement: never counted
+// See istanbul-lib-instrument's visitor.js wiring.
+fn is_container_statement(stmt: &Statement<'_>) -> bool {
+    matches!(
+        stmt,
+        Statement::BlockStatement(_)
+            | Statement::EmptyStatement(_)
+            | Statement::FunctionDeclaration(_)
+            | Statement::ClassDeclaration(_)
+            | Statement::VariableDeclaration(_)
+            | Statement::ImportDeclaration(_)
+            | Statement::ExportNamedDeclaration(_)
+            | Statement::ExportDefaultDeclaration(_)
+            | Statement::ExportAllDeclaration(_)
+            | Statement::TSTypeAliasDeclaration(_)
+            | Statement::TSInterfaceDeclaration(_)
+            | Statement::TSEnumDeclaration(_)
+            | Statement::TSModuleDeclaration(_)
+            | Statement::TSImportEqualsDeclaration(_)
+            | Statement::TSExportAssignment(_)
+            | Statement::TSNamespaceExportDeclaration(_)
+    )
 }
 
 /// Check if the nearest non-parenthesized ancestor is a logical expression.
@@ -1062,47 +1131,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             && (ctx.state.pragmas.get(span.start) == Some(IgnoreType::Next)
                 || self.is_in_ignored_if_arm(span));
         self.ignored_stmt_stack.push(has_ignore_next);
-        // Injected nodes have SPAN = 0:0 — never treat them as real statements.
-        if is_injected {
+        // Injected nodes have SPAN = 0:0, never treat them as real statements.
+        if is_injected || is_container_statement(stmt) || parent_ignored {
             return;
         }
-        // istanbul-lib-instrument treats these variants as containers, not statements:
-        //   FunctionDeclaration / ClassDeclaration  — covered via function counters
-        //   VariableDeclaration                     — covered per-declarator (see
-        //                                             enter_variable_declarator)
-        //   Import / Export* / TS type-only decls   — skipped entirely
-        //   BlockStatement / EmptyStatement         — never counted
-        // See istanbul-lib-instrument's visitor.js wiring.
-        if matches!(
-            stmt,
-            Statement::BlockStatement(_)
-                | Statement::EmptyStatement(_)
-                | Statement::FunctionDeclaration(_)
-                | Statement::ClassDeclaration(_)
-                | Statement::VariableDeclaration(_)
-                | Statement::ImportDeclaration(_)
-                | Statement::ExportNamedDeclaration(_)
-                | Statement::ExportDefaultDeclaration(_)
-                | Statement::ExportAllDeclaration(_)
-                | Statement::TSTypeAliasDeclaration(_)
-                | Statement::TSInterfaceDeclaration(_)
-                | Statement::TSEnumDeclaration(_)
-                | Statement::TSModuleDeclaration(_)
-                | Statement::TSImportEqualsDeclaration(_)
-                | Statement::TSExportAssignment(_)
-                | Statement::TSNamespaceExportDeclaration(_)
-        ) {
-            return;
-        }
-        // If any enclosing function or arrow is ignored, skip its body statements
-        // too. This matches Istanbul's subtree-skip semantics for
-        // `/* istanbul ignore next */` on the enclosing callable.
-        if parent_ignored {
-            return;
-        }
-        // Check for ignore next pragma on this statement.
         // Setting `skip_next` lets nested functions/arrows in the subtree skip
-        // their own counters. It must NOT leak to the next sibling statement —
+        // their own counters. It must NOT leak to the next sibling statement,
         // `exit_statement` clears it defensively.
         if has_ignore_next {
             self.skip_next = true;
@@ -1187,17 +1221,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             return;
         }
         let pragma = ctx.state.pragmas.get(stmt.span.start);
-        let mut ignored_arm_count = 0;
-        if pragma == Some(IgnoreType::If) {
-            self.ignored_if_arm_spans.push(stmt.consequent.span());
-            ignored_arm_count += 1;
-        } else if pragma == Some(IgnoreType::Else)
-            && let Some(alt) = &stmt.alternate
-        {
-            self.ignored_if_arm_spans.push(alt.span());
-            ignored_arm_count += 1;
-        }
-        self.ignored_if_arm_push_counts.push(ignored_arm_count);
+        self.record_ignored_if_arm(stmt, pragma);
 
         // istanbul-lib-instrument's `coverIfBranches` passes `n.loc` (the whole
         // `IfStatement` span) as the consequent location, not the consequent
@@ -1207,10 +1231,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // range in hover tooltips.
         let consequent_span = stmt.span;
         let branch_id = self.add_branch("if", stmt.span);
-
         let cov_fn = self.cov_fn_name;
 
-        // istanbul ignore if: skip the if-branch counter
         if pragma != Some(IgnoreType::If) {
             let path_idx = self.add_branch_path(branch_id, consequent_span);
             inject_branch_counter_into_statement(
@@ -1221,23 +1243,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                 ctx,
             );
         }
-
-        // istanbul ignore else: skip the else-branch counter
         if pragma != Some(IgnoreType::Else) {
-            if stmt.alternate.is_none() {
-                let scope_id =
-                    ctx.create_child_scope_of_current(oxc_syntax::scope::ScopeFlags::empty());
-                stmt.alternate =
-                    Some(ctx.ast.statement_block_with_scope_id(SPAN, ctx.ast.vec(), scope_id));
-            }
-            if let Some(alt) = &mut stmt.alternate {
-                let path_idx = if alt.span().start == 0 && alt.span().end == 0 {
-                    self.add_branch_path_unknown(branch_id)
-                } else {
-                    self.add_branch_path(branch_id, alt.span())
-                };
-                inject_branch_counter_into_statement(alt, cov_fn, branch_id, path_idx, ctx);
-            }
+            self.inject_else_branch_counter(stmt, branch_id, cov_fn, ctx);
         }
     }
 
