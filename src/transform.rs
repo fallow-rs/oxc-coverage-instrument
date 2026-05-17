@@ -710,41 +710,32 @@ fn wrap_expression_with_branch_counter<'a>(
     *operand = ctx.ast.expression_sequence(SPAN, items);
 }
 
+/// Wrap `inner` with the truthy-tracking helper call:
+/// `cov_fn_bt(inner, branch_id, path_idx)`. Used by `wrap_logical_leaf`
+/// when `report_logic` is enabled.
+fn build_bt_call<'a>(
+    inner: Expression<'a>,
+    state: &LogicalWrapState<'a>,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) -> Expression<'a> {
+    let bt_name = state.cov_fn_bt_name.expect("report_logic requires cov_fn_bt_name");
+    let callee = ctx.ast.expression_identifier(SPAN, bt_name);
+    let mut args = ctx.ast.vec();
+    args.push(Argument::from(inner));
+    args.push(Argument::from(numeric_literal(ctx, state.branch_id as f64)));
+    args.push(Argument::from(numeric_literal(ctx, state.current_path_idx() as f64)));
+    ctx.ast.expression_call(SPAN, callee, None::<TSTypeParameterInstantiation>, args, false)
+}
+
 fn wrap_logical_leaf<'a>(
     operand: &mut Expression<'a>,
     state: &mut LogicalWrapState<'a>,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) {
     wrap_expression_with_branch_counter(operand, state, ctx);
-    let branch_wrapped = mem::replace(operand, dummy_expr(ctx));
-
     if state.report_logic {
-        // Wrap with truthy tracking helper: cov_fn_bt(wrapped, branch_id, path_idx)
-        let bt_name = state.cov_fn_bt_name.expect("report_logic requires cov_fn_bt_name");
-        let callee = ctx.ast.expression_identifier(SPAN, bt_name);
-        let mut args = ctx.ast.vec();
-        args.push(Argument::from(branch_wrapped));
-        args.push(Argument::from(ctx.ast.expression_numeric_literal(
-            SPAN,
-            state.branch_id as f64,
-            None,
-            oxc_syntax::number::NumberBase::Decimal,
-        )));
-        args.push(Argument::from(ctx.ast.expression_numeric_literal(
-            SPAN,
-            state.current_path_idx() as f64,
-            None,
-            oxc_syntax::number::NumberBase::Decimal,
-        )));
-        *operand = ctx.ast.expression_call(
-            SPAN,
-            callee,
-            None::<TSTypeParameterInstantiation>,
-            args,
-            false,
-        );
-    } else {
-        *operand = branch_wrapped;
+        let branch_wrapped = mem::replace(operand, dummy_expr(ctx));
+        *operand = build_bt_call(branch_wrapped, state, ctx);
     }
     state.advance_path();
 }
