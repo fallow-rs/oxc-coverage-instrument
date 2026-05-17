@@ -399,6 +399,29 @@ impl<'a> CounterKind<'a> {
     }
 }
 
+/// Build a `base.field` static member access.
+fn static_field<'a>(
+    base: Expression<'a>,
+    field: &'a str,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) -> MemberExpression<'a> {
+    ctx.ast.member_expression_static(SPAN, base, ctx.ast.identifier_name(SPAN, field), false)
+}
+
+/// Build a `base[idx]` computed (numeric-index) member access.
+fn computed_index<'a>(
+    base: MemberExpression<'a>,
+    idx: usize,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) -> MemberExpression<'a> {
+    ctx.ast.member_expression_computed(
+        SPAN,
+        Expression::from(base),
+        numeric_literal(ctx, idx as f64),
+        false,
+    )
+}
+
 /// Build a counter increment expression: `cov_fn.s[id]++`, `cov_fn.f[id]++`,
 /// or `cov_fn.b[branch_id][path_idx]++` depending on the kind.
 fn build_counter_expr<'a>(
@@ -408,45 +431,22 @@ fn build_counter_expr<'a>(
     let target = match kind {
         CounterKind::Statement { cov_fn_name, type_, id } => {
             let coverage = ctx.ast.expression_identifier(SPAN, cov_fn_name);
-            let ct = alloc_str(type_, ctx);
-            let member = ctx.ast.member_expression_static(
-                SPAN,
-                coverage,
-                ctx.ast.identifier_name(SPAN, ct),
-                false,
-            );
-            let computed = ctx.ast.member_expression_computed(
-                SPAN,
-                Expression::from(member),
-                numeric_literal(ctx, id as f64),
-                false,
-            );
-            SimpleAssignmentTarget::from(computed)
+            let field = static_field(coverage, alloc_str(type_, ctx), ctx);
+            computed_index(field, id, ctx)
         }
         CounterKind::Branch { cov_fn_name, branch_id, path_idx } => {
             let coverage = ctx.ast.expression_identifier(SPAN, cov_fn_name);
-            let member = ctx.ast.member_expression_static(
-                SPAN,
-                coverage,
-                ctx.ast.identifier_name(SPAN, "b"),
-                false,
-            );
-            let outer = ctx.ast.member_expression_computed(
-                SPAN,
-                Expression::from(member),
-                numeric_literal(ctx, branch_id as f64),
-                false,
-            );
-            let inner = ctx.ast.member_expression_computed(
-                SPAN,
-                Expression::from(outer),
-                numeric_literal(ctx, path_idx as f64),
-                false,
-            );
-            SimpleAssignmentTarget::from(inner)
+            let b = static_field(coverage, "b", ctx);
+            let outer = computed_index(b, branch_id, ctx);
+            computed_index(outer, path_idx, ctx)
         }
     };
-    ctx.ast.expression_update(SPAN, UpdateOperator::Increment, true, target)
+    ctx.ast.expression_update(
+        SPAN,
+        UpdateOperator::Increment,
+        true,
+        SimpleAssignmentTarget::from(target),
+    )
 }
 
 /// Build a counter increment statement wrapping the matching expression.
