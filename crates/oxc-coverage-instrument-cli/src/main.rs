@@ -125,6 +125,7 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
     let mut coverage_file: Option<String> = None;
     let mut root_dir: Option<PathBuf> = None;
     let mut html_threshold: f64 = 80.0;
+    let mut threshold_was_set = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -151,6 +152,17 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
                     );
                     ExitCode::FAILURE
                 })?;
+                // `f64::from_str` accepts `nan`, `inf`, `-inf`; the
+                // range check below uses comparisons that silently
+                // return false for NaN, so a `nan` input would slip
+                // through unnoticed and degrade every percent to the
+                // "medium" bucket. Reject non-finite values up front.
+                if !parsed.is_finite() {
+                    eprintln!(
+                        "error: --threshold must be a finite number between 0 and 100, got '{value}'"
+                    );
+                    return Err(ExitCode::FAILURE);
+                }
                 if !(0.0..=100.0).contains(&parsed) {
                     eprintln!(
                         "error: --threshold {parsed} is outside [0, 100]; pick a percentage in that range"
@@ -158,6 +170,7 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
                     return Err(ExitCode::FAILURE);
                 }
                 html_threshold = parsed;
+                threshold_was_set = true;
             }
             "--help" | "-h" => {
                 print_report_usage();
@@ -201,6 +214,14 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
             "error: --output-dir is only valid for multi-file formats (html); use -o for --format {}",
             format_name(format)
         );
+        return Err(ExitCode::FAILURE);
+    }
+    // `--threshold` only affects the html reporter (drives colour
+    // bucketing + the threshold-summary sentence). Reject it on other
+    // formats so the user knows it was a no-op rather than letting it
+    // silently slip through.
+    if threshold_was_set && !format.is_multi_file() {
+        eprintln!("error: --threshold only applies to --format html; remove it or switch formats");
         return Err(ExitCode::FAILURE);
     }
 
@@ -429,7 +450,10 @@ REPORT OPTIONS:
     -o, --output <file>          Write report to file (default: stdout). Not valid for --format html.
     --output-dir <dir>           Output directory for multi-file formats (html). Default: ./coverage
     --root <dir>                 Root directory used to relativize source paths and resolve html source view (default: cwd)
-    --threshold <pct>            High/medium coverage cutoff for html reports (0-100, default: 80)
+    --threshold <pct>            Percentage at or above which html-report cells render green
+                                 (0-100, default: 80). Cells below this go amber down to 50%
+                                 and red below 50%. Affects display only; does not gate the
+                                 process exit code. Rejected on non-html formats.
 
 GLOBAL OPTIONS:
     -V, --version                Print version
@@ -450,7 +474,10 @@ OPTIONS:
     -o, --output <file>          Write report to file (default: stdout). Not valid for --format html.
     --output-dir <dir>           Output directory for multi-file formats (html). Default: ./coverage
     --root <dir>                 Root directory used to relativize source paths and resolve html source view (default: cwd)
-    --threshold <pct>            High/medium coverage cutoff for html reports (0-100, default: 80)
+    --threshold <pct>            Percentage at or above which html-report cells render green
+                                 (0-100, default: 80). Cells below this go amber down to 50%
+                                 and red below 50%. Affects display only; does not gate the
+                                 process exit code. Rejected on non-html formats.
     -h, --help                   Print this help"
     );
 }

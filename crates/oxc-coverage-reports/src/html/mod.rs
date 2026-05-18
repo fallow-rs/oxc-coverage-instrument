@@ -158,7 +158,7 @@ pub fn write_with_options(
 pub struct HtmlOptions {
     /// Percentage cutoff that separates "high" coverage (green) from
     /// "medium" (amber) on per-metric colouring, and powers the index
-    /// page's "N of M files fall below the X% line-coverage threshold"
+    /// page's "N of M files fall below the X% coverage threshold"
     /// sentence. The medium-to-low boundary stays fixed at 50%.
     /// Must be in `[0.0, 100.0]`; the CLI clamps user input.
     /// Default: `80.0` (Istanbul's traditional value).
@@ -263,9 +263,16 @@ fn render_folder_index(
     render_page(&title, depth, &body)
 }
 
-/// One-line summary above the file table: "N of M files below the X%
-/// line-coverage threshold". Renders as muted body text when at least
-/// one file falls below; silent when every file is at or above.
+/// One-line summary above the file table: "N of M files fall below the
+/// X% coverage threshold". The wording deliberately says "coverage
+/// threshold" rather than "line-coverage threshold" because the same
+/// `threshold` value drives the colour bucketing for every metric
+/// (statements, branches, functions, lines), and the file-below count
+/// is itself computed against line coverage as the canonical proxy
+/// for "is this file healthy enough". The file-list inclusion still
+/// uses `lines.pct` so a file with 95% lines and 30% branches is
+/// considered "above"; the bucketed colour cells then surface the
+/// underlying per-metric reality.
 fn render_threshold_summary(children: &[ReportNode], threshold: f64) -> String {
     let total = children.len();
     if total == 0 {
@@ -274,11 +281,11 @@ fn render_threshold_summary(children: &[ReportNode], threshold: f64) -> String {
     let below = children.iter().filter(|c| c.summary.lines.pct < threshold).count();
     if below == 0 {
         return format!(
-            "      <p class=\"threshold-summary\"><strong>All {total} files</strong> meet the {threshold:.0}% line-coverage threshold.</p>\n",
+            "      <p class=\"threshold-summary\"><strong>All {total} files</strong> meet the {threshold:.0}% coverage threshold.</p>\n",
         );
     }
     format!(
-        "      <p class=\"threshold-summary\"><strong>{below}</strong> of {total} files fall below the {threshold:.0}% line-coverage threshold.</p>\n",
+        "      <p class=\"threshold-summary\"><strong>{below}</strong> of {total} files fall below the {threshold:.0}% coverage threshold.</p>\n",
     )
 }
 
@@ -1080,7 +1087,7 @@ mod tests {
 
         // Default (80%): 70% file is "low" via lines pct < 50.0? Actually
         // 70% > 50%, so it's "medium"; threshold-summary should say
-        // "1 of 2 files fall below the 80% line-coverage threshold".
+        // "1 of 2 files fall below the 80% coverage threshold".
         let dir_default = tempfile::TempDir::new().unwrap();
         write(&map, Path::new(""), dir_default.path()).unwrap();
         let default_root = fs::read_to_string(dir_default.path().join("index.html")).unwrap();
@@ -1104,7 +1111,7 @@ mod tests {
         .unwrap();
         let loose_root = fs::read_to_string(dir_loose.path().join("index.html")).unwrap();
         assert!(
-            loose_root.contains("All 2 files</strong> meet the 60% line-coverage threshold"),
+            loose_root.contains("All 2 files</strong> meet the 60% coverage threshold"),
             "60% threshold should clear all files: {loose_root}",
         );
         assert!(
