@@ -297,8 +297,16 @@ fn count_for_location(
 /// over-reports execution and trips CI coverage thresholds. The honest
 /// answer is 0 ("V8 did not give us per-arm data for this branch shape").
 ///
-/// The match window allows a few bytes of whitespace slack between
-/// istanbul's reported arm location and V8's `BlockStatement` range.
+/// The 4-byte tolerance covers the typical newline + 2-space indent gap
+/// between istanbul's reported arm location and V8's `BlockStatement` range.
+/// Longer gaps (`else /* comment */ {`) intentionally return 0 because the
+/// match is then ambiguous; under-reporting is preferable to over-reporting.
+///
+/// When multiple V8 ranges fall within tolerance of the same arm (nested
+/// blocks whose `{` characters happen to be close together), the *tightest*
+/// match wins: minimum sum of start-distance + end-distance, ties broken by
+/// the narrower range. V8 emits ranges outermost-first, so a naive
+/// first-match would prefer the enclosing block over the actual arm.
 fn arm_count_for_location(
     source: &str,
     arm_loc: &Location,
@@ -315,14 +323,28 @@ fn arm_count_for_location(
         position_to_byte_offset(source, arm_loc.end.line, arm_loc.end.column, line_offsets)
             + wrapper_length;
 
+    let mut best: Option<(V8CoverageRange, u32)> = None;
     for r in ranges {
         let dist_start = r.start_offset.abs_diff(arm_start);
         let dist_end = r.end_offset.abs_diff(arm_end);
-        if dist_start <= TOLERANCE && dist_end <= TOLERANCE {
-            return r.count;
+        if dist_start > TOLERANCE || dist_end > TOLERANCE {
+            continue;
+        }
+        let distance = dist_start + dist_end;
+        match best {
+            None => best = Some((*r, distance)),
+            Some((prev, prev_distance)) => {
+                let prev_width = prev.end_offset.saturating_sub(prev.start_offset);
+                let this_width = r.end_offset.saturating_sub(r.start_offset);
+                if distance < prev_distance
+                    || (distance == prev_distance && this_width < prev_width)
+                {
+                    best = Some((*r, distance));
+                }
+            }
         }
     }
-    0
+    best.map_or(0, |(r, _)| r.count)
 }
 
 /// Pick the count of the smallest V8 range that fully contains `[start, end)`.

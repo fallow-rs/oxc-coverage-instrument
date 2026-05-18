@@ -125,6 +125,45 @@ fn assigns_branch_arm_counts_from_block_coverage() {
 }
 
 #[test]
+fn branch_arm_count_picks_tight_inner_range_over_enclosing_outer() {
+    // V8 emits ranges outermost-first. If the arm-resolver returned the first
+    // tolerance match, a naive walk would prefer the enclosing block (with the
+    // function's or module's higher count) over the actual arm block. Pin the
+    // tightest-match rule: when the else range itself reports a non-zero hit
+    // (e.g., the function ran 5 times and the else arm was taken 2 times),
+    // arm[1] must reflect the else range's count, not the outer's.
+    let source = "function f(x) {\n  if (x) {\n    a();\n  } else {\n    b();\n  }\n}\n";
+    let module_end = source.len() as u32;
+    let then_start = source.find("if (x) {").unwrap() as u32 + 7;
+    let then_end = source.find("} else").unwrap() as u32 + 1;
+    let else_start = source.find("else {").unwrap() as u32 + 5;
+    let else_end = source.rfind("\n  }").unwrap() as u32 + 4;
+
+    // Outer function ran 5 times; else arm taken 2 of those; then arm taken 3.
+    let functions = vec![function(
+        "f",
+        vec![
+            range(0, module_end, 5),
+            range(then_start, then_end, 3),
+            range(else_start, else_end, 2),
+        ],
+        true,
+    )];
+
+    let fc = v8_to_istanbul(source, "tight.js", &functions, 0).unwrap();
+    let (_, arm_counts) = fc
+        .branch_map
+        .iter()
+        .find(|(_, b)| b.branch_type == "if")
+        .map(|(id, _b)| (id.clone(), fc.b.get(id).cloned().unwrap_or_default()))
+        .expect("if branch must appear in branchMap");
+    assert_eq!(
+        arm_counts[1], 2,
+        "tightest match must win: else arm should resolve to else range count (2), not outer (5)"
+    );
+}
+
+#[test]
 fn ternary_arms_report_zero_when_no_block_range_matches() {
     // Ternary expressions (`cond-expr`) have no `{ ... }` BlockStatement, so
     // V8 emits no inner range for either arm. Falling back to the enclosing
