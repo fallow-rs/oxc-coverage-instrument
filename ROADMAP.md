@@ -31,6 +31,26 @@ Correct instrumented output via AST mutation. Istanbul-conformant. Published to 
 - [x] **CI**: cross-platform tests, MSRV, cargo-deny, napi test, typos, doc checks, coverage badge
 - [x] **Published to crates.io**: automated publishing via CI on each release
 
+## v0.5.x (in progress)
+
+Coverage suite (umbrella [#45](https://github.com/fallow-rs/oxc-coverage-instrument/issues/45)): port the rest of the istanbuljs stack into Rust-native crates so the entire pipeline lives in one workspace.
+
+- [x] **PR A**: workspace restructure into `crates/*` (#48)
+- [x] **PR B**: `oxc_coverage_types` data-model crate, port of `istanbul-lib-coverage` (#49)
+- [x] **PR C**: `oxc_coverage_source_maps` crate, port of `istanbul-lib-source-maps` (#50)
+- [x] **PR D**: `oxc_coverage_v8` crate, replaces the `v8-to-istanbul` npm package (#51)
+- [x] **PR E**: `oxc_coverage_report` + `oxc_coverage_reports` base + initial renderers
+  - `oxc_coverage_report`: port of `istanbul-lib-report` (`CoverageSummary`, `ReportNode` tree, `summarize()`, `Visitor` trait with default no-op methods)
+  - `oxc_coverage_reports`: `text`, `text-summary`, `json-summary` (matches `istanbul-reports` shape; `pct` rounded to 2 decimals; `total` first in JSON output)
+  - CLI: new `report --format <fmt> COVERAGE.json` subcommand on the existing binary; existing `instrument FILE` invocation unchanged
+- [ ] **PR F**: `lcov` and `cobertura` reporters
+  - Hand-rolled `lcov` emitter with correct `BRDA` block numbering (use `BranchEntry` id, not line) and configurable `SF:` root-relative path normalization
+  - Hand-rolled `cobertura` XML; relative `<class filename=...>` for GitLab + Jenkins, document Azure DevOps `pathToSources` workaround
+- [ ] **PR G**: `html` reporter
+  - Per-line gutter highlights driven through `oxc_coverage_source_maps` so TypeScript projects see original source, not compiled output
+  - Embedded CSS / icons / sortable JS so reports render offline behind corporate proxies
+  - Dark mode via `prefers-color-scheme`
+
 ## Future
 
 - **fallow integration**: `fallow health --coverage coverage-final.json` ingests real per-function coverage

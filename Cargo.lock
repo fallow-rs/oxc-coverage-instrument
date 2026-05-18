@@ -700,6 +700,9 @@ name = "oxc-coverage-instrument-cli"
 version = "0.2.0"
 dependencies = [
  "oxc_coverage_instrument",
+ "oxc_coverage_report",
+ "oxc_coverage_reports",
+ "oxc_coverage_types",
  "serde_json",
 ]
 
@@ -837,6 +840,24 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "oxc_coverage_instrument",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "oxc_coverage_report"
+version = "0.1.0"
+dependencies = [
+ "oxc_coverage_types",
+]
+
+[[package]]
+name = "oxc_coverage_reports"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "oxc_coverage_report",
+ "oxc_coverage_types",
  "serde",
  "serde_json",
 ]

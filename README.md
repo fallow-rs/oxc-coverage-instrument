@@ -321,12 +321,34 @@ This crate is the instrumentation stage of a larger Rust-native coverage pipelin
         |  remapped FileCoverage
         v
    +-----------------------------+
-   | report                      |   istanbul-reports
-   | (lcov, html, json-summary)  |
+   | report                      |   oxc_coverage_report (tree, summary, visitor)
+   | (text, text-summary,        |   oxc_coverage_reports (renderers)
+   |  json-summary)              |
    +-----------------------------+
 ```
 
 When an `inputSourceMap` is supplied, the instrumenter composes the codegen's output map with the input map so that downstream remappers (Vitest, nyc, monocart) resolve coverage positions all the way back to the original source. Composition is delegated to [`srcmap-remapping`](https://crates.io/crates/srcmap-remapping), which mirrors `@ampproject/remapping` semantics (the same primitive `istanbul-lib-source-maps` and every major bundler rely on).
+
+### Suite status
+
+| Crate | Status | Replaces |
+|:------|:-------|:---------|
+| [`oxc_coverage_instrument`](https://crates.io/crates/oxc_coverage_instrument) | shipped | `istanbul-lib-instrument` |
+| [`oxc_coverage_types`](https://crates.io/crates/oxc_coverage_types) | shipped | `istanbul-lib-coverage` (data model) |
+| [`oxc_coverage_source_maps`](https://crates.io/crates/oxc_coverage_source_maps) | shipped | `istanbul-lib-source-maps` |
+| [`oxc_coverage_v8`](https://crates.io/crates/oxc_coverage_v8) | shipped | `v8-to-istanbul` (npm) |
+| [`oxc_coverage_report`](https://crates.io/crates/oxc_coverage_report) | shipped | `istanbul-lib-report` |
+| `oxc_coverage_reports` (`text`, `text-summary`, `json-summary`) | shipped | `istanbul-reports` (partial) |
+| `oxc_coverage_reports` (`lcov`, `cobertura`) | planned | `istanbul-reports` |
+| `oxc_coverage_reports` (`html`) | planned | `istanbul-reports` |
+
+Use the new `report` subcommand to render any of the available formats:
+
+```bash
+oxc-coverage-instrument report --format text         coverage-final.json
+oxc-coverage-instrument report --format text-summary coverage-final.json
+oxc-coverage-instrument report --format json-summary coverage-final.json -o coverage-summary.json
+```
 
 ## Related projects
 

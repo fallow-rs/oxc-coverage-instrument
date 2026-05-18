@@ -3,6 +3,8 @@ members = [
     "crates/oxc-coverage-instrument",
     "crates/oxc-coverage-instrument-cli",
     "crates/oxc-coverage-instrument-napi",
+    "crates/oxc-coverage-report",
+    "crates/oxc-coverage-reports",
     "crates/oxc-coverage-source-maps",
     "crates/oxc-coverage-types",
     "crates/oxc-coverage-v8",

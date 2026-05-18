@@ -143,3 +143,117 @@ fn source_map_flag_prints_source_map_to_stderr_on_stdout_run() {
         .expect("source map should be emitted as JSON on stderr when no -o is provided");
     assert_eq!(value["version"], 3);
 }
+
+// ---- `report` subcommand tests -------------------------------------------
+
+const SAMPLE_COVERAGE: &str = r#"{
+  "a.js": {
+    "path": "a.js",
+    "statementMap": {
+      "0": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 5}},
+      "1": {"start": {"line": 2, "column": 0}, "end": {"line": 2, "column": 5}}
+    },
+    "fnMap": {},
+    "branchMap": {},
+    "s": {"0": 1, "1": 0},
+    "f": {},
+    "b": {}
+  }
+}"#;
+
+#[test]
+fn report_text_format_writes_table_to_stdout() {
+    let cov = write_temp("report_text_cov.json", SAMPLE_COVERAGE);
+    let out = cli().arg("report").arg("--format").arg("text").arg(&cov).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("All files"), "got:\n{stdout}");
+    assert!(stdout.contains("% Stmts"), "got:\n{stdout}");
+}
+
+#[test]
+fn report_text_summary_format_writes_four_metrics() {
+    let cov = write_temp("report_text_summary_cov.json", SAMPLE_COVERAGE);
+    let out = cli().arg("report").arg("-f").arg("text-summary").arg(&cov).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for label in ["Statements", "Branches", "Functions", "Lines"] {
+        assert!(stdout.contains(label), "missing {label} in:\n{stdout}");
+    }
+}
+
+#[test]
+fn report_json_summary_format_emits_valid_parseable_json() {
+    let cov = write_temp("report_json_summary_cov.json", SAMPLE_COVERAGE);
+    let out = cli().arg("report").arg("--format").arg("json-summary").arg(&cov).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("json-summary output must parse");
+    assert!(value.get("total").is_some(), "missing total key in:\n{stdout}");
+    assert!(value.get("a.js").is_some(), "missing per-file key in:\n{stdout}");
+}
+
+#[test]
+fn report_output_flag_writes_to_file() {
+    let cov = write_temp("report_out_cov.json", SAMPLE_COVERAGE);
+    let dest = std::env::temp_dir().join("oxc_cov_cli_report_out.json");
+    let _ = std::fs::remove_file(&dest);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("json-summary")
+        .arg("-o")
+        .arg(&dest)
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let written = std::fs::read_to_string(&dest).expect("output file should exist");
+    let value: serde_json::Value = serde_json::from_str(&written).unwrap();
+    assert!(value.get("total").is_some());
+}
+
+#[test]
+fn report_default_format_is_text() {
+    let cov = write_temp("report_default_cov.json", SAMPLE_COVERAGE);
+    let out = cli().arg("report").arg(&cov).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("% Stmts"), "default format should be `text`, got:\n{stdout}");
+}
+
+#[test]
+fn report_unknown_format_exits_failure() {
+    let cov = write_temp("report_bad_format_cov.json", SAMPLE_COVERAGE);
+    let out = cli().arg("report").arg("--format").arg("html").arg(&cov).output().unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("unknown format"), "got:\n{stderr}");
+}
+
+#[test]
+fn report_missing_coverage_file_exits_failure() {
+    let out = cli().arg("report").arg("--format").arg("text").output().unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("requires a coverage-final.json"), "got:\n{stderr}");
+}
+
+#[test]
+fn report_invalid_json_exits_failure() {
+    let bad = write_temp("report_bad_cov.json", "not json");
+    let out = cli().arg("report").arg("--format").arg("text").arg(&bad).output().unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("failed to parse coverage map"), "got:\n{stderr}");
+}
+
+#[test]
+fn explicit_instrument_subcommand_works() {
+    let src = write_temp("explicit_instrument.js", "const x = 1;");
+    let out = cli().arg("instrument").arg(&src).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("var "), "explicit instrument should still emit instrumented code");
+}
