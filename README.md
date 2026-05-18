@@ -86,6 +86,8 @@ oxc-coverage-instrument src/app.js -o dist/app.js --source-map
 
 ### Vitest integration
 
+Requires `vitest` and `@vitest/coverage-istanbul` **>= 4.1.5** (`coverage.instrumenter` option).
+
 ```typescript
 import { defineConfig } from 'vitest/config'
 import { createOxcInstrumenter } from 'oxc-coverage-instrument/vitest'
@@ -94,15 +96,37 @@ export default defineConfig({
   test: {
     coverage: {
       provider: 'istanbul',
-      instrumenter: () => createOxcInstrumenter(),
+      instrumenter: (options) => createOxcInstrumenter(options),
     }
   }
 })
 ```
 
-> **Note:** Requires Vitest with custom instrumenter support (see [vitest#10119](https://github.com/vitest-dev/vitest/pull/10119)).
+The factory receives Vitest's runtime coverage options (`coverageVariable`, `ignoreClassMethods`) and forwards them to the native instrumenter. Everything else in the Istanbul provider (collection, merging, reporting) keeps working unchanged.
 
-### Vite plugin example
+### vite-plugin-istanbul integration
+
+Requires `vite-plugin-istanbul` **>= 9.0.0** (`instrumenter` option).
+
+```typescript
+import { defineConfig } from 'vite'
+import istanbul from 'vite-plugin-istanbul'
+import { createOxcInstrumenter } from 'oxc-coverage-instrument/vitest'
+
+export default defineConfig({
+  plugins: [
+    istanbul({
+      instrumenter: createOxcInstrumenter(),
+      include: ['src/**/*.{js,ts,jsx,tsx}'],
+      exclude: ['node_modules', 'test/'],
+    }),
+  ],
+})
+```
+
+### Custom Vite/Rollup plugin
+
+If you're not using `vite-plugin-istanbul`, you can call `instrument` directly from a `transform` hook:
 
 ```javascript
 import { instrument } from 'oxc-coverage-instrument';
