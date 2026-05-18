@@ -6,7 +6,8 @@
 //! `FileCoverage` carries the right per-statement / per-function hit counts.
 
 use oxc_coverage_instrument::{
-    V8CoverageRange, V8FunctionCoverage, v8_to_istanbul, v8_to_istanbul_with_loader,
+    V8CoverageRange, V8FunctionCoverage, V8ToIstanbulError, v8_to_istanbul,
+    v8_to_istanbul_with_loader,
 };
 
 fn range(start: u32, end: u32, count: u32) -> V8CoverageRange {
@@ -447,4 +448,39 @@ fn inline_source_map_takes_precedence_over_external_loader() {
     .unwrap();
     let attached = fc.input_source_map.expect("inline map should be attached");
     assert_eq!(attached["sources"][0], "src/app.ts");
+}
+
+#[test]
+fn parse_error_propagates_as_v8_to_istanbul_error() {
+    // Source that the Oxc parser refuses (stray `}` at the top level). Without
+    // a Parse-error path, the converter would silently produce an empty
+    // FileCoverage and downstream reporters would show 0 lines instead of
+    // surfacing the underlying syntax error.
+    let invalid = "function () { }}}\nconst x = ;\n";
+    let functions: Vec<V8FunctionCoverage> = vec![];
+
+    let err = v8_to_istanbul(invalid, "broken.js", &functions, 0)
+        .expect_err("invalid source must return a Parse error");
+    let V8ToIstanbulError::Parse(message) = err;
+    assert!(
+        !message.is_empty(),
+        "parse error must carry the underlying diagnostic, got empty string",
+    );
+}
+
+#[test]
+fn v8_to_istanbul_error_display_includes_diagnostic() {
+    // The `Display` impl is the user-facing surface in CLI error messages; if
+    // it ever stops prefixing with `parse error:` the CLI output silently
+    // changes shape. Pin both the prefix and the inner message.
+    let err = V8ToIstanbulError::Parse("unexpected token".to_string());
+    let rendered = err.to_string();
+    assert!(rendered.starts_with("parse error: "), "got: {rendered}");
+    assert!(rendered.contains("unexpected token"), "got: {rendered}");
+
+    // `std::error::Error` is implemented so downstream callers can use `?`
+    // through their own error enums; trivial smoke check that the trait
+    // method resolves.
+    let as_err: &dyn std::error::Error = &err;
+    assert!(as_err.source().is_none());
 }
