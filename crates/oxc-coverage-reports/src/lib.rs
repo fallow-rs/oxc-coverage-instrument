@@ -16,8 +16,9 @@
 //!   widget, and the `lcov`/`genhtml` toolchain.
 //! - [`cobertura`]: Cobertura XML consumed by GitLab MR widget, Jenkins,
 //!   Azure DevOps, and Codecov.
-//!
-//! The `html` reporter will land in a follow-on PR.
+//! - [`html`]: self-contained directory of HTML pages with per-file source
+//!   gutter. Multi-file output (uses [`Format::write_to_dir`]). PR G2 will
+//!   add sortable table JS, a dark-mode toggle, and prettify highlighting.
 //!
 //! # Example
 //!
@@ -37,6 +38,7 @@
 //! [rn]: oxc_coverage_report::ReportNode
 
 pub mod cobertura;
+pub mod html;
 pub mod json_summary;
 pub mod lcov;
 pub mod text;
@@ -52,12 +54,16 @@ pub enum Format {
     JsonSummary,
     Lcov,
     Cobertura,
+    /// Multi-file directory output. Use [`Format::write_to_dir`]; calling
+    /// [`Format::write`] on this variant returns an error because there is
+    /// no single stream to write to.
+    Html,
 }
 
 impl Format {
     /// Parse a CLI-style format name (`text`, `text-summary`, `json-summary`,
-    /// `lcov`, `cobertura`). Returns `None` for unknown values; the CLI is
-    /// responsible for the user-facing error.
+    /// `lcov`, `cobertura`, `html`). Returns `None` for unknown values; the
+    /// CLI is responsible for the user-facing error.
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "text" => Some(Self::Text),
@@ -65,8 +71,16 @@ impl Format {
             "json-summary" => Some(Self::JsonSummary),
             "lcov" => Some(Self::Lcov),
             "cobertura" => Some(Self::Cobertura),
+            "html" => Some(Self::Html),
             _ => None,
         }
+    }
+
+    /// `true` when the format writes a directory tree instead of a single
+    /// stream. The CLI dispatches such formats through [`Format::write_to_dir`]
+    /// and rejects `-o <file>` for them.
+    pub fn is_multi_file(self) -> bool {
+        matches!(self, Self::Html)
     }
 
     /// Render `root` in this format to `out`.
@@ -74,6 +88,10 @@ impl Format {
     /// `root_dir` is only consulted by formats that emit source-file paths
     /// (currently [`Format::Lcov`] and [`Format::Cobertura`]); other formats
     /// ignore it. Pass `Path::new("")` if path relativization is not needed.
+    ///
+    /// Multi-file formats ([`Format::Html`]) return an `InvalidInput` error
+    /// since they cannot stream into a single `Write`. Use
+    /// [`Format::write_to_dir`] for those.
     pub fn write<W: std::io::Write>(
         self,
         root: &oxc_coverage_report::ReportNode,
@@ -86,6 +104,32 @@ impl Format {
             Self::JsonSummary => json_summary::write(root, out),
             Self::Lcov => lcov::write(root, root_dir, out),
             Self::Cobertura => cobertura::write(root, root_dir, out),
+            Self::Html => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "html format produces a directory tree; use Format::write_to_dir",
+            )),
+        }
+    }
+
+    /// Render this format into `output_dir`. The full coverage map is
+    /// required (rather than a pre-summarized [`oxc_coverage_report::ReportNode`])
+    /// so that multi-file formats can apply source-map remapping internally
+    /// and reflect original TS/JSX source in their output.
+    ///
+    /// Single-file formats return an `InvalidInput` error; the CLI dispatches
+    /// them through [`Format::write`] instead.
+    pub fn write_to_dir(
+        self,
+        coverage_map: &oxc_coverage_report::CoverageMap,
+        root_dir: &Path,
+        output_dir: &Path,
+    ) -> std::io::Result<()> {
+        match self {
+            Self::Html => html::write(coverage_map, root_dir, output_dir),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "single-file format; use Format::write",
+            )),
         }
     }
 }

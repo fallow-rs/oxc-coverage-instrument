@@ -226,7 +226,10 @@ fn report_default_format_is_text() {
 #[test]
 fn report_unknown_format_exits_failure() {
     let cov = write_temp("report_bad_format_cov.json", SAMPLE_COVERAGE);
-    let out = cli().arg("report").arg("--format").arg("html").arg(&cov).output().unwrap();
+    // `html` is supported as of PR G1; pick a name that no format will ever
+    // claim. `xml` and `clover` are both common-sounding aliases that we
+    // intentionally do not implement.
+    let out = cli().arg("report").arg("--format").arg("clover").arg(&cov).output().unwrap();
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("unknown format"), "got:\n{stderr}");
@@ -304,6 +307,62 @@ fn report_root_flag_relativizes_lcov_sf_paths() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("SF:src/a.js"), "expected relativized SF, got:\n{stdout}");
     assert!(!stdout.contains("SF:/synthetic/proj"));
+}
+
+#[test]
+fn report_html_format_writes_directory_tree() {
+    let cov = write_temp("report_html_cov.json", SAMPLE_COVERAGE);
+    let out_dir = std::env::temp_dir().join("oxc_cov_cli_html_out");
+    let _ = std::fs::remove_dir_all(&out_dir);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("html")
+        .arg("--output-dir")
+        .arg(&out_dir)
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(out_dir.join("index.html").exists(), "root index.html missing");
+    assert!(out_dir.join("base.css").exists(), "base.css missing");
+    assert!(out_dir.join("a.js.html").exists(), "per-file detail page missing");
+    let detail = std::fs::read_to_string(out_dir.join("a.js.html")).unwrap();
+    assert!(detail.contains("<title>Coverage: a.js</title>"), "got:\n{detail}");
+}
+
+#[test]
+fn report_html_rejects_dash_o_with_friendly_error() {
+    let cov = write_temp("report_html_dash_o.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("html")
+        .arg("-o")
+        .arg("/tmp/should_not_be_used.html")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("directory tree"), "got: {stderr}");
+}
+
+#[test]
+fn report_text_rejects_output_dir_with_friendly_error() {
+    let cov = write_temp("report_text_dash_dir.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("text")
+        .arg("--output-dir")
+        .arg("/tmp/should_not_be_used")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("only valid for multi-file formats"), "got: {stderr}");
 }
 
 #[test]

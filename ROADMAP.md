@@ -47,10 +47,17 @@ Coverage suite (umbrella [#45](https://github.com/fallow-rs/oxc-coverage-instrum
   - Hand-rolled `lcov` emitter with correct `BRDA` block numbering (use `BranchEntry` id, not line) and configurable `SF:` root-relative path normalization
   - Hand-rolled `cobertura` XML; relative `<class filename=...>` for GitLab + Jenkins, `complexity="0"` on `<method>` for Azure DevOps, no `<missing-branches>`, `line-rate` / `branch-rate` / `timestamp` at root
   - CLI: `--root <dir>` flag on the `report` subcommand to relativize source-file paths (defaults to cwd)
-- [ ] **PR G**: `html` reporter
-  - Per-line gutter highlights driven through `oxc_coverage_source_maps` so TypeScript projects see original source, not compiled output
-  - Embedded CSS / icons / sortable JS so reports render offline behind corporate proxies
-  - Dark mode via `prefers-color-scheme`
+- [x] **PR G1**: `html` reporter skeleton with source-map remap
+  - Per-file detail pages with line / hits / source gutter, colored by hit / miss / partial-branch / no-statement
+  - Per-folder + root `index.html` with summary tables
+  - Source-map remapping via `oxc_coverage_source_maps` so TS / JSX projects show original source
+  - Embedded `base.css` (no external assets / CDN deps); dark mode via `prefers-color-scheme`
+  - New CLI flag `--output-dir <dir>` for multi-file output (default `coverage/`)
+- [ ] **PR G2**: `html` polish layer
+  - Sortable index-table JS (sort by file name, statements %, branches %, functions %, lines %)
+  - Explicit dark-mode toggle button overriding `prefers-color-scheme`
+  - Prettify syntax highlighting on detail-page source
+  - Corporate-proxy hardening verification (no third-party fetches at runtime)
 
 ## Future
 

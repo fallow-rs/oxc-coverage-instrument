@@ -338,8 +338,7 @@ When an `inputSourceMap` is supplied, the instrumenter composes the codegen's ou
 | [`oxc_coverage_source_maps`](https://crates.io/crates/oxc_coverage_source_maps) | shipped | `istanbul-lib-source-maps` |
 | [`oxc_coverage_v8`](https://crates.io/crates/oxc_coverage_v8) | shipped | `v8-to-istanbul` (npm) |
 | [`oxc_coverage_report`](https://crates.io/crates/oxc_coverage_report) | shipped | `istanbul-lib-report` |
-| `oxc_coverage_reports` (`text`, `text-summary`, `json-summary`, `lcov`, `cobertura`) | shipped | `istanbul-reports` (partial) |
-| `oxc_coverage_reports` (`html`) | planned | `istanbul-reports` |
+| `oxc_coverage_reports` (`text`, `text-summary`, `json-summary`, `lcov`, `cobertura`, `html`) | shipped | `istanbul-reports` (partial) |
 
 Use the new `report` subcommand to render any of the available formats:
 
@@ -349,9 +348,12 @@ oxc-coverage-instrument report --format text-summary coverage-final.json
 oxc-coverage-instrument report --format json-summary coverage-final.json -o coverage-summary.json
 oxc-coverage-instrument report --format lcov         --root . coverage-final.json -o lcov.info
 oxc-coverage-instrument report --format cobertura    --root . coverage-final.json -o cobertura.xml
+oxc-coverage-instrument report --format html         --root . coverage-final.json --output-dir coverage/
 ```
 
 The `lcov` and `cobertura` formats use `--root` to relativize source-file paths in the output (defaults to the cwd); repo-relative paths are required by Codecov self-hosted, GitLab MR widget, Jenkins, and Azure DevOps.
+
+The `html` format writes a self-contained directory tree (`--output-dir`, defaults to `coverage/`). Per-file detail pages show the original source with per-line hit / miss / partial-branch coloring; pages read source from disk via `--root`. Source-map remapping is wired in: files carrying an `inputSourceMap` are remapped through `oxc_coverage_source_maps` so TypeScript / JSX projects show original source rather than the instrumented JS. Dark mode adapts via `prefers-color-scheme`. PR G2 will add sortable table JS, an explicit dark-mode toggle, and prettify syntax highlighting.
 
 ## Related projects
 

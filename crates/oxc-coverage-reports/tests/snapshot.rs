@@ -124,13 +124,25 @@ fn format_dispatch_matches_module_writers() {
 
 #[test]
 fn unknown_format_returns_none() {
-    assert_eq!(Format::parse("html"), None);
+    // `html` is now supported as of PR G1.
+    assert_eq!(Format::parse("clover"), None);
     assert_eq!(Format::parse("xml"), None);
     assert_eq!(Format::parse(""), None);
 }
 
 #[test]
-fn lcov_and_cobertura_are_parseable_format_names() {
+fn all_supported_formats_parse() {
     assert_eq!(Format::parse("lcov"), Some(Format::Lcov));
     assert_eq!(Format::parse("cobertura"), Some(Format::Cobertura));
+    assert_eq!(Format::parse("html"), Some(Format::Html));
+}
+
+#[test]
+fn html_is_multi_file_others_are_not() {
+    assert!(Format::Html.is_multi_file());
+    for f in
+        [Format::Text, Format::TextSummary, Format::JsonSummary, Format::Lcov, Format::Cobertura]
+    {
+        assert!(!f.is_multi_file(), "{f:?} should not be multi-file");
+    }
 }

@@ -1,0 +1,178 @@
+/* oxc-coverage-instrument HTML reporter base stylesheet.
+ *
+ * Hand-rolled, single-file, no external font / JS dependencies. Adapts to
+ * the system color scheme via prefers-color-scheme. The PR G2 polish layer
+ * will add: sortable index table JS, a dark-mode toggle, prettify syntax
+ * highlighting, and an explicit high-contrast theme.
+ */
+
+:root {
+  --bg: #ffffff;
+  --text: #1d2129;
+  --muted: #66707a;
+  --border: #e3e6ea;
+  --header-bg: #f5f6f8;
+  --hit-bg: #e6ffed;
+  --miss-bg: #ffeef0;
+  --partial-bg: #fff8c5;
+  --pct-high: #1f8b3a;
+  --pct-medium: #b08800;
+  --pct-low: #c1271d;
+  --row-high: #e6f4ea;
+  --row-medium: #fff8c5;
+  --row-low: #ffeef0;
+  --link: #0366d6;
+  --gutter-bg: #f6f8fa;
+  --code-bg: #fdfdfd;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --text: #e6e9ef;
+    --muted: #9aa2ad;
+    --border: #2a2f37;
+    --header-bg: #1c2027;
+    --hit-bg: #173527;
+    --miss-bg: #3d1a1f;
+    --partial-bg: #3a3220;
+    --pct-high: #6ee787;
+    --pct-medium: #f0b429;
+    --pct-low: #ff7b72;
+    --row-high: #1b2a23;
+    --row-medium: #2b2620;
+    --row-low: #2a1b1f;
+    --link: #58a6ff;
+    --gutter-bg: #1a1e25;
+    --code-bg: #0d1117;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+a { color: var(--link); text-decoration: none; }
+a:hover, a:focus { text-decoration: underline; }
+
+header.summary {
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+}
+header.summary h1 {
+  margin: 0 0 8px 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+.breadcrumb {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.breadcrumb a { color: var(--link); }
+.breadcrumb .current { color: var(--text); font-weight: 500; }
+
+ul.metrics {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.metric {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.metric .label { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.04em; }
+.metric .pct { font-size: 22px; font-weight: 700; }
+.metric .quiet { font-size: 12px; color: var(--muted); }
+.metric.high .pct { color: var(--pct-high); }
+.metric.medium .pct { color: var(--pct-medium); }
+.metric.low .pct { color: var(--pct-low); }
+
+.pad1 { padding: 16px 24px; }
+
+table.coverage-summary {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.coverage-summary th,
+table.coverage-summary td {
+  text-align: right;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+table.coverage-summary th { font-weight: 600; color: var(--muted); }
+table.coverage-summary td.file { text-align: left; }
+table.coverage-summary tr.row-high { background: var(--row-high); }
+table.coverage-summary tr.row-medium { background: var(--row-medium); }
+table.coverage-summary tr.row-low { background: var(--row-low); }
+table.coverage-summary td.pct.high { color: var(--pct-high); }
+table.coverage-summary td.pct.medium { color: var(--pct-medium); }
+table.coverage-summary td.pct.low { color: var(--pct-low); }
+table.coverage-summary .quiet { color: var(--muted); font-size: 11px; }
+
+table.source {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: var(--code-bg);
+}
+table.source th,
+table.source td {
+  padding: 0 12px;
+  vertical-align: top;
+}
+table.source thead {
+  background: var(--header-bg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+table.source th { text-align: left; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+table.source td.line-num {
+  text-align: right;
+  background: var(--gutter-bg);
+  color: var(--muted);
+  width: 56px;
+  user-select: none;
+}
+table.source td.hits {
+  text-align: right;
+  color: var(--muted);
+  width: 64px;
+  background: var(--gutter-bg);
+  user-select: none;
+}
+table.source td.src pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+table.source tr.line.hit { background: var(--hit-bg); }
+table.source tr.line.miss { background: var(--miss-bg); }
+table.source tr.line.partial { background: var(--partial-bg); }
+table.source tr.line.no-stmt { background: var(--code-bg); }
+table.source .branch-note {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}

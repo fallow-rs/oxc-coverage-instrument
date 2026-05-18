@@ -14,6 +14,7 @@
 //!   `oxc-coverage-instrument report --format json-summary COVERAGE.json -o summary.json`
 //!   `oxc-coverage-instrument report --format lcov --root /repo COVERAGE.json -o lcov.info`
 //!   `oxc-coverage-instrument report --format cobertura --root /repo COVERAGE.json -o cobertura.xml`
+//!   `oxc-coverage-instrument report --format html --root /repo COVERAGE.json --output-dir coverage/`
 
 #![expect(clippy::print_stdout, clippy::print_stderr, reason = "CLI binary")]
 
@@ -36,9 +37,15 @@ struct InstrumentArgs {
 struct ReportArgs {
     coverage_file: String,
     output_file: Option<String>,
+    /// Directory for multi-file formats (currently only `html`). Defaults to
+    /// `coverage/` when `--format html` is selected and `--output-dir` is
+    /// not supplied.
+    output_dir: Option<PathBuf>,
     format: Format,
     /// Root directory used to relativize `SF:` (lcov) and `<class filename>`
-    /// (cobertura) paths. Defaults to the current working directory.
+    /// (cobertura) paths, and to resolve relative `file.path` entries to disk
+    /// when rendering the html source view. Defaults to the current working
+    /// directory.
     root_dir: PathBuf,
 }
 
@@ -109,6 +116,7 @@ fn parse_instrument_args(args: &[String]) -> Result<InstrumentArgs, ExitCode> {
 fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
     let mut format: Option<Format> = None;
     let mut output_file: Option<String> = None;
+    let mut output_dir: Option<PathBuf> = None;
     let mut coverage_file: Option<String> = None;
     let mut root_dir: Option<PathBuf> = None;
 
@@ -119,12 +127,15 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
                 let value = take_value(args, &mut i, "--format")?;
                 format = Some(Format::parse(&value).ok_or_else(|| {
                     eprintln!(
-                        "error: unknown format '{value}'. Supported: text, text-summary, json-summary, lcov, cobertura"
+                        "error: unknown format '{value}'. Supported: text, text-summary, json-summary, lcov, cobertura, html"
                     );
                     ExitCode::FAILURE
                 })?);
             }
             "-o" | "--output" => output_file = Some(take_value(args, &mut i, "--output")?),
+            "--output-dir" => {
+                output_dir = Some(PathBuf::from(take_value(args, &mut i, "--output-dir")?));
+            }
             "--root" => root_dir = Some(PathBuf::from(take_value(args, &mut i, "--root")?)),
             "--help" | "-h" => {
                 print_report_usage();
@@ -152,16 +163,54 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
         ExitCode::FAILURE
     })?;
     let format = format.unwrap_or(Format::Text);
+
+    // Reject incompatible flag combinations early so the user sees a clear
+    // error instead of a useless `-o ./coverage` write to a single regular
+    // file for html, or a stray --output-dir on a single-file format.
+    if format.is_multi_file() && output_file.is_some() {
+        eprintln!(
+            "error: --format {} produces a directory tree; use --output-dir instead of -o",
+            format_name(format)
+        );
+        return Err(ExitCode::FAILURE);
+    }
+    if !format.is_multi_file() && output_dir.is_some() {
+        eprintln!(
+            "error: --output-dir is only valid for multi-file formats (html); use -o for --format {}",
+            format_name(format)
+        );
+        return Err(ExitCode::FAILURE);
+    }
+
+    // Default --output-dir for html is ./coverage so a bare `report --format
+    // html foo.json` invocation produces a usable browse-friendly tree.
+    let output_dir = match (format.is_multi_file(), output_dir) {
+        (true, Some(p)) => Some(p),
+        (true, None) => Some(PathBuf::from("coverage")),
+        (false, _) => None,
+    };
+
     let root_dir = root_dir.unwrap_or_else(|| {
         std::env::current_dir().unwrap_or_else(|e| {
             eprintln!(
-                "warning: cannot determine current working directory ({e}); lcov/cobertura paths will not be relativized"
+                "warning: cannot determine current working directory ({e}); lcov/cobertura/html paths will not be relativized"
             );
             PathBuf::new()
         })
     });
 
-    Ok(ReportArgs { coverage_file, output_file, format, root_dir })
+    Ok(ReportArgs { coverage_file, output_file, output_dir, format, root_dir })
+}
+
+fn format_name(format: Format) -> &'static str {
+    match format {
+        Format::Text => "text",
+        Format::TextSummary => "text-summary",
+        Format::JsonSummary => "json-summary",
+        Format::Lcov => "lcov",
+        Format::Cobertura => "cobertura",
+        Format::Html => "html",
+    }
 }
 
 fn take_value(args: &[String], i: &mut usize, flag: &str) -> Result<String, ExitCode> {
@@ -218,6 +267,20 @@ fn run_report(args: &ReportArgs) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
+    if args.format.is_multi_file() {
+        let Some(output_dir) = &args.output_dir else {
+            eprintln!("error: --format html requires --output-dir <dir>");
+            return ExitCode::FAILURE;
+        };
+        if let Err(e) = args.format.write_to_dir(&map, &args.root_dir, output_dir) {
+            eprintln!("error: failed to render report: {e}");
+            return ExitCode::FAILURE;
+        }
+        eprintln!("HTML report written to {}", output_dir.display());
+        return ExitCode::SUCCESS;
+    }
+
     let root = summarize(&map);
 
     match &args.output_file {
@@ -336,9 +399,10 @@ INSTRUMENT OPTIONS:
     --coverage-variable <name>   Coverage variable name (default: __coverage__)
 
 REPORT OPTIONS:
-    -f, --format <fmt>           Output format: text (default), text-summary, json-summary, lcov, cobertura
-    -o, --output <file>          Write report to file (default: stdout)
-    --root <dir>                 Root directory used to relativize source paths in lcov/cobertura output (default: cwd)
+    -f, --format <fmt>           Output format: text (default), text-summary, json-summary, lcov, cobertura, html
+    -o, --output <file>          Write report to file (default: stdout). Not valid for --format html.
+    --output-dir <dir>           Output directory for multi-file formats (html). Default: ./coverage
+    --root <dir>                 Root directory used to relativize source paths and resolve html source view (default: cwd)
 
 GLOBAL OPTIONS:
     -V, --version                Print version
@@ -355,9 +419,10 @@ USAGE:
     oxc-coverage-instrument report --format <fmt> <coverage.json> [options]
 
 OPTIONS:
-    -f, --format <fmt>           Output format: text (default), text-summary, json-summary, lcov, cobertura
-    -o, --output <file>          Write report to file (default: stdout)
-    --root <dir>                 Root directory used to relativize source paths in lcov/cobertura output (default: cwd)
+    -f, --format <fmt>           Output format: text (default), text-summary, json-summary, lcov, cobertura, html
+    -o, --output <file>          Write report to file (default: stdout). Not valid for --format html.
+    --output-dir <dir>           Output directory for multi-file formats (html). Default: ./coverage
+    --root <dir>                 Root directory used to relativize source paths and resolve html source view (default: cwd)
     -h, --help                   Print this help"
     );
 }

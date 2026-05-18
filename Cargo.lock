@@ -867,9 +867,11 @@ dependencies = [
  "insta",
  "lcov",
  "oxc_coverage_report",
+ "oxc_coverage_source_maps",
  "oxc_coverage_types",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

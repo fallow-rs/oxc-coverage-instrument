@@ -17,6 +17,10 @@ node_modules/
 # SWC WASM plugin cache (created by benchmark script)
 .swc/
 
+# default --output-dir for `report --format html` runs from the workspace root
+/coverage/
+crates/*/coverage/
+
 # napi build artifacts
 *.node
 crates/oxc-coverage-instrument-napi/index.js
