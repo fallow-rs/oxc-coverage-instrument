@@ -300,8 +300,7 @@ fn finalize_source_map(
         // Return the input map for any source name; remap drops sources it
         // can't load. Clone per call since `remap` may invoke the loader
         // more than once per unique source name.
-        let composed =
-            srcmap_remapping::remap(&offset_sm, |_name: &str| Some(input_sm.clone()));
+        let composed = srcmap_remapping::remap(&offset_sm, |_name: &str| Some(input_sm.clone()));
         return composed.to_json();
     }
 
