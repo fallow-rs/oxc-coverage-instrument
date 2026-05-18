@@ -18,9 +18,15 @@
 //!   Azure DevOps, and Codecov.
 //! - [`html`]: self-contained directory of HTML pages with per-file source
 //!   gutter. Multi-file output (uses [`Format::write_to_dir`]). Ships
-//!   sortable index tables, an auto/light/dark theme toggle, JS/TS
-//!   syntax highlighting on detail pages, and a strict Content-Security-
-//!   Policy so the report performs zero outbound network requests.
+//!   sortable index tables, an auto/light/dark theme toggle, server-side
+//!   syntax highlighting via [`syntect`], and a strict
+//!   Content-Security-Policy so the report performs zero outbound network
+//!   requests. Gated behind the `html` Cargo feature (enabled by default)
+//!   so consumers that only need text / lcov / cobertura / json-summary
+//!   can drop the syntect grammar + theme payload via
+//!   `default-features = false`.
+//!
+//! [syntect]: https://docs.rs/syntect
 //!
 //! # Example
 //!
@@ -40,6 +46,7 @@
 //! [rn]: oxc_coverage_report::ReportNode
 
 pub mod cobertura;
+#[cfg(feature = "html")]
 pub mod html;
 pub mod json_summary;
 pub mod lcov;
@@ -58,7 +65,9 @@ pub enum Format {
     Cobertura,
     /// Multi-file directory output. Use [`Format::write_to_dir`]; calling
     /// [`Format::write`] on this variant returns an error because there is
-    /// no single stream to write to.
+    /// no single stream to write to. Available only when the `html`
+    /// Cargo feature is enabled.
+    #[cfg(feature = "html")]
     Html,
 }
 
@@ -73,6 +82,7 @@ impl Format {
             "json-summary" => Some(Self::JsonSummary),
             "lcov" => Some(Self::Lcov),
             "cobertura" => Some(Self::Cobertura),
+            #[cfg(feature = "html")]
             "html" => Some(Self::Html),
             _ => None,
         }
@@ -81,8 +91,22 @@ impl Format {
     /// `true` when the format writes a directory tree instead of a single
     /// stream. The CLI dispatches such formats through [`Format::write_to_dir`]
     /// and rejects `-o <file>` for them.
+    #[cfg_attr(
+        not(feature = "html"),
+        expect(
+            clippy::unused_self,
+            reason = "self is only inspected when the `html` feature adds a multi-file variant",
+        )
+    )]
     pub fn is_multi_file(self) -> bool {
-        matches!(self, Self::Html)
+        #[cfg(feature = "html")]
+        {
+            matches!(self, Self::Html)
+        }
+        #[cfg(not(feature = "html"))]
+        {
+            false
+        }
     }
 
     /// Render `root` in this format to `out`.
@@ -106,6 +130,7 @@ impl Format {
             Self::JsonSummary => json_summary::write(root, out),
             Self::Lcov => lcov::write(root, root_dir, out),
             Self::Cobertura => cobertura::write(root, root_dir, out),
+            #[cfg(feature = "html")]
             Self::Html => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "html format produces a directory tree; use Format::write_to_dir",
@@ -126,7 +151,9 @@ impl Format {
         root_dir: &Path,
         output_dir: &Path,
     ) -> std::io::Result<()> {
+        let _ = (coverage_map, root_dir, output_dir);
         match self {
+            #[cfg(feature = "html")]
             Self::Html => html::write(coverage_map, root_dir, output_dir),
             _ => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,

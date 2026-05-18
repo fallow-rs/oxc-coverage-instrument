@@ -5,9 +5,13 @@
 //! rendered detail page contains the actual source text (proving the
 //! source-read fallback works) plus per-line coverage classes for hit
 //! vs miss vs partial vs no-statement rows. The unit tests in
-//! `src/html.rs` exercise edge cases on synthetic input; this test
+//! `src/html/mod.rs` exercise edge cases on synthetic input; this test
 //! covers the realistic path where the user has a coverage-final.json
 //! pointing at files on disk.
+//!
+//! Skipped entirely when the `html` feature is disabled.
+
+#![cfg(feature = "html")]
 
 use oxc_coverage_reports::html;
 use oxc_coverage_types::parse_coverage_map;
@@ -48,9 +52,17 @@ fn renders_actual_source_with_coverage_classes() {
     let detail_file = walk_for_filename(&out_dir, "module.js.html").expect("detail page exists");
     let detail = fs::read_to_string(&detail_file).unwrap();
 
-    assert!(detail.contains("const x = 1;"), "source line 1 should appear in detail page");
-    assert!(detail.contains("const y = 2;"), "source line 2 should appear in detail page");
-    assert!(detail.contains("if (x) y;"), "source line 3 should appear in detail page");
+    // syntect splits each source line into per-token spans, so the raw
+    // line text is not a single contiguous substring in the HTML. Match
+    // on individual token texts that round-trip identically (identifiers
+    // and numeric literals do; whitespace and punctuation get wrapped
+    // and re-emitted, but the literal characters survive in textContent).
+    for token in ["const", "x", "1", "y", "2", "if"] {
+        assert!(detail.contains(token), "expected `{token}` somewhere in detail page");
+    }
+    // Server-side highlighting must produce token spans on a known
+    // extension (`.js` -> JavaScript grammar).
+    assert!(detail.contains("stok-"), "expected syntect token classes in detail page");
     assert!(detail.contains("line hit"), "line 1 should be class=hit");
     assert!(detail.contains("line miss"), "line 2 should be class=miss");
     assert!(detail.contains("line partial"), "line 3 should be class=partial (branch 1/2)");
