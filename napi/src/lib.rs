@@ -103,3 +103,37 @@ pub fn remap_coverage_map(coverage_json: String) -> napi::Result<String> {
     serde_json::to_string(&remapped)
         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
 }
+
+/// Convert V8 byte-range coverage into Istanbul `FileCoverage` JSON.
+///
+/// `v8FunctionsJson` is the JSON array shape that the V8 inspector emits
+/// under `Profiler.takePreciseCoverage().result[].functions` (the same shape
+/// Node's `--experimental-coverage` and `@vitest/coverage-v8` consume).
+///
+/// `wrapperLength` accounts for Node's CJS module wrapper prefix and defaults
+/// to 0 (correct for ESM).
+///
+/// Returns a JSON object compatible with Istanbul's `FileCoverage`. Statement
+/// and function counts are populated from the V8 ranges; branch counts emit
+/// at zero in v1.
+#[napi]
+pub fn v8_to_istanbul(
+    source: String,
+    filename: String,
+    v8_functions_json: String,
+    wrapper_length: Option<u32>,
+) -> napi::Result<String> {
+    let functions: Vec<oxc_coverage_instrument::V8FunctionCoverage> =
+        serde_json::from_str(&v8_functions_json).map_err(|e| {
+            napi::Error::new(napi::Status::InvalidArg, format!("invalid V8 functions JSON: {e}"))
+        })?;
+    let result = oxc_coverage_instrument::v8_to_istanbul(
+        &source,
+        &filename,
+        &functions,
+        wrapper_length.unwrap_or(0),
+    )
+    .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;
+    serde_json::to_string(&result)
+        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
+}

@@ -33,9 +33,11 @@ mod pragma;
 mod source_maps;
 mod transform;
 mod types;
+mod v8_to_istanbul;
 
 pub use instrument::{InstrumentError, InstrumentOptions, InstrumentResult, instrument};
 pub use source_maps::{remap_coverage, remap_coverage_map};
 pub use types::{
     BranchEntry, FileCoverage, FnEntry, Location, Position, UnhandledPragma, parse_coverage_map,
 };
+pub use v8_to_istanbul::{V8CoverageRange, V8FunctionCoverage, V8ToIstanbulError, v8_to_istanbul};

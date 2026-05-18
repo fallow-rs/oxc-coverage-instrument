@@ -1,5 +1,5 @@
 // Quick test for the napi bindings
-import { instrument, remapCoverageMap } from './index.js';
+import { instrument, remapCoverageMap, v8ToIstanbul } from './index.js';
 import { strict as assert } from 'node:assert';
 
 console.log('Testing oxc-coverage-instrument napi bindings...\n');
@@ -534,6 +534,23 @@ function runInstrumented(result, filename, callExpression) {
     .sort();
   assert.deepEqual(lines, [1, 2, 3], 'statement lines should map back to original.ts lines');
   console.log('  [PASS] remapCoverageMap rewrites coverage through inputSourceMap');
+}
+
+// Test 18: v8ToIstanbul converts V8 byte-range coverage into Istanbul FileCoverage
+{
+  const source = 'const x = 1;\nconst y = 2;\nconst z = 3;\n';
+  const functions = [
+    {
+      functionName: '',
+      ranges: [{ startOffset: 0, endOffset: source.length, count: 1 }],
+      isBlockCoverage: false,
+    },
+  ];
+  const fc = JSON.parse(v8ToIstanbul(source, 'app.js', JSON.stringify(functions)));
+  const counts = Object.values(fc.s);
+  assert(counts.length > 0, 'statementMap should populate');
+  assert(counts.every((c) => c === 1), `all statements covered, got: ${JSON.stringify(counts)}`);
+  console.log('  [PASS] v8ToIstanbul produces Istanbul FileCoverage from V8 ranges');
 }
 
 console.log('\nAll tests passed!');
