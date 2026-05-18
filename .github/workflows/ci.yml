@@ -108,13 +108,13 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: npm ci || npm install
       - name: Build napi binding
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi build --platform
       - name: Run napi tests
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: node test.mjs
       - name: Run upstream Istanbul spec subset
         run: node scripts/istanbul-upstream-specs.mjs
@@ -135,10 +135,10 @@ jobs:
         with:
           node-version: 22
       - name: Install napi deps (brings in istanbul-lib-instrument devDep)
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: npm ci || npm install
       - name: Build napi binding
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi build --platform
       - name: Run istanbul diff
         run: node scripts/istanbul-diff.mjs | tee istanbul-diff.log

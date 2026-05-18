@@ -17,10 +17,10 @@ import { createInstrumenter } from 'istanbul-lib-instrument';
 import { readdirSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createOxcInstrumenter } from '../napi/vitest.js';
+import { createOxcInstrumenter } from '../crates/oxc-coverage-instrument-napi/vitest.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const fixturesDir = join(__dirname, '..', 'tests', 'conformance', 'fixtures');
+const fixturesDir = join(__dirname, '..', 'crates', 'oxc-coverage-instrument', 'tests', 'conformance', 'fixtures');
 
 const istanbul = createInstrumenter({ esModules: true, produceSourceMap: false });
 const oxc = createOxcInstrumenter({ coverageVariable: '__coverage__' });

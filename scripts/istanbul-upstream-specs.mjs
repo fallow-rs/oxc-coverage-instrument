@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { instrument } from '../napi/index.js';
+import { instrument } from '../crates/oxc-coverage-instrument-napi/index.js';
 
 const cases = [
   {

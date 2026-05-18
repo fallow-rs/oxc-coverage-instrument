@@ -15,7 +15,7 @@ import { createInstrumenter } from 'istanbul-lib-instrument';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createOxcInstrumenter } from '../napi/vitest.js';
+import { createOxcInstrumenter } from '../crates/oxc-coverage-instrument-napi/vitest.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dir = join(__dirname, '..', '.bench-tmp', 'files');
