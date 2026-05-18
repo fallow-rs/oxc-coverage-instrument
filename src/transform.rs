@@ -39,6 +39,16 @@ pub struct CoverageTransform<'src, 'arena> {
     pub statement_map: Vec<Location>,
     /// Branch entries indexed by sequential id.
     pub branch_map: Vec<BranchEntry>,
+    /// Body byte spans parallel to `branch_map[i].locations[j]`. For most
+    /// branch shapes the body span equals the location span; the exception is
+    /// if-arm 0, where `locations[0]` records the whole `IfStatement` span
+    /// (istanbul convention) while the body span records the consequent
+    /// BlockStatement / inner-statement span. `v8_to_istanbul` consumes these
+    /// when resolving arm counts because V8 only emits per-block ranges and
+    /// has no range tight to istanbul's whole-IfStatement convention. Slots
+    /// with `(0, 0)` represent unknown bodies (e.g. synthetic else-arms) and
+    /// are skipped by callers.
+    pub branch_arm_body_byte_spans: Vec<Vec<(u32, u32)>>,
     /// Name inherited from a parent node (variable declarator, method definition).
     pending_name: Option<String>,
     /// `decl` span inherited from a class `MethodDefinition`. A method's inner
@@ -144,6 +154,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             fn_map: Vec::new(),
             statement_map: Vec::new(),
             branch_map: Vec::new(),
+            branch_arm_body_byte_spans: Vec::new(),
             pending_name: None,
             pending_method_decl: None,
             pending_stmts: Vec::new(),
@@ -228,12 +239,26 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             branch_type: branch_type.to_string(),
             locations: Vec::new(),
         });
+        self.branch_arm_body_byte_spans.push(Vec::new());
         id_num
     }
 
     fn add_branch_path(&mut self, branch_id: usize, span: Span) -> usize {
         let location = self.span_to_location(span);
-        self.add_branch_path_location(branch_id, location)
+        self.add_branch_path_location(branch_id, location, (span.start, span.end))
+    }
+
+    /// Record a branch arm whose istanbul-reported location and the underlying
+    /// AST body span differ. Today this is only the if-arm 0 case (istanbul
+    /// reports the whole `IfStatement`; the body is the consequent statement).
+    fn add_branch_path_with_body(
+        &mut self,
+        branch_id: usize,
+        location_span: Span,
+        body_span: Span,
+    ) -> usize {
+        let location = self.span_to_location(location_span);
+        self.add_branch_path_location(branch_id, location, (body_span.start, body_span.end))
     }
 
     fn add_branch_path_unknown(&mut self, branch_id: usize) -> usize {
@@ -243,6 +268,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 0, column: 0 },
             },
+            (0, 0),
         )
     }
 
@@ -290,13 +316,23 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         }
     }
 
-    fn add_branch_path_location(&mut self, branch_id: usize, location: Location) -> usize {
+    fn add_branch_path_location(
+        &mut self,
+        branch_id: usize,
+        location: Location,
+        body_byte_span: (u32, u32),
+    ) -> usize {
         let entry = self
             .branch_map
             .get_mut(branch_id)
             .expect("branch path must reference an existing branch");
         let path_idx = entry.locations.len();
         entry.locations.push(location);
+        let body_spans = self
+            .branch_arm_body_byte_spans
+            .get_mut(branch_id)
+            .expect("branch arm body span vec must exist for every branch id");
+        body_spans.push(body_byte_span);
         path_idx
     }
 
@@ -1230,13 +1266,18 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // block's narrower span. See istanbul-lib-instrument/src/visitor.js
         // insertBranchCounter(path.get('consequent'), branch, n.loc). Match it
         // so downstream reporters (html-reporter, sonar) highlight the same
-        // range in hover tooltips.
+        // range in hover tooltips. We also carry the actual consequent body
+        // span as a side-table value so `v8_to_istanbul` can resolve arm[0]
+        // against V8's `BlockStatement` range (V8 emits no range tight to the
+        // whole-IfStatement convention).
         let consequent_span = stmt.span;
+        let consequent_body_span = stmt.consequent.span();
         let branch_id = self.add_branch("if", stmt.span);
         let cov_fn = self.cov_fn_name;
 
         if pragma != Some(IgnoreType::If) {
-            let path_idx = self.add_branch_path(branch_id, consequent_span);
+            let path_idx =
+                self.add_branch_path_with_body(branch_id, consequent_span, consequent_body_span);
             inject_branch_counter_into_statement(
                 &mut stmt.consequent,
                 CounterKind::branch(cov_fn, branch_id, path_idx),

@@ -159,6 +159,32 @@ for (path, coverage) in &map {
 }
 ```
 
+### Remapping coverage through `inputSourceMap`
+
+`remap_coverage` walks a `FileCoverage` through its embedded `inputSourceMap`, rewriting every position back to the original source. This is the Mode A flow Vitest's istanbul reporter uses. When the map sits next to the instrumented file on disk rather than embedded, `remap_coverage_with_loader` accepts a loader callback (matching `istanbul-lib-source-maps`'s `sourceStore` semantics used by nyc):
+
+```rust
+use oxc_coverage_instrument::remap_coverage_with_loader;
+
+let remapped = remap_coverage_with_loader(&fc, |path| {
+    std::fs::read_to_string(format!("{path}.map")).ok()
+});
+```
+
+For runners (Jest with `transform`, plugins that hand maps in incrementally) that want continuous remapping during collection, `SourceMapStore` accumulates per-file maps via `add_map` and applies them via `transform_coverage`.
+
+### Converting V8 byte-range coverage to Istanbul
+
+`v8_to_istanbul` accepts the same shape Node's inspector and `@vitest/coverage-v8` emit. With block coverage enabled, statement/function/branch counts are populated by intersecting V8 ranges with locations recovered from a visit-only AST pass. Inline `//# sourceMappingURL=data:...` trailers are decoded automatically; external map references resolve through the optional loader on `v8_to_istanbul_with_loader`.
+
+```rust
+use oxc_coverage_instrument::v8_to_istanbul_with_loader;
+
+let fc = v8_to_istanbul_with_loader(source, "app.js", &functions, 0, |url| {
+    std::fs::read_to_string(url).ok()
+})?;
+```
+
 ## What it tracks
 
 | Dimension | What gets a counter |

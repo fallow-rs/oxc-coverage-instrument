@@ -22,8 +22,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::instrument::collect_for_v8_to_istanbul;
 use crate::types::{FileCoverage, Location};
-use crate::{InstrumentOptions, instrument};
 
 /// A function's coverage data as reported by the V8 inspector.
 ///
@@ -86,18 +86,71 @@ impl std::error::Error for V8ToIstanbulError {}
 /// inline `//# sourceMappingURL=data:application/json;base64,...` comment, the
 /// embedded map is decoded and attached as `inputSourceMap` so the result
 /// chains cleanly into [`crate::source_maps::remap_coverage`].
+///
+/// To resolve an external `//# sourceMappingURL=foo.js.map` reference rather
+/// than the inline data-URL form, use [`v8_to_istanbul_with_loader`] and
+/// supply a loader that reads the map JSON from disk (or fetches it).
 pub fn v8_to_istanbul(
     source: &str,
     filename: &str,
     functions: &[V8FunctionCoverage],
     wrapper_length: u32,
 ) -> Result<FileCoverage, V8ToIstanbulError> {
-    // TODO(v2): swap for a visit-only AST pass that collects locations
-    // without emitting the instrumented code + preamble we throw away.
-    let instrumented = instrument(source, filename, &InstrumentOptions::default())
-        .map_err(|e| V8ToIstanbulError::Parse(e.to_string()))?;
+    v8_to_istanbul_with_loader(source, filename, functions, wrapper_length, |_| None)
+}
 
-    let mut file_coverage = instrumented.coverage_map;
+/// Like [`v8_to_istanbul`], but with a loader for external `sourceMappingURL`
+/// references.
+///
+/// When the source carries a `//# sourceMappingURL=` trailer that is not an
+/// inline `data:application/json` URL, the loader is called with the URL as
+/// reported by the trailer (e.g. `foo.js.map`, `https://cdn.example/x.js.map`).
+/// Returning `Some(json)` attaches the parsed map as `inputSourceMap` on the
+/// result so a subsequent [`crate::source_maps::remap_coverage`] resolves
+/// positions back to the original source in one chained call. Returning
+/// `None` leaves `inputSourceMap` unset.
+///
+/// The loader is sync and infallible: side channels (disk I/O errors, HTTP
+/// failures) collapse to `None`. Caller-side URL resolution (relative paths,
+/// http schemes, file:// URIs) is intentionally not handled here.
+///
+/// # Example
+///
+/// ```
+/// use oxc_coverage_instrument::{V8CoverageRange, V8FunctionCoverage, v8_to_istanbul_with_loader};
+///
+/// let source = "const x = 1;\n//# sourceMappingURL=app.js.map\n";
+/// let functions = vec![V8FunctionCoverage {
+///     function_name: String::new(),
+///     ranges: vec![V8CoverageRange { start_offset: 0, end_offset: source.len() as u32, count: 1 }],
+///     is_block_coverage: false,
+/// }];
+///
+/// // Loader keyed on the trailer URL; here we just keep one map in-memory,
+/// // but a real caller would read from disk relative to `filename`.
+/// let map_json = r#"{"version":3,"sources":["src/app.ts"],"mappings":"AAAA","names":[]}"#;
+/// let fc = v8_to_istanbul_with_loader(source, "app.js", &functions, 0, |url| {
+///     if url == "app.js.map" { Some(map_json.to_string()) } else { None }
+/// })
+/// .unwrap();
+///
+/// // The loader-supplied map is attached and can be chained into remap_coverage.
+/// assert!(fc.input_source_map.is_some());
+/// ```
+pub fn v8_to_istanbul_with_loader<L>(
+    source: &str,
+    filename: &str,
+    functions: &[V8FunctionCoverage],
+    wrapper_length: u32,
+    loader: L,
+) -> Result<FileCoverage, V8ToIstanbulError>
+where
+    L: Fn(&str) -> Option<String>,
+{
+    let collected = collect_for_v8_to_istanbul(source, filename)
+        .map_err(|e| V8ToIstanbulError::Parse(e.to_string()))?;
+    let mut file_coverage = collected.coverage_map;
+    let arm_body_byte_spans = collected.arm_body_byte_spans;
     let line_offsets = compute_line_offsets(source);
     let ranges: Vec<V8CoverageRange> =
         functions.iter().flat_map(|f| f.ranges.iter().copied()).collect();
@@ -116,31 +169,61 @@ pub fn v8_to_istanbul(
         }
     }
     for (id, branch_entry) in &file_coverage.branch_map {
+        let body_spans = arm_body_byte_spans.get(id);
         let arm_counts: Vec<u32> = branch_entry
             .locations
             .iter()
-            .map(|loc| arm_count_for_location(source, loc, &line_offsets, &ranges, wrapper_length))
+            .enumerate()
+            .map(|(arm_idx, loc)| {
+                arm_count_for_arm(
+                    source,
+                    loc,
+                    body_spans.and_then(|spans| spans.get(arm_idx).copied()),
+                    &line_offsets,
+                    &ranges,
+                    wrapper_length,
+                )
+            })
             .collect();
         if let Some(slot) = file_coverage.b.get_mut(id) {
             *slot = arm_counts;
         }
     }
 
-    if file_coverage.input_source_map.is_none()
-        && let Some(inline_map) = extract_inline_source_map(source)
-    {
-        file_coverage.input_source_map = Some(inline_map);
+    if file_coverage.input_source_map.is_none() {
+        if let Some(inline_map) = extract_inline_source_map(source) {
+            file_coverage.input_source_map = Some(inline_map);
+        } else if let Some(url) = extract_external_source_mapping_url(source)
+            && let Some(json) = loader(url)
+        {
+            file_coverage.input_source_map = serde_json::from_str::<serde_json::Value>(&json).ok();
+        }
     }
 
     Ok(file_coverage)
+}
+
+/// Pull a trailing `//# sourceMappingURL=<url>` comment from the tail of
+/// `source` and return the URL when it is NOT a `data:` URI. Returns `None`
+/// when no trailer is present or when the trailer is an inline data URL (the
+/// inline form is handled by [`extract_inline_source_map`]).
+fn extract_external_source_mapping_url(source: &str) -> Option<&str> {
+    const NEEDLE: &str = "//# sourceMappingURL=";
+    let idx = source.rfind(NEEDLE)?;
+    let after = &source[idx + NEEDLE.len()..];
+    let url = after.lines().next()?.trim();
+    if url.is_empty() || url.starts_with("data:") {
+        return None;
+    }
+    Some(url)
 }
 
 /// Pull an inline `//# sourceMappingURL=data:application/json;base64,...`
 /// comment from the tail of `source` and decode the embedded source map.
 ///
 /// Only the data-URL form (the dominant case for ESM bundles emitted by Vite,
-/// esbuild, swc, and tsc) is supported. External URLs are left to the caller
-/// to fetch and pass in via the `inputSourceMap` field directly.
+/// esbuild, swc, and tsc) is supported. External URLs are handled via the
+/// loader-accepting [`v8_to_istanbul_with_loader`] API.
 fn extract_inline_source_map(source: &str) -> Option<serde_json::Value> {
     const NEEDLE: &str = "//# sourceMappingURL=data:application/json";
     let idx = source.rfind(NEEDLE)?;
@@ -291,11 +374,11 @@ fn count_for_location(
 /// statement was reachable), branch arms need *arm-level* resolution. V8
 /// block coverage only emits subdivision ranges for `BlockStatement` nodes,
 /// so non-block branch shapes (ternaries, logical-expr right-hand operands,
-/// `default-arg` expressions, switch cases without `{ ... }`, and istanbul's
-/// whole-IfStatement convention for if-arm[0]) have no V8 range tight to the
-/// arm body. Falling back to the enclosing function/module count there
-/// over-reports execution and trips CI coverage thresholds. The honest
-/// answer is 0 ("V8 did not give us per-arm data for this branch shape").
+/// `default-arg` expressions, switch cases without `{ ... }`) have no V8
+/// range tight to the arm body. Falling back to the enclosing function /
+/// module count there over-reports execution and trips CI coverage
+/// thresholds. The honest answer is 0 ("V8 did not give us per-arm data for
+/// this branch shape").
 ///
 /// The 4-byte tolerance covers the typical newline + 2-space indent gap
 /// between istanbul's reported arm location and V8's `BlockStatement` range.
@@ -307,21 +390,34 @@ fn count_for_location(
 /// match wins: minimum sum of start-distance + end-distance, ties broken by
 /// the narrower range. V8 emits ranges outermost-first, so a naive
 /// first-match would prefer the enclosing block over the actual arm.
-fn arm_count_for_location(
+///
+/// When `body_byte_span` is `Some`, the resolver uses that byte range
+/// directly instead of computing one from `arm_loc`. This is the if-arm 0
+/// path: istanbul's whole-IfStatement convention puts `locations[0]` at the
+/// outer `if (...) ... else ...` span, which V8 does not match; the
+/// collected consequent-body span does match V8's block range and yields
+/// "number of times the predicate evaluated truthy".
+fn arm_count_for_arm(
     source: &str,
     arm_loc: &Location,
+    body_byte_span: Option<(u32, u32)>,
     line_offsets: &[u32],
     ranges: &[V8CoverageRange],
     wrapper_length: u32,
 ) -> u32 {
     const TOLERANCE: u32 = 4;
 
-    let arm_start =
-        position_to_byte_offset(source, arm_loc.start.line, arm_loc.start.column, line_offsets)
-            + wrapper_length;
-    let arm_end =
-        position_to_byte_offset(source, arm_loc.end.line, arm_loc.end.column, line_offsets)
-            + wrapper_length;
+    let (arm_start, arm_end) = match body_byte_span {
+        Some((start, end)) if !(start == 0 && end == 0) => {
+            (start + wrapper_length, end + wrapper_length)
+        }
+        _ => (
+            position_to_byte_offset(source, arm_loc.start.line, arm_loc.start.column, line_offsets)
+                + wrapper_length,
+            position_to_byte_offset(source, arm_loc.end.line, arm_loc.end.column, line_offsets)
+                + wrapper_length,
+        ),
+    };
 
     let mut best: Option<(V8CoverageRange, u32)> = None;
     for r in ranges {

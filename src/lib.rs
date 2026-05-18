@@ -36,8 +36,14 @@ mod types;
 mod v8_to_istanbul;
 
 pub use instrument::{InstrumentError, InstrumentOptions, InstrumentResult, instrument};
-pub use source_maps::{remap_coverage, remap_coverage_map};
+pub use source_maps::{
+    SourceMapStore, remap_coverage, remap_coverage_map, remap_coverage_map_with_loader,
+    remap_coverage_with_loader,
+};
 pub use types::{
     BranchEntry, FileCoverage, FnEntry, Location, Position, UnhandledPragma, parse_coverage_map,
 };
-pub use v8_to_istanbul::{V8CoverageRange, V8FunctionCoverage, V8ToIstanbulError, v8_to_istanbul};
+pub use v8_to_istanbul::{
+    V8CoverageRange, V8FunctionCoverage, V8ToIstanbulError, v8_to_istanbul,
+    v8_to_istanbul_with_loader,
+};

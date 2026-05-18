@@ -5,7 +5,9 @@
 //! `@vitest/coverage-v8` would produce) and checks that the resulting Istanbul
 //! `FileCoverage` carries the right per-statement / per-function hit counts.
 
-use oxc_coverage_instrument::{V8CoverageRange, V8FunctionCoverage, v8_to_istanbul};
+use oxc_coverage_instrument::{
+    V8CoverageRange, V8FunctionCoverage, v8_to_istanbul, v8_to_istanbul_with_loader,
+};
 
 fn range(start: u32, end: u32, count: u32) -> V8CoverageRange {
     V8CoverageRange { start_offset: start, end_offset: end, count }
@@ -86,12 +88,12 @@ fn applies_wrapper_length_for_cjs_modules() {
 #[test]
 fn assigns_branch_arm_counts_from_block_coverage() {
     // V8 block coverage emits one inner range per `{ ... }` BlockStatement,
-    // not per inner statement. The tolerance-based arm resolver matches the
-    // else BlockStatement range to `branchMap.locations[1]` (the else block
-    // span in istanbul's data model). arm[0] for an `if` is istanbul's
-    // whole-IfStatement convention; V8 has no range tight to that span, so
-    // arm[0] reports 0 rather than falling back to the enclosing function
-    // count (which would over-report and trip coverage thresholds).
+    // not per inner statement. The arm resolver matches both BlockStatement
+    // ranges against the collected consequent / alternate body spans, even
+    // though istanbul records `branchMap.locations[0]` as the whole
+    // `IfStatement` span (see istanbul-lib-instrument's coverIfBranches).
+    // arm[0] therefore reflects "number of times the predicate was truthy",
+    // which equals the then-block's hit count.
     let source = "function f(x) {\n  if (x) {\n    a();\n  } else {\n    b();\n  }\n}\nf(true);\n";
     let module_end = source.len() as u32;
     let then_start = source.find("if (x) {").unwrap() as u32 + 7;
@@ -118,8 +120,8 @@ fn assigns_branch_arm_counts_from_block_coverage() {
         .expect("if branch must appear in branchMap");
     assert_eq!(arm_counts.len(), 2, "if has two arms");
     assert_eq!(
-        arm_counts[0], 0,
-        "arm[0] is the whole-IfStatement span (istanbul convention); V8 has no tight range for it, must be 0"
+        arm_counts[0], 1,
+        "arm[0] resolves through the collected then-block body span; predicate truthy once"
     );
     assert_eq!(arm_counts[1], 0, "else arm should report zero hits");
 }
@@ -318,4 +320,131 @@ fn function_counts_track_call_counts() {
         3,
         "function count should match V8 call count"
     );
+}
+
+#[test]
+fn if_arm_zero_reports_then_block_count_with_mixed_arms() {
+    // The fix for issue #43 task 2: arm[0] of an `if` branch reports
+    // "number of times the predicate evaluated truthy", derived from the
+    // collected consequent-body byte span and matched against V8's then
+    // BlockStatement range. Calling `f` five times with three truthy and
+    // two falsy inputs gives arm[0] == 3 and arm[1] == 2, not [0, 2] as
+    // the pre-fix behavior would have produced.
+    let source = "function f(x) {\n  if (x) {\n    a();\n  } else {\n    b();\n  }\n}\n";
+    let module_end = source.len() as u32;
+    let then_start = source.find("if (x) {").unwrap() as u32 + 7;
+    let then_end = source.find("} else").unwrap() as u32 + 1;
+    let else_start = source.find("else {").unwrap() as u32 + 5;
+    let else_end = source.rfind("\n  }").unwrap() as u32 + 4;
+
+    let functions = vec![function(
+        "f",
+        vec![
+            range(0, module_end, 5),
+            range(then_start, then_end, 3),
+            range(else_start, else_end, 2),
+        ],
+        true,
+    )];
+
+    let fc = v8_to_istanbul(source, "ifelse-counts.js", &functions, 0).unwrap();
+    let (_, arm_counts) = fc
+        .branch_map
+        .iter()
+        .find(|(_, b)| b.branch_type == "if")
+        .map(|(id, _b)| (id.clone(), fc.b.get(id).cloned().unwrap_or_default()))
+        .expect("if branch must appear in branchMap");
+    assert_eq!(
+        arm_counts,
+        vec![3, 2],
+        "arm[0] = then-block count (3), arm[1] = else-block count (2)"
+    );
+}
+
+#[test]
+fn if_arm_zero_resolves_when_alternate_is_missing() {
+    // No `else` clause; istanbul still records two arms with locations[1]
+    // pointing at the synthesized empty alternate. arm[0] must still resolve
+    // through the collected then-block span; arm[1] is honestly zero.
+    let source = "function f(x) {\n  if (x) {\n    a();\n  }\n}\n";
+    let module_end = source.len() as u32;
+    let then_start = source.find("if (x) {").unwrap() as u32 + 7;
+    let then_end = source.rfind("\n  }").unwrap() as u32 + 4;
+
+    let functions =
+        vec![function("f", vec![range(0, module_end, 4), range(then_start, then_end, 4)], true)];
+
+    let fc = v8_to_istanbul(source, "if-only.js", &functions, 0).unwrap();
+    let (_, arm_counts) = fc
+        .branch_map
+        .iter()
+        .find(|(_, b)| b.branch_type == "if")
+        .map(|(id, _b)| (id.clone(), fc.b.get(id).cloned().unwrap_or_default()))
+        .expect("if branch must appear in branchMap");
+    assert_eq!(arm_counts.len(), 2, "if without else still has two arms");
+    assert_eq!(arm_counts[0], 4, "arm[0] reflects then-block count");
+    assert_eq!(arm_counts[1], 0, "synthetic else-arm honestly reports zero");
+}
+
+#[test]
+fn external_source_mapping_url_invokes_loader() {
+    // When the source carries a non-data sourceMappingURL trailer, the loader
+    // is consulted with the URL string and the returned JSON is parsed and
+    // attached as inputSourceMap on the result.
+    let map_json =
+        r#"{"version":3,"sources":["src/app.ts"],"mappings":"AAAA","names":[]}"#.to_string();
+    let source = "const x = 1;\n//# sourceMappingURL=app.js.map\n";
+    let end = source.len() as u32;
+    let functions = vec![function("", vec![range(0, end, 1)], false)];
+
+    let seen_urls = std::cell::RefCell::new(Vec::<String>::new());
+    let fc = v8_to_istanbul_with_loader(source, "app.js", &functions, 0, |url| {
+        seen_urls.borrow_mut().push(url.to_string());
+        if url == "app.js.map" { Some(map_json.clone()) } else { None }
+    })
+    .unwrap();
+
+    assert_eq!(
+        seen_urls.into_inner(),
+        vec!["app.js.map".to_string()],
+        "loader sees the trailer URL"
+    );
+    let attached = fc.input_source_map.expect("external map should be attached");
+    assert_eq!(attached["sources"][0], "src/app.ts");
+}
+
+#[test]
+fn external_source_mapping_url_loader_returning_none_leaves_map_unset() {
+    // A loader that returns None (disk read failed, no map next to file)
+    // must not panic or attach garbage. The result must look like the
+    // pre-loader behavior: no inputSourceMap, rest of the conversion intact.
+    let source = "const x = 1;\n//# sourceMappingURL=missing.map\n";
+    let end = source.len() as u32;
+    let functions = vec![function("", vec![range(0, end, 1)], false)];
+
+    let fc = v8_to_istanbul_with_loader(source, "missing.js", &functions, 0, |_| None).unwrap();
+    assert!(fc.input_source_map.is_none(), "no map attached when loader returns None");
+    assert!(fc.s.values().any(|&c| c == 1), "rest of coverage still resolves");
+}
+
+#[test]
+fn inline_source_map_takes_precedence_over_external_loader() {
+    // When both forms could match (inline data URL is rfind-found before any
+    // other comment), the inline form wins and the loader is never called.
+    // A simple way to surface that: a panicking loader that would fail the
+    // test if invoked.
+    let original_map_json =
+        r#"{"version":3,"sources":["src/app.ts"],"mappings":"AAAA","names":[]}"#;
+    let base64 = encode_base64(original_map_json.as_bytes());
+    let source =
+        format!("const x = 1;\n//# sourceMappingURL=data:application/json;base64,{base64}\n");
+    let end = source.len() as u32;
+    let functions = vec![function("", vec![range(0, end, 1)], false)];
+
+    let fc = v8_to_istanbul_with_loader(&source, "app.js", &functions, 0, |_| {
+        panic!("loader must not be called when an inline map is present")
+    })
+    .unwrap();
+    let attached = fc.input_source_map.expect("inline map should be attached");
+    assert_eq!(attached["sources"][0], "src/app.ts");
 }

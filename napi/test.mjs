@@ -1,5 +1,11 @@
 // Quick test for the napi bindings
-import { instrument, remapCoverageMap, v8ToIstanbul } from './index.js';
+import {
+  instrument,
+  remapCoverageMap,
+  remapCoverageMapWithLoader,
+  v8ToIstanbul,
+  v8ToIstanbulWithLoader,
+} from './index.js';
 import { strict as assert } from 'node:assert';
 
 console.log('Testing oxc-coverage-instrument napi bindings...\n');
@@ -551,6 +557,94 @@ function runInstrumented(result, filename, callExpression) {
   assert(counts.length > 0, 'statementMap should populate');
   assert(counts.every((c) => c === 1), `all statements covered, got: ${JSON.stringify(counts)}`);
   console.log('  [PASS] v8ToIstanbul produces Istanbul FileCoverage from V8 ranges');
+}
+
+// Test 19: remapCoverageMapWithLoader supplies maps for entries without inputSourceMap
+{
+  const intermediateJs = 'const x = 1;\nconst y = 2;\nconst z = 3;\n';
+  const inputSourceMap = JSON.stringify({
+    version: 3,
+    sources: ['src/app.ts'],
+    sourcesContent: ['const x: number = 1;\nconst y: number = 2;\nconst z: number = 3;\n'],
+    mappings: 'AAAA;AACA;AACA',
+    names: [],
+  });
+  // Instrument WITHOUT inputSourceMap so the coverage has none embedded.
+  const result = instrument(intermediateJs, 'intermediate.js');
+  const coverageMap = { 'intermediate.js': JSON.parse(result.coverageMap) };
+
+  // Loader-supplied path: the dictionary key matches the FileCoverage path.
+  const remapped = JSON.parse(
+    remapCoverageMapWithLoader(JSON.stringify(coverageMap), { 'intermediate.js': inputSourceMap }),
+  );
+  assert(remapped['src/app.ts'], 'loader-supplied map should remap the entry');
+  assert(!remapped['intermediate.js'], 'intermediate key should be replaced');
+
+  // Empty dictionary: passthrough.
+  const passthrough = JSON.parse(remapCoverageMapWithLoader(JSON.stringify(coverageMap), {}));
+  assert(passthrough['intermediate.js'], 'no loader entry -> passthrough');
+  console.log('  [PASS] remapCoverageMapWithLoader supplies external maps');
+}
+
+// Test 20: v8ToIstanbulWithLoader resolves external //# sourceMappingURL references
+{
+  const map = JSON.stringify({
+    version: 3,
+    sources: ['src/app.ts'],
+    sourcesContent: ['const x: number = 1;\n'],
+    mappings: 'AAAA',
+    names: [],
+  });
+  const source = 'const x = 1;\n//# sourceMappingURL=app.js.map\n';
+  const functions = [
+    {
+      functionName: '',
+      ranges: [{ startOffset: 0, endOffset: source.length, count: 1 }],
+      isBlockCoverage: false,
+    },
+  ];
+
+  const fc = JSON.parse(
+    v8ToIstanbulWithLoader(source, 'app.js', JSON.stringify(functions), { 'app.js.map': map }),
+  );
+  assert(fc.inputSourceMap, 'loader entry should be attached as inputSourceMap');
+  assert.equal(fc.inputSourceMap.sources[0], 'src/app.ts');
+
+  // No matching loader entry -> map left unset.
+  const fc2 = JSON.parse(v8ToIstanbulWithLoader(source, 'app.js', JSON.stringify(functions), {}));
+  assert(!fc2.inputSourceMap, 'unknown URL -> inputSourceMap unset');
+  console.log('  [PASS] v8ToIstanbulWithLoader resolves external map URLs');
+}
+
+// Test 21: v8ToIstanbul resolves if-arm[0] through the collected then-block span
+{
+  const source = 'function f(x) {\n  if (x) {\n    a();\n  } else {\n    b();\n  }\n}\n';
+  const moduleEnd = source.length;
+  const thenStart = source.indexOf('if (x) {') + 7;
+  const thenEnd = source.indexOf('} else') + 1;
+  const elseStart = source.indexOf('else {') + 5;
+  const elseEnd = source.lastIndexOf('\n  }') + 4;
+
+  // Function ran 5 times; predicate truthy 3 of those; else taken 2 of those.
+  const functions = [
+    {
+      functionName: 'f',
+      ranges: [
+        { startOffset: 0, endOffset: moduleEnd, count: 5 },
+        { startOffset: thenStart, endOffset: thenEnd, count: 3 },
+        { startOffset: elseStart, endOffset: elseEnd, count: 2 },
+      ],
+      isBlockCoverage: true,
+    },
+  ];
+  const fc = JSON.parse(v8ToIstanbul(source, 'ifelse.js', JSON.stringify(functions)));
+  const [ifId] = Object.entries(fc.branchMap).find(([, entry]) => entry.type === 'if');
+  assert.deepEqual(
+    fc.b[ifId],
+    [3, 2],
+    'arm[0] now reflects then-block count; arm[1] reflects else-block count',
+  );
+  console.log('  [PASS] v8ToIstanbul resolves if-arm[0] through collected body span');
 }
 
 console.log('\nAll tests passed!');

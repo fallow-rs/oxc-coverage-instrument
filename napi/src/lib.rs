@@ -4,6 +4,15 @@
 
 // napi-derive generates code that triggers needless_pass_by_value
 #![expect(clippy::needless_pass_by_value, reason = "napi function signatures require owned types")]
+// napi-derive lowers TS `Record<string, string>` to `HashMap<String, String>` with the default
+// hasher; we can't add a generic hasher parameter because napi-derive does not propagate
+// generics into the JS-facing function signature.
+#![expect(
+    clippy::implicit_hasher,
+    reason = "napi-derive cannot lower a generic BuildHasher parameter into the napi function signature"
+)]
+
+use std::collections::HashMap;
 
 use napi_derive::napi;
 
@@ -93,14 +102,42 @@ pub fn instrument(
 /// `istanbul-lib-source-maps` semantics). Returns the remapped JSON.
 ///
 /// Equivalent to `createSourceMapStore().transformCoverage(coverageMap)` in
-/// the Vitest istanbul reporter path, minus the disk-read fallback used by
-/// nyc's CLI mode.
+/// the Vitest istanbul reporter path. For nyc's disk-read flow (Mode A
+/// fallback) use [`remap_coverage_map_with_loader`] and supply a
+/// `Record<string, string>` of preloaded maps keyed by FileCoverage path.
 #[napi]
 pub fn remap_coverage_map(coverage_json: String) -> napi::Result<String> {
     let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json).map_err(|e| {
         napi::Error::new(napi::Status::InvalidArg, format!("invalid coverage JSON: {e}"))
     })?;
     let remapped = oxc_coverage_instrument::remap_coverage_map(&parsed);
+    serde_json::to_string(&remapped)
+        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
+}
+
+/// Like [`remap_coverage_map`], but with a preloaded map dictionary used as
+/// the Mode A disk-read fallback. Entries whose path is a key in
+/// `source_maps` and which carry no embedded `inputSourceMap` use the
+/// dictionary's value as the source map JSON. Each `source_maps` value must
+/// be a valid source map JSON string; entries that fail to parse silently
+/// pass through.
+///
+/// The dictionary form matches the practical Jest/nyc/istanbul JS workflow:
+/// the caller has already read maps from disk (or another source) before
+/// calling the converter. The richer Rust-side
+/// [`oxc_coverage_instrument::SourceMapStore`] (Mode B continuous remap)
+/// stays Rust-only until a Jest provider integration targets it directly.
+#[napi]
+pub fn remap_coverage_map_with_loader(
+    coverage_json: String,
+    source_maps: HashMap<String, String>,
+) -> napi::Result<String> {
+    let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json).map_err(|e| {
+        napi::Error::new(napi::Status::InvalidArg, format!("invalid coverage JSON: {e}"))
+    })?;
+    let remapped = oxc_coverage_instrument::remap_coverage_map_with_loader(&parsed, |path| {
+        source_maps.get(path).cloned()
+    });
     serde_json::to_string(&remapped)
         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
 }
@@ -116,21 +153,24 @@ pub fn remap_coverage_map(coverage_json: String) -> napi::Result<String> {
 ///
 /// Returns a JSON object compatible with Istanbul's `FileCoverage`. Statement,
 /// function, and branch counts are populated from the V8 ranges. Branch arm
-/// counts only resolve when V8 emits a `BlockStatement` range tight to the
-/// arm body (the common cases are if-else `else` blocks and switch cases
-/// with `{ ... }` bodies). Branch arms with no matching V8 range (ternary
-/// consequent/alternate, logical-expr right-hand operands, `default-arg`
-/// expressions, and istanbul's whole-IfStatement convention for if-arm[0])
-/// report `0`; this is honest under-reporting, not over-reporting, so CI
-/// coverage thresholds will not silently pass on un-instrumented arms.
+/// counts resolve correctly for if-else (arm\[0\] via the collected
+/// consequent-body byte span, arm\[1\] via the alternate-body span) and switch
+/// cases with `{ ... }` bodies. Branch arms with no matching V8 range
+/// (ternary consequent/alternate, logical-expr right-hand operands, and
+/// `default-arg` expressions) report `0`; this is honest under-reporting,
+/// not over-reporting, so CI coverage thresholds will not silently pass on
+/// un-instrumented arms.
 ///
 /// When the source ends with a `//# sourceMappingURL=data:application/json;base64,...`
 /// (or percent-encoded) trailer, the embedded map is decoded and attached
-/// to the result as `inputSourceMap`. If the returned object has
-/// `inputSourceMap` set, chain `remapCoverageMap` next to resolve coverage
-/// positions back to the original source; otherwise the inline map will
-/// ride along and downstream JS reporters that also call into
-/// `istanbul-lib-source-maps` may double-remap.
+/// to the result as `inputSourceMap`. For external `//# sourceMappingURL=foo.js.map`
+/// references, use [`v8_to_istanbul_with_loader`] and pass a dictionary of
+/// URL -> map JSON entries.
+///
+/// If the returned object has `inputSourceMap` set, chain `remapCoverageMap`
+/// next to resolve coverage positions back to the original source; otherwise
+/// the inline map will ride along and downstream JS reporters that also call
+/// into `istanbul-lib-source-maps` may double-remap.
 #[napi]
 pub fn v8_to_istanbul(
     source: String,
@@ -147,6 +187,36 @@ pub fn v8_to_istanbul(
         &filename,
         &functions,
         wrapper_length.unwrap_or(0),
+    )
+    .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;
+    serde_json::to_string(&result)
+        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
+}
+
+/// Like [`v8_to_istanbul`], but accepts a preloaded `external_source_maps`
+/// dictionary used to resolve external `//# sourceMappingURL=` references.
+/// The dictionary key is the URL as it appears in the source's trailing
+/// comment (e.g. `foo.js.map`); the value is the map's JSON content. If the
+/// source has an inline data-URL map the dictionary is not consulted.
+/// Entries whose value fails to parse silently leave `inputSourceMap` unset.
+#[napi]
+pub fn v8_to_istanbul_with_loader(
+    source: String,
+    filename: String,
+    v8_functions_json: String,
+    external_source_maps: HashMap<String, String>,
+    wrapper_length: Option<u32>,
+) -> napi::Result<String> {
+    let functions: Vec<oxc_coverage_instrument::V8FunctionCoverage> =
+        serde_json::from_str(&v8_functions_json).map_err(|e| {
+            napi::Error::new(napi::Status::InvalidArg, format!("invalid V8 functions JSON: {e}"))
+        })?;
+    let result = oxc_coverage_instrument::v8_to_istanbul_with_loader(
+        &source,
+        &filename,
+        &functions,
+        wrapper_length.unwrap_or(0),
+        |url| external_source_maps.get(url).cloned(),
     )
     .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;
     serde_json::to_string(&result)

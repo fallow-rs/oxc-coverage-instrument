@@ -10,6 +10,8 @@ use oxc_semantic::{Scoping, SemanticBuilder};
 use oxc_span::SourceType;
 use oxc_traverse::traverse_mut;
 
+use std::collections::BTreeMap;
+
 use crate::pragma::PragmaMap;
 use crate::transform::{
     CoverageState, CoverageTransform, PreambleInputs, TransformInit, djb31_hex,
@@ -235,6 +237,84 @@ fn build_coverage_map(
         coverage_map.input_source_map = serde_json::from_str(input_sm).ok();
     }
     coverage_map
+}
+
+/// Output of [`collect_for_v8_to_istanbul`]: the Istanbul `FileCoverage`
+/// (statement / function / branch maps) plus a side-table of body byte spans
+/// keyed by surviving branch id. Both are needed by `v8_to_istanbul` to
+/// resolve V8 hit counts; the body byte spans solve the if-arm 0 case where
+/// the istanbul-reported location (the whole `IfStatement`) does not match
+/// any V8 block range.
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-internal type intentionally; the explicit pub(crate) documents that this is not part of the public API even though the parent module is already private"
+)]
+pub(crate) struct V8CollectResult {
+    pub(crate) coverage_map: FileCoverage,
+    /// `arm_body_byte_spans["<branch_id>"][<arm_idx>]` is the `(start, end)`
+    /// byte range of the arm body when known, or `(0, 0)` when the body span
+    /// is synthetic / unknown (e.g. a synthesized else-arm).
+    pub(crate) arm_body_byte_spans: BTreeMap<String, Vec<(u32, u32)>>,
+}
+
+/// Parse, scan pragmas, traverse the AST, and build the `FileCoverage` map
+/// without performing codegen, preamble emission, or coverage-map JSON
+/// serialization. This is the visit-only path `v8_to_istanbul` uses; the
+/// codegen + preamble + hash work that `instrument()` performs is dead work
+/// when the caller only needs the location maps to intersect against V8
+/// byte ranges.
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-internal function intentionally; the explicit pub(crate) documents that this is not part of the public API even though the parent module is already private"
+)]
+pub(crate) fn collect_for_v8_to_istanbul(
+    source: &str,
+    filename: &str,
+) -> Result<V8CollectResult, InstrumentError> {
+    let allocator = Allocator::default();
+    let mut parsed = parse_program(&allocator, source, filename)?;
+
+    let (pragmas, _unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
+    if pragmas.ignore_file {
+        let coverage_map = FileCoverage::from_maps(CoverageMaps {
+            path: filename.to_string(),
+            statement_locs: Vec::new(),
+            fn_entries: Vec::new(),
+            branch_entries: Vec::new(),
+            logical_branch_ids: Vec::new(),
+        });
+        return Ok(V8CollectResult { coverage_map, arm_body_byte_spans: BTreeMap::new() });
+    }
+
+    let scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
+    let cov_fn_name = generate_cov_fn_name(filename);
+
+    let mut transform = CoverageTransform::new(TransformInit {
+        allocator: &allocator,
+        source,
+        cov_fn_name: &cov_fn_name,
+        report_logic: false,
+        ignore_class_methods: Vec::new(),
+    });
+    let state = CoverageState { pragmas };
+    let _scoping = traverse_mut(&mut transform, &allocator, &mut parsed.program, scoping, state);
+
+    // Build the body-byte-span side-table BEFORE moving `branch_map` into
+    // `from_maps`. The id assignment in `from_maps` filters out branches with
+    // empty `locations` and preserves the original sequential id via
+    // `enumerate` (filter runs AFTER), so the keys here use the same
+    // pre-filter index and only retain surviving entries.
+    let mut arm_body_byte_spans: BTreeMap<String, Vec<(u32, u32)>> = BTreeMap::new();
+    for (idx, body_spans) in transform.branch_arm_body_byte_spans.iter().enumerate() {
+        let surviving =
+            transform.branch_map.get(idx).is_some_and(|entry| !entry.locations.is_empty());
+        if surviving {
+            arm_body_byte_spans.insert(idx.to_string(), body_spans.clone());
+        }
+    }
+
+    let coverage_map = build_coverage_map(filename, transform, None);
+    Ok(V8CollectResult { coverage_map, arm_body_byte_spans })
 }
 
 struct EmitInputs<'a, 'arena> {
