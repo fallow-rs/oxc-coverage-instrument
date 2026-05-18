@@ -417,21 +417,31 @@ fn render_source_table(
         let stmt_hits = line_hits.get(&line_no).copied();
         let branch = branched.get(&line_no);
         let fn_hits = fns.get(&line_no).copied();
-        out.push_str(&render_source_row(line_no, line_html, stmt_hits, branch, fn_hits));
+        out.push_str(&render_source_row(SourceRow {
+            line_no,
+            src_html: line_html,
+            stmt_hits,
+            branch,
+            fn_hits,
+        }));
     }
     out.push_str("        </tbody>\n");
     out
 }
 
+#[derive(Clone, Copy)]
+struct SourceRow<'a> {
+    line_no: u32,
+    src_html: &'a str,
+    stmt_hits: Option<u32>,
+    branch: Option<&'a BranchSummary>,
+    fn_hits: Option<u32>,
+}
+
 /// Render one source row. `src_html` is already escaped and may carry
 /// syntect `<span class="stok-...">` markup; do not re-escape.
-fn render_source_row(
-    line_no: u32,
-    src_html: &str,
-    stmt_hits: Option<u32>,
-    branch: Option<&BranchSummary>,
-    fn_hits: Option<u32>,
-) -> String {
+fn render_source_row(row: SourceRow<'_>) -> String {
+    let SourceRow { line_no, src_html, stmt_hits, branch, fn_hits } = row;
     let class = source_row_class(stmt_hits, branch, fn_hits);
     let hits_text = match (stmt_hits, fn_hits) {
         (Some(h), _) | (None, Some(h)) => format!("{h}x"),

@@ -111,5 +111,5 @@ fn write_to_dir_with_options_threads_options_into_html() {
     let opts = HtmlOptions { high_threshold: 55.0 };
     Format::Html.write_to_dir_with_options(&map, Path::new(""), dir.path(), &opts).unwrap();
     let index = std::fs::read_to_string(dir.path().join("index.html")).unwrap();
-    assert!(index.contains("55%"), "custom HtmlOptions.high_threshold must reach the renderer",);
+    assert!(index.contains("55%"), "custom HtmlOptions.high_threshold must reach the renderer");
 }
