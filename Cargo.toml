@@ -5,6 +5,7 @@ members = [
     "crates/oxc-coverage-instrument-napi",
     "crates/oxc-coverage-source-maps",
     "crates/oxc-coverage-types",
+    "crates/oxc-coverage-v8",
 ]
 resolver = "3"
 

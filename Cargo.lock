@@ -816,6 +816,7 @@ dependencies = [
  "oxc_codegen",
  "oxc_coverage_source_maps",
  "oxc_coverage_types",
+ "oxc_coverage_v8",
  "oxc_parser",
  "oxc_semantic",
  "oxc_sourcemap",
@@ -853,6 +854,15 @@ dependencies = [
 name = "oxc_coverage_types"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "oxc_coverage_v8"
+version = "0.1.0"
+dependencies = [
+ "oxc_coverage_types",
  "serde",
  "serde_json",
 ]
