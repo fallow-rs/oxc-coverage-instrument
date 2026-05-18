@@ -66,6 +66,18 @@ const DETAIL_SUFFIX: &str = ".html";
 /// Embedded stylesheet copied to `<output_dir>/base.css`.
 const BASE_CSS: &str = include_str!("base.css");
 
+/// Vendored slice of fallow's design tokens, copied to
+/// `<output_dir>/coverage-tokens.css`. `base.css` `@import`s this file
+/// so the palette layer can be re-vendored into fallow-cloud (or any
+/// other consumer) without touching the structural rules. See the file
+/// header comment for the sync convention.
+const COVERAGE_TOKENS_CSS: &str = include_str!("coverage-tokens.css");
+
+/// Version stamp embedded in the `<meta name="generator">` tag on every
+/// page. Lets CI tooling identify which release of the reporter
+/// produced a given report directory.
+const GENERATOR: &str = concat!("oxc-coverage-reports ", env!("CARGO_PKG_VERSION"));
+
 /// Embedded enhancement script copied to `<output_dir>/base.js`.
 ///
 /// Provides the sortable index tables and the auto / light / dark theme
@@ -99,12 +111,19 @@ font-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'";
 /// `root_dir` is used as the filesystem base for resolving any
 /// `FileCoverage.path` that is relative. Pass [`std::env::current_dir`]
 /// when invoking from a CLI.
+///
+/// Three companion files are written alongside the HTML tree:
+/// `base.css`, `coverage-tokens.css` (which `base.css` `@import`s), and
+/// `base.js`. All three must travel together; copying only `base.css`
+/// to a new location without `coverage-tokens.css` leaves the report
+/// visually broken (the token cascade resolves to the browser default).
 pub fn write(coverage_map: &CoverageMap, root_dir: &Path, output_dir: &Path) -> io::Result<()> {
     let remapped = remap_coverage_map(coverage_map);
     let root = summarize(&remapped);
 
     fs::create_dir_all(output_dir)?;
     fs::write(output_dir.join("base.css"), BASE_CSS)?;
+    fs::write(output_dir.join("coverage-tokens.css"), COVERAGE_TOKENS_CSS)?;
     fs::write(output_dir.join("base.js"), BASE_JS)?;
 
     let ctx = RenderContext { root_dir };
@@ -183,7 +202,9 @@ fn render_folder_index(node: &ReportNode, children: &[ReportNode], depth: usize)
     let mut body = String::new();
     body.push_str(&render_summary_header(&title, &node.summary, depth, node));
     body.push_str("    <div class=\"pad1\">\n");
-    body.push_str("      <table class=\"coverage-summary\">\n");
+    body.push_str(&render_threshold_summary(children));
+    body.push_str(&render_filter_group(children.len()));
+    body.push_str("      <table class=\"coverage-summary\" id=\"cov-file-table\">\n");
     body.push_str(&render_summary_table_header());
     body.push_str("        <tbody>\n");
     for child in children {
@@ -193,6 +214,41 @@ fn render_folder_index(node: &ReportNode, children: &[ReportNode], depth: usize)
     body.push_str("      </table>\n");
     body.push_str("    </div>\n");
     render_page(&title, depth, &body)
+}
+
+/// One-line summary above the file table: "N of M files below the 80%
+/// line-coverage threshold". Renders as muted body text when at least
+/// one file falls below; silent when every file is at or above.
+fn render_threshold_summary(children: &[ReportNode]) -> String {
+    const THRESHOLD: f64 = 80.0;
+    let total = children.len();
+    if total == 0 {
+        return String::new();
+    }
+    let below = children.iter().filter(|c| c.summary.lines.pct < THRESHOLD).count();
+    if below == 0 {
+        return format!(
+            "      <p class=\"threshold-summary\"><strong>All {total} files</strong> meet the {THRESHOLD:.0}% line-coverage threshold.</p>\n",
+        );
+    }
+    format!(
+        "      <p class=\"threshold-summary\"><strong>{below}</strong> of {total} files fall below the {THRESHOLD:.0}% line-coverage threshold.</p>\n",
+    )
+}
+
+/// Filter input + live count region. JS enhances both; without JS the
+/// input is still focusable and the region stays empty.
+fn render_filter_group(file_count: usize) -> String {
+    format!(
+        concat!(
+            "      <div class=\"filter-group\">\n",
+            "        <label class=\"filter-group__label\" for=\"cov-filter\">Filter files</label>\n",
+            "        <input class=\"filter-input\" id=\"cov-filter\" type=\"search\" autocomplete=\"off\" spellcheck=\"false\" placeholder=\"type to filter, press / to focus\" aria-controls=\"cov-file-table\" aria-describedby=\"cov-filter-count\">\n",
+            "        <div class=\"filter-count\" id=\"cov-filter-count\" role=\"status\" aria-atomic=\"true\" data-total=\"{total}\"></div>\n",
+            "      </div>\n",
+        ),
+        total = file_count,
+    )
 }
 
 fn render_summary_table_header() -> String {
@@ -211,19 +267,34 @@ fn render_summary_row(child: &ReportNode) -> String {
     };
     let display = html_text_escape(&child.name);
     let row_class = pct_class(child.summary.lines.pct);
-    let mut out = format!("          <tr class=\"row-{row_class}\">\n");
+    let mut out = format!(
+        "          <tr class=\"row-{row_class}\" data-file=\"{file}\">\n",
+        file = html_attr_escape(&child.name),
+    );
     let _ = writeln!(out, "            <td class=\"file\"><a href=\"{href}\">{display}</a></td>");
-    for metric in [
-        child.summary.statements,
-        child.summary.branches,
-        child.summary.functions,
-        child.summary.lines,
-    ] {
+    let metrics = [
+        ("Statements", child.summary.statements),
+        ("Branches", child.summary.branches),
+        ("Functions", child.summary.functions),
+        ("Lines", child.summary.lines),
+    ];
+    for (idx, (label, metric)) in metrics.iter().enumerate() {
         let mc = pct_class(metric.pct);
+        // Mini coverage meter only on the Lines column (final column);
+        // duplicating it on every column would clutter the table.
+        let meter = if idx == metrics.len() - 1 {
+            let pct = metric.pct.clamp(0.0, 100.0);
+            format!(
+                "<span class=\"cov-meter cov-meter--{mc}\" role=\"meter\" aria-label=\"{label} coverage\" aria-valuenow=\"{val}\" aria-valuemin=\"0\" aria-valuemax=\"100\"><span class=\"cov-meter__fill\" style=\"width:{val}%\" aria-hidden=\"true\"></span></span>",
+                val = pct as u32,
+            )
+        } else {
+            String::new()
+        };
         let _ = writeln!(
             out,
-            "            <td class=\"pct {mc}\">{:.2}%<span class=\"quiet\"> ({}/{})</span></td>",
-            metric.pct, metric.covered, metric.total
+            "            <td class=\"pct {mc}\">{:.2}%<span class=\"quiet\"> ({}/{})</span>{meter}</td>",
+            metric.pct, metric.covered, metric.total,
         );
     }
     out.push_str("          </tr>\n");
@@ -247,6 +318,9 @@ fn render_detail(
     let mut body = String::new();
     body.push_str(&render_summary_header(&title, &node.summary, depth, node));
     body.push_str("    <div class=\"pad1\">\n");
+    body.push_str(
+        "      <div class=\"detail-actions\">\n        <button type=\"button\" class=\"btn-ghost\" id=\"cov-next-uncovered\" aria-label=\"Jump to next uncovered line\" disabled>Next uncovered</button>\n      </div>\n",
+    );
     body.push_str("      <table class=\"source\">\n");
     match source {
         Some(text) => {
@@ -265,6 +339,9 @@ fn render_detail(
     }
     body.push_str("      </table>\n");
     body.push_str("    </div>\n");
+    body.push_str(
+        "    <div class=\"copy-toast\" id=\"cov-copy-toast\" role=\"status\" aria-atomic=\"true\"></div>\n",
+    );
     render_page(&title, depth, &body)
 }
 
@@ -297,10 +374,12 @@ fn render_source_row(
     fn_hits: Option<u32>,
 ) -> String {
     let class = source_row_class(stmt_hits, branch, fn_hits);
-    let hits_cell = match (stmt_hits, fn_hits) {
+    let hits_text = match (stmt_hits, fn_hits) {
         (Some(h), _) | (None, Some(h)) => format!("{h}x"),
         _ => String::new(),
     };
+    let glyph = severity_glyph(class);
+    let aria = row_aria_label(line_no, class);
     let branch_note = branch.map_or(String::new(), |b| {
         if b.total == 0 {
             String::new()
@@ -309,8 +388,40 @@ fn render_source_row(
         }
     });
     format!(
-        "          <tr class=\"line {class}\"><td class=\"line-num\">{line_no}</td><td class=\"hits\">{hits_cell}</td><td class=\"src\"><pre>{src_html}</pre>{branch_note}</td></tr>\n",
+        "          <tr class=\"line {class}\" id=\"L{line_no}\" aria-label=\"{aria}\">\
+<td class=\"line-num\">\
+<button type=\"button\" class=\"line-anchor\" data-line=\"{line_no}\" aria-label=\"Copy link to line {line_no}\">{line_no}</button>\
+</td>\
+<td class=\"hits\">{glyph}{hits_text}</td>\
+<td class=\"src\"><pre>{src_html}</pre>{branch_note}</td>\
+</tr>\n",
     )
+}
+
+/// Non-color cue placed in the hits column. Coverage status is also
+/// already on the `<tr>` class; the glyph is `aria-hidden` so screen
+/// readers don't double-announce alongside the `aria-label` on the row.
+fn severity_glyph(class: &str) -> &'static str {
+    match class {
+        "hit" => "<span class=\"sev-glyph sev-glyph--hit\" aria-hidden=\"true\">[H]</span>",
+        "miss" => "<span class=\"sev-glyph sev-glyph--miss\" aria-hidden=\"true\">[M]</span>",
+        "partial" => "<span class=\"sev-glyph sev-glyph--partial\" aria-hidden=\"true\">[P]</span>",
+        _ => "",
+    }
+}
+
+/// Human-readable status used as the row's `aria-label`. Avoids the
+/// raw class tokens (`miss` etc.) that would otherwise leak into AT
+/// output. Returned values are safe to drop into an HTML attribute
+/// because they are bounded to known phrases.
+fn row_aria_label(line_no: u32, class: &str) -> String {
+    let phrase = match class {
+        "hit" => "covered",
+        "miss" => "not covered",
+        "partial" => "partially covered",
+        _ => "no statement",
+    };
+    format!("Line {line_no}, {phrase}")
 }
 
 fn source_row_class(
@@ -345,9 +456,17 @@ fn render_source_unavailable(line_hits: &BTreeMap<u32, u32>) -> String {
     );
     for (line, hits) in line_hits {
         let class = if *hits == 0 { "miss" } else { "hit" };
+        let glyph = severity_glyph(class);
+        let aria = row_aria_label(*line, class);
         let _ = writeln!(
             out,
-            "          <tr class=\"line {class}\"><td class=\"line-num\">{line}</td><td class=\"hits\">{hits}x</td><td class=\"src\"><pre>(source unavailable)</pre></td></tr>"
+            "          <tr class=\"line {class}\" id=\"L{line}\" aria-label=\"{aria}\">\
+<td class=\"line-num\">\
+<button type=\"button\" class=\"line-anchor\" data-line=\"{line}\" aria-label=\"Copy link to line {line}\">{line}</button>\
+</td>\
+<td class=\"hits\">{glyph}{hits}x</td>\
+<td class=\"src\"><pre>(source unavailable)</pre></td>\
+</tr>",
         );
     }
     out.push_str("        </tbody>\n");
@@ -363,6 +482,8 @@ fn render_page(title: &str, depth: usize, body: &str) -> String {
     out.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
     out.push_str("  <meta charset=\"utf-8\">\n");
     out.push_str("  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+    let _ =
+        writeln!(out, "  <meta name=\"generator\" content=\"{}\">", html_attr_escape(GENERATOR));
     let _ = writeln!(
         out,
         "  <meta http-equiv=\"Content-Security-Policy\" content=\"{}\">",
@@ -386,7 +507,7 @@ fn render_summary_header(
     let mut out = String::from("    <header class=\"summary\">\n");
     let _ = writeln!(out, "      <h1>{}</h1>", html_text_escape(title));
     out.push_str(&render_breadcrumb(node, depth));
-    out.push_str("      <ul class=\"metrics\">\n");
+    out.push_str("      <ul class=\"kpi-row\" aria-label=\"Coverage metrics\">\n");
     for (label, m) in [
         ("Statements", summary.statements),
         ("Branches", summary.branches),
@@ -396,7 +517,7 @@ fn render_summary_header(
         let class = pct_class(m.pct);
         let _ = writeln!(
             out,
-            "        <li class=\"metric {class}\"><span class=\"label\">{label}</span><span class=\"pct\">{:.2}%</span><span class=\"quiet\">{}/{}</span></li>",
+            "        <li class=\"kpi-cell kpi-cell--{class}\"><span class=\"kpi-cell__label\">[ {label} ]</span><span class=\"kpi-cell__value\">{:.2}%</span><span class=\"kpi-cell__sub\">{}/{}</span></li>",
             m.pct, m.covered, m.total
         );
     }
@@ -409,29 +530,38 @@ fn render_breadcrumb(node: &ReportNode, depth: usize) -> String {
     if node.relative_path.is_empty() {
         return String::new();
     }
-    let mut out = String::from("      <nav class=\"breadcrumb\">");
+    let mut out = String::from("      <nav class=\"breadcrumb\" aria-label=\"Breadcrumb\">\n");
+    out.push_str("        <ol>\n");
     let root_href = relative_to_root(depth, INDEX_FILE);
-    let _ = write!(out, "<a href=\"{}\">All files</a>", html_attr_escape(&root_href));
+    let _ = writeln!(
+        out,
+        "          <li><a href=\"{}\">All files</a><span class=\"breadcrumb-sep\" aria-hidden=\"true\">/</span></li>",
+        html_attr_escape(&root_href),
+    );
 
     let parts: Vec<&str> = node.relative_path.split('/').collect();
     let mut depth_remaining = depth;
     for (i, part) in parts.iter().enumerate() {
         let is_last = i + 1 == parts.len();
         if is_last {
-            let _ = write!(out, " / <span class=\"current\">{}</span>", html_text_escape(part));
+            let _ = writeln!(
+                out,
+                "          <li><span class=\"current\" aria-current=\"page\">{}</span></li>",
+                html_text_escape(part),
+            );
         } else {
-            // Build a relative href that climbs up to that ancestor's index.
             depth_remaining = depth_remaining.saturating_sub(1);
             let href = relative_to_root(depth_remaining, INDEX_FILE);
-            let _ = write!(
+            let _ = writeln!(
                 out,
-                " / <a href=\"{}\">{}</a>",
+                "          <li><a href=\"{}\">{}</a><span class=\"breadcrumb-sep\" aria-hidden=\"true\">/</span></li>",
                 html_attr_escape(&href),
-                html_text_escape(part)
+                html_text_escape(part),
             );
         }
     }
-    out.push_str("</nav>\n");
+    out.push_str("        </ol>\n");
+    out.push_str("      </nav>\n");
     out
 }
 
@@ -583,7 +713,11 @@ mod tests {
         let root_index = fs::read_to_string(dir.path().join("index.html")).unwrap();
         assert!(root_index.contains("<title>Coverage: All files</title>"));
         assert!(root_index.contains("<link rel=\"stylesheet\" href=\"base.css\">"));
-        assert!(fs::read_to_string(dir.path().join("base.css")).unwrap().contains(".high"));
+        let css = fs::read_to_string(dir.path().join("base.css")).unwrap();
+        assert!(css.contains(".kpi-cell"), "base.css missing fallow KPI cell rules");
+        let tokens = fs::read_to_string(dir.path().join("coverage-tokens.css")).unwrap();
+        assert!(tokens.contains("--hit-bg"), "coverage-tokens.css missing semantic alias");
+        assert!(tokens.contains("--font-body"), "coverage-tokens.css missing fallow font stack");
     }
 
     #[test]
@@ -734,8 +868,12 @@ mod tests {
         let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
         let dir = write_to_temp(json);
         let css = fs::read_to_string(dir.path().join("base.css")).unwrap();
-        assert!(css.contains(":root[data-theme=\"dark\"]"), "missing dark override");
-        assert!(css.contains(":root:not([data-theme=\"light\"])"), "missing light escape hatch");
+        let tokens = fs::read_to_string(dir.path().join("coverage-tokens.css")).unwrap();
+        assert!(tokens.contains(":root[data-theme=\"dark\"]"), "missing dark override in tokens");
+        assert!(
+            tokens.contains(":root:not([data-theme=\"light\"])"),
+            "missing light escape hatch in tokens",
+        );
         assert!(css.contains(".sortable"), "missing .sortable selector");
         assert!(css.contains("aria-sort=\"ascending\""), "missing aria-sort hook");
         for cls in [
@@ -751,6 +889,123 @@ mod tests {
             assert!(css.contains(cls), "missing token class {cls}");
         }
         assert!(css.contains(".theme-toggle__btn"), "missing theme-toggle button class");
+    }
+
+    #[test]
+    fn index_emits_kpi_pills_with_fallow_bracket_labels() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let dir = write_to_temp(json);
+        let root_index = fs::read_to_string(dir.path().join("index.html")).unwrap();
+        assert!(root_index.contains("class=\"kpi-row\""), "kpi-row class missing");
+        assert!(root_index.contains("kpi-cell--"), "kpi-cell severity modifier missing");
+        for label in ["[ Statements ]", "[ Branches ]", "[ Functions ]", "[ Lines ]"] {
+            assert!(root_index.contains(label), "missing bracket label {label:?}");
+        }
+    }
+
+    #[test]
+    fn index_emits_inline_cov_meter_on_lines_column() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let dir = write_to_temp(json);
+        let root_index = fs::read_to_string(dir.path().join("index.html")).unwrap();
+        assert!(
+            root_index.contains("class=\"cov-meter"),
+            "summary row missing inline mini coverage meter",
+        );
+        assert!(root_index.contains("role=\"meter\""), "cov-meter must carry role=\"meter\"");
+        assert!(
+            root_index.contains("aria-valuemax=\"100\""),
+            "cov-meter must declare aria-valuemax",
+        );
+    }
+
+    #[test]
+    fn index_emits_threshold_summary_and_filter_group() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let dir = write_to_temp(json);
+        let root_index = fs::read_to_string(dir.path().join("index.html")).unwrap();
+        assert!(
+            root_index.contains("threshold-summary"),
+            "index missing threshold summary sentence",
+        );
+        assert!(root_index.contains("id=\"cov-filter\""), "filter input missing");
+        assert!(
+            root_index.contains("<label class=\"filter-group__label\" for=\"cov-filter\""),
+            "filter input must have an explicit <label>",
+        );
+        // `role="status"` already implies `aria-live="polite"`; setting
+        // both is redundant per the WAI-ARIA spec. We assert role only.
+        assert!(
+            root_index.contains("id=\"cov-filter-count\" role=\"status\""),
+            "filter result counter must be a polite live region",
+        );
+        assert!(
+            root_index.contains("aria-controls=\"cov-file-table\""),
+            "filter input must reference the controlled table",
+        );
+    }
+
+    #[test]
+    fn detail_emits_next_uncovered_button_and_copy_toast() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let dir = write_to_temp(json);
+        let detail = fs::read_to_string(dir.path().join("a.js.html")).unwrap();
+        assert!(
+            detail.contains("id=\"cov-next-uncovered\""),
+            "detail page missing Next uncovered button",
+        );
+        assert!(
+            detail.contains("class=\"btn-ghost\""),
+            "Next uncovered must use the ghost button style",
+        );
+        assert!(
+            detail.contains("id=\"cov-copy-toast\""),
+            "detail page missing copy toast live region",
+        );
+    }
+
+    #[test]
+    fn source_rows_carry_line_anchor_button_and_severity_glyph() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::write(dir.path().join("a.js"), "const x = 1;\n").unwrap();
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":12}}},"fnMap":{},"branchMap":{},"s":{"0":0},"f":{},"b":{}}}"#;
+        let map = parse_coverage_map(json).unwrap();
+        let out_dir = dir.path().join("html");
+        write(&map, dir.path(), &out_dir).unwrap();
+        let detail = fs::read_to_string(out_dir.join("a.js.html")).unwrap();
+        assert!(detail.contains("id=\"L1\""), "missed line should have id=\"L1\" anchor target");
+        assert!(
+            detail.contains("class=\"line-anchor\" data-line=\"1\""),
+            "missed line should expose a line-anchor button",
+        );
+        assert!(
+            detail.contains("aria-label=\"Copy link to line 1\""),
+            "line-anchor button must be self-labeling for screen readers",
+        );
+        assert!(
+            detail.contains("sev-glyph sev-glyph--miss"),
+            "missed line should carry the [M] severity glyph",
+        );
+        assert!(
+            detail.contains("aria-label=\"Line 1, not covered\""),
+            "missed row should carry a human-readable aria-label",
+        );
+    }
+
+    #[test]
+    fn every_page_carries_generator_meta_tag() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"src/foo.js":{"path":"src/foo.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let dir = write_to_temp(json);
+        for html_path in walkdir(dir.path())
+            .into_iter()
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("html"))
+        {
+            let html = fs::read_to_string(&html_path).unwrap();
+            assert!(
+                html.contains("<meta name=\"generator\" content=\"oxc-coverage-reports "),
+                "missing generator meta in {html_path:?}",
+            );
+        }
     }
 
     fn walkdir(dir: &Path) -> Vec<PathBuf> {

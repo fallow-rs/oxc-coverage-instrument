@@ -64,6 +64,14 @@ Coverage suite (umbrella [#45](https://github.com/fallow-rs/oxc-coverage-instrum
   - `rayon` parallelism on per-file render (`children.par_iter()`); 100-file / 200-LOC project emits in under 2 s on a typical laptop
   - New `html` Cargo feature (default-enabled) gates `syntect` + `two-face` + `rayon` so downstream consumers that only want text / lcov / cobertura / json-summary can drop the grammar payload via `default-features = false`
   - `~+2.2 MiB` binary delta for the bundled grammar set; acceptable for a CI-class tool
+- [x] **PR G4**: fallow "Mode B" visual pass
+  - New `coverage-tokens.css` vendored from fallow-cloud's design system (Radix Sand palette, severity stops, type ramp, font stacks). Light-default per Mode B; dark via explicit `data-theme="dark"` OR `prefers-color-scheme: dark` + no override
+  - KPI metric pills with `[ Statements ]` bracket labels and severity-coloured values; per-row mini coverage meter on the Lines column (1px outline, severity fill, `role="meter"`); breadcrumb as semantic `<ol><li>` with `aria-current="page"`
+  - Filter input on index pages with proper `<label>`, debounced match, `role="status"` live count, `/` keyboard shortcut guarded against `activeElement` so screen-reader browse mode is preserved
+  - Line anchors as `<button>` per source row; `id="L<n>"` on each `<tr>` and per-line `aria-label`; clicking copies the canonical URL via the clipboard API with a polite-live `copy-toast`
+  - "Next uncovered" ghost button (fallow brutalist offset shadow) that cycles `tr.line.miss` / `tr.line.partial` in document order and focuses the inner anchor
+  - `[H]` / `[P]` / `[M]` non-color severity glyphs in the gutter + 2px luminance left-borders on coverage rows (WCAG 1.4.1 non-color cue), with `aria-hidden` on the glyph (the row's `aria-label` carries the semantics)
+  - `<meta name="generator">` version stamp on every page; sticky table header; `:focus-within` row highlight so keyboard parity with mouse hover; `prefers-reduced-motion` guards on every new transition
 
 ## Future
 
