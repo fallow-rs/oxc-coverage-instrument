@@ -86,13 +86,12 @@ fn applies_wrapper_length_for_cjs_modules() {
 #[test]
 fn assigns_branch_arm_counts_from_block_coverage() {
     // V8 block coverage emits one inner range per `{ ... }` BlockStatement,
-    // not per inner statement. The converter must use those block spans to
-    // resolve the count of the else arm in branchMap.locations[1] (which is
-    // the else BlockStatement span in istanbul's data model). arm[0] for an
-    // `if` is istanbul's whole-IfStatement quirk; with no inner range
-    // matching that, it falls back to the enclosing function count, which
-    // happens to equal the then-arm count when the function ran exactly
-    // once with a truthy predicate.
+    // not per inner statement. The tolerance-based arm resolver matches the
+    // else BlockStatement range to `branchMap.locations[1]` (the else block
+    // span in istanbul's data model). arm[0] for an `if` is istanbul's
+    // whole-IfStatement convention; V8 has no range tight to that span, so
+    // arm[0] reports 0 rather than falling back to the enclosing function
+    // count (which would over-report and trip coverage thresholds).
     let source = "function f(x) {\n  if (x) {\n    a();\n  } else {\n    b();\n  }\n}\nf(true);\n";
     let module_end = source.len() as u32;
     let then_start = source.find("if (x) {").unwrap() as u32 + 7;
@@ -118,7 +117,74 @@ fn assigns_branch_arm_counts_from_block_coverage() {
         .map(|(id, _b)| (id.clone(), fc.b.get(id).cloned().unwrap_or_default()))
         .expect("if branch must appear in branchMap");
     assert_eq!(arm_counts.len(), 2, "if has two arms");
+    assert_eq!(
+        arm_counts[0], 0,
+        "arm[0] is the whole-IfStatement span (istanbul convention); V8 has no tight range for it, must be 0"
+    );
     assert_eq!(arm_counts[1], 0, "else arm should report zero hits");
+}
+
+#[test]
+fn ternary_arms_report_zero_when_no_block_range_matches() {
+    // Ternary expressions (`cond-expr`) have no `{ ... }` BlockStatement, so
+    // V8 emits no inner range for either arm. Falling back to the enclosing
+    // function count would report both arms as executed N times when only
+    // one arm runs per evaluation; that trips coverage gates silently.
+    // The tolerance-based arm resolver returns 0 instead, which is honest.
+    let source = "function f(x) { return x ? a() : b(); }\nf(true);\n";
+    let end = source.len() as u32;
+    // Function has count = 1; no inner block ranges (no `{ ... }` inside
+    // the ternary). istanbul still records both arms in branchMap.
+    let functions = vec![function("f", vec![range(0, end, 1)], true)];
+
+    let fc = v8_to_istanbul(source, "ternary.js", &functions, 0).unwrap();
+    let (_, arm_counts) = fc
+        .branch_map
+        .iter()
+        .find(|(_, b)| b.branch_type == "cond-expr")
+        .map(|(id, _b)| (id.clone(), fc.b.get(id).cloned().unwrap_or_default()))
+        .expect("cond-expr branch must appear in branchMap");
+    assert_eq!(arm_counts.len(), 2, "ternary has two arms");
+    assert!(
+        arm_counts.iter().all(|&c| c == 0),
+        "both ternary arms must report 0, not the function count: {arm_counts:?}"
+    );
+}
+
+#[test]
+fn corrupted_inline_source_map_silently_skipped() {
+    // A malformed base64 payload should be silently ignored rather than
+    // erroring or panicking. The function returns FileCoverage with no
+    // inputSourceMap attached, and the rest of the conversion proceeds as
+    // if no inline map were present. Pinning this prevents future drift
+    // toward fail-loud behavior that would break otherwise-valid coverage
+    // on a single bad map line.
+    let source =
+        "const x = 1;\n//# sourceMappingURL=data:application/json;base64,!!!not-base64!!!\n";
+    let end = source.len() as u32;
+    let functions = vec![function("", vec![range(0, end, 1)], false)];
+
+    let fc = v8_to_istanbul(source, "bad-map.js", &functions, 0).unwrap();
+    assert!(fc.input_source_map.is_none(), "corrupt inline map must not produce inputSourceMap");
+    assert!(fc.s.values().any(|&c| c == 1), "rest of coverage still resolves");
+}
+
+#[test]
+fn extracts_inline_urlsafe_base64_source_map() {
+    // esbuild emits inline maps using the URL-safe base64 alphabet (RFC 4648 §5,
+    // `-` and `_` instead of `+` and `/`). Decoder must accept both alphabets
+    // so esbuild-bundled JS does not silently drop its inline map.
+    let original_map_json = r#"{"version":3,"sources":["src/app.ts"],"sourcesContent":["const x: number = 1;"],"mappings":"AAAA","names":[]}"#;
+    // Encode standard then transliterate `+/` to `-_` to mimic URL-safe output.
+    let base64 = encode_base64(original_map_json.as_bytes()).replace('+', "-").replace('/', "_");
+    let source =
+        format!("const x = 1;\n//# sourceMappingURL=data:application/json;base64,{base64}\n");
+    let end = source.len() as u32;
+    let functions = vec![function("", vec![range(0, end, 1)], false)];
+
+    let fc = v8_to_istanbul(&source, "app.js", &functions, 0).unwrap();
+    let attached = fc.input_source_map.expect("URL-safe inline map should attach");
+    assert_eq!(attached["sources"][0], "src/app.ts");
 }
 
 #[test]

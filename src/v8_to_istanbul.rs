@@ -119,7 +119,7 @@ pub fn v8_to_istanbul(
         let arm_counts: Vec<u32> = branch_entry
             .locations
             .iter()
-            .map(|loc| count_for_location(source, loc, &line_offsets, &ranges, wrapper_length))
+            .map(|loc| arm_count_for_location(source, loc, &line_offsets, &ranges, wrapper_length))
             .collect();
         if let Some(slot) = file_coverage.b.get_mut(id) {
             *slot = arm_counts;
@@ -162,12 +162,15 @@ fn extract_inline_source_map(source: &str) -> Option<serde_json::Value> {
 /// Kept in-crate to avoid pulling a base64 dep just for this one site.
 fn decode_base64(input: &str) -> Result<Vec<u8>, ()> {
     fn value(c: u8) -> Result<u8, ()> {
+        // Accepts both the standard (RFC 4648 §4) and URL-safe (RFC 4648 §5)
+        // alphabets so esbuild-emitted inline maps (which use the URL-safe
+        // alphabet in some output modes) decode without a silent miss.
         match c {
             b'A'..=b'Z' => Ok(c - b'A'),
             b'a'..=b'z' => Ok(c - b'a' + 26),
             b'0'..=b'9' => Ok(c - b'0' + 52),
-            b'+' => Ok(62),
-            b'/' => Ok(63),
+            b'+' | b'-' => Ok(62),
+            b'/' | b'_' => Ok(63),
             _ => Err(()),
         }
     }
@@ -279,6 +282,47 @@ fn count_for_location(
     let end = position_to_byte_offset(source, loc.end.line, loc.end.column, line_offsets)
         + wrapper_length;
     smallest_containing_range_count(start, end, ranges)
+}
+
+/// Resolve the V8 hit count for a branch arm.
+///
+/// Unlike statements and functions (which can correctly use a containing
+/// scope's count, because being inside an executed function implies the
+/// statement was reachable), branch arms need *arm-level* resolution. V8
+/// block coverage only emits subdivision ranges for `BlockStatement` nodes,
+/// so non-block branch shapes (ternaries, logical-expr right-hand operands,
+/// `default-arg` expressions, switch cases without `{ ... }`, and istanbul's
+/// whole-IfStatement convention for if-arm[0]) have no V8 range tight to the
+/// arm body. Falling back to the enclosing function/module count there
+/// over-reports execution and trips CI coverage thresholds. The honest
+/// answer is 0 ("V8 did not give us per-arm data for this branch shape").
+///
+/// The match window allows a few bytes of whitespace slack between
+/// istanbul's reported arm location and V8's `BlockStatement` range.
+fn arm_count_for_location(
+    source: &str,
+    arm_loc: &Location,
+    line_offsets: &[u32],
+    ranges: &[V8CoverageRange],
+    wrapper_length: u32,
+) -> u32 {
+    const TOLERANCE: u32 = 4;
+
+    let arm_start =
+        position_to_byte_offset(source, arm_loc.start.line, arm_loc.start.column, line_offsets)
+            + wrapper_length;
+    let arm_end =
+        position_to_byte_offset(source, arm_loc.end.line, arm_loc.end.column, line_offsets)
+            + wrapper_length;
+
+    for r in ranges {
+        let dist_start = r.start_offset.abs_diff(arm_start);
+        let dist_end = r.end_offset.abs_diff(arm_end);
+        if dist_start <= TOLERANCE && dist_end <= TOLERANCE {
+            return r.count;
+        }
+    }
+    0
 }
 
 /// Pick the count of the smallest V8 range that fully contains `[start, end)`.

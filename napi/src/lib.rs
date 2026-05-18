@@ -114,9 +114,23 @@ pub fn remap_coverage_map(coverage_json: String) -> napi::Result<String> {
 /// `wrapperLength` accounts for Node's CJS module wrapper prefix and defaults
 /// to 0 (correct for ESM).
 ///
-/// Returns a JSON object compatible with Istanbul's `FileCoverage`. Statement
-/// and function counts are populated from the V8 ranges; branch counts emit
-/// at zero in v1.
+/// Returns a JSON object compatible with Istanbul's `FileCoverage`. Statement,
+/// function, and branch counts are populated from the V8 ranges. Branch arm
+/// counts only resolve when V8 emits a `BlockStatement` range tight to the
+/// arm body (the common cases are if-else `else` blocks and switch cases
+/// with `{ ... }` bodies). Branch arms with no matching V8 range (ternary
+/// consequent/alternate, logical-expr right-hand operands, `default-arg`
+/// expressions, and istanbul's whole-IfStatement convention for if-arm[0])
+/// report `0`; this is honest under-reporting, not over-reporting, so CI
+/// coverage thresholds will not silently pass on un-instrumented arms.
+///
+/// When the source ends with a `//# sourceMappingURL=data:application/json;base64,...`
+/// (or percent-encoded) trailer, the embedded map is decoded and attached
+/// to the result as `inputSourceMap`. If the returned object has
+/// `inputSourceMap` set, chain `remapCoverageMap` next to resolve coverage
+/// positions back to the original source; otherwise the inline map will
+/// ride along and downstream JS reporters that also call into
+/// `istanbul-lib-source-maps` may double-remap.
 #[napi]
 pub fn v8_to_istanbul(
     source: String,
