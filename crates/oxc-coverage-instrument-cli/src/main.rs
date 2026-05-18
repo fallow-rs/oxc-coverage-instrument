@@ -54,6 +54,130 @@ struct ReportArgs {
     html_threshold: f64,
 }
 
+struct ReportArgsDraft {
+    coverage_file: Option<String>,
+    output_file: Option<String>,
+    output_dir: Option<PathBuf>,
+    format: Option<Format>,
+    root_dir: Option<PathBuf>,
+    html_threshold: f64,
+    threshold_was_set: bool,
+}
+
+impl ReportArgsDraft {
+    fn new() -> Self {
+        Self {
+            coverage_file: None,
+            output_file: None,
+            output_dir: None,
+            format: None,
+            root_dir: None,
+            html_threshold: 80.0,
+            threshold_was_set: false,
+        }
+    }
+
+    fn set_format(&mut self, value: &str) -> Result<(), ExitCode> {
+        self.format = Some(Format::parse(value).ok_or_else(|| {
+            eprintln!(
+                "error: unknown format '{value}'. Supported: text, text-summary, json-summary, lcov, cobertura, html"
+            );
+            ExitCode::FAILURE
+        })?);
+        Ok(())
+    }
+
+    fn set_threshold(&mut self, value: &str) -> Result<(), ExitCode> {
+        let parsed = value.parse::<f64>().map_err(|_| {
+            eprintln!("error: --threshold must be a number between 0 and 100, got '{value}'");
+            ExitCode::FAILURE
+        })?;
+        // `f64::from_str` accepts `nan`, `inf`, `-inf`; reject those before the
+        // range check because comparisons silently return false for NaN.
+        if !parsed.is_finite() {
+            eprintln!(
+                "error: --threshold must be a finite number between 0 and 100, got '{value}'"
+            );
+            return Err(ExitCode::FAILURE);
+        }
+        if !(0.0..=100.0).contains(&parsed) {
+            eprintln!(
+                "error: --threshold {parsed} is outside [0, 100]; pick a percentage in that range"
+            );
+            return Err(ExitCode::FAILURE);
+        }
+        self.html_threshold = parsed;
+        self.threshold_was_set = true;
+        Ok(())
+    }
+
+    fn finish(self) -> Result<ReportArgs, ExitCode> {
+        let format = self.format.unwrap_or(Format::Text);
+        self.validate_output_options(format)?;
+
+        let coverage_file = self.coverage_file.ok_or_else(|| {
+            eprintln!("error: report requires a coverage-final.json path");
+            print_report_usage();
+            ExitCode::FAILURE
+        })?;
+
+        let output_dir = match (format.is_multi_file(), self.output_dir) {
+            (true, Some(p)) => Some(p),
+            (true, None) => Some(PathBuf::from("coverage")),
+            (false, _) => None,
+        };
+
+        let root_dir = self.root_dir.unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|e| {
+                eprintln!(
+                    "warning: cannot determine current working directory ({e}); lcov/cobertura/html paths will not be relativized"
+                );
+                PathBuf::new()
+            })
+        });
+
+        Ok(ReportArgs {
+            coverage_file,
+            output_file: self.output_file,
+            output_dir,
+            format,
+            root_dir,
+            html_threshold: self.html_threshold,
+        })
+    }
+
+    fn validate_output_options(&self, format: Format) -> Result<(), ExitCode> {
+        // Reject incompatible flag combinations early so the user sees a clear
+        // error instead of a useless `-o ./coverage` write to a single regular
+        // file for html, or a stray --output-dir on a single-file format.
+        if format.is_multi_file() && self.output_file.is_some() {
+            eprintln!(
+                "error: --format {} produces a directory tree; use --output-dir instead of -o",
+                format_name(format)
+            );
+            return Err(ExitCode::FAILURE);
+        }
+        if !format.is_multi_file() && self.output_dir.is_some() {
+            eprintln!(
+                "error: --output-dir is only valid for multi-file formats (html); use -o for --format {}",
+                format_name(format)
+            );
+            return Err(ExitCode::FAILURE);
+        }
+        // `--threshold` only affects the html reporter (drives colour bucketing
+        // + the threshold-summary sentence). Reject it on other formats so the
+        // user knows it was a no-op.
+        if self.threshold_was_set && !format.is_multi_file() {
+            eprintln!(
+                "error: --threshold only applies to --format html; remove it or switch formats"
+            );
+            return Err(ExitCode::FAILURE);
+        }
+
+        Ok(())
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     match dispatch(&args) {
@@ -119,58 +243,23 @@ fn parse_instrument_args(args: &[String]) -> Result<InstrumentArgs, ExitCode> {
 }
 
 fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
-    let mut format: Option<Format> = None;
-    let mut output_file: Option<String> = None;
-    let mut output_dir: Option<PathBuf> = None;
-    let mut coverage_file: Option<String> = None;
-    let mut root_dir: Option<PathBuf> = None;
-    let mut html_threshold: f64 = 80.0;
-    let mut threshold_was_set = false;
+    let mut report = ReportArgsDraft::new();
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--format" | "-f" => {
                 let value = take_value(args, &mut i, "--format")?;
-                format = Some(Format::parse(&value).ok_or_else(|| {
-                    eprintln!(
-                        "error: unknown format '{value}'. Supported: text, text-summary, json-summary, lcov, cobertura, html"
-                    );
-                    ExitCode::FAILURE
-                })?);
+                report.set_format(&value)?;
             }
-            "-o" | "--output" => output_file = Some(take_value(args, &mut i, "--output")?),
+            "-o" | "--output" => report.output_file = Some(take_value(args, &mut i, "--output")?),
             "--output-dir" => {
-                output_dir = Some(PathBuf::from(take_value(args, &mut i, "--output-dir")?));
+                report.output_dir = Some(PathBuf::from(take_value(args, &mut i, "--output-dir")?));
             }
-            "--root" => root_dir = Some(PathBuf::from(take_value(args, &mut i, "--root")?)),
+            "--root" => report.root_dir = Some(PathBuf::from(take_value(args, &mut i, "--root")?)),
             "--threshold" => {
                 let value = take_value(args, &mut i, "--threshold")?;
-                let parsed = value.parse::<f64>().map_err(|_| {
-                    eprintln!(
-                        "error: --threshold must be a number between 0 and 100, got '{value}'"
-                    );
-                    ExitCode::FAILURE
-                })?;
-                // `f64::from_str` accepts `nan`, `inf`, `-inf`; the
-                // range check below uses comparisons that silently
-                // return false for NaN, so a `nan` input would slip
-                // through unnoticed and degrade every percent to the
-                // "medium" bucket. Reject non-finite values up front.
-                if !parsed.is_finite() {
-                    eprintln!(
-                        "error: --threshold must be a finite number between 0 and 100, got '{value}'"
-                    );
-                    return Err(ExitCode::FAILURE);
-                }
-                if !(0.0..=100.0).contains(&parsed) {
-                    eprintln!(
-                        "error: --threshold {parsed} is outside [0, 100]; pick a percentage in that range"
-                    );
-                    return Err(ExitCode::FAILURE);
-                }
-                html_threshold = parsed;
-                threshold_was_set = true;
+                report.set_threshold(&value)?;
             }
             "--help" | "-h" => {
                 print_report_usage();
@@ -182,67 +271,17 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
                 return Err(ExitCode::FAILURE);
             }
             other => {
-                if coverage_file.is_some() {
+                if report.coverage_file.is_some() {
                     eprintln!("error: only one coverage file may be supplied (got '{other}')");
                     return Err(ExitCode::FAILURE);
                 }
-                coverage_file = Some(other.to_owned());
+                report.coverage_file = Some(other.to_owned());
             }
         }
         i += 1;
     }
 
-    let coverage_file = coverage_file.ok_or_else(|| {
-        eprintln!("error: report requires a coverage-final.json path");
-        print_report_usage();
-        ExitCode::FAILURE
-    })?;
-    let format = format.unwrap_or(Format::Text);
-
-    // Reject incompatible flag combinations early so the user sees a clear
-    // error instead of a useless `-o ./coverage` write to a single regular
-    // file for html, or a stray --output-dir on a single-file format.
-    if format.is_multi_file() && output_file.is_some() {
-        eprintln!(
-            "error: --format {} produces a directory tree; use --output-dir instead of -o",
-            format_name(format)
-        );
-        return Err(ExitCode::FAILURE);
-    }
-    if !format.is_multi_file() && output_dir.is_some() {
-        eprintln!(
-            "error: --output-dir is only valid for multi-file formats (html); use -o for --format {}",
-            format_name(format)
-        );
-        return Err(ExitCode::FAILURE);
-    }
-    // `--threshold` only affects the html reporter (drives colour
-    // bucketing + the threshold-summary sentence). Reject it on other
-    // formats so the user knows it was a no-op rather than letting it
-    // silently slip through.
-    if threshold_was_set && !format.is_multi_file() {
-        eprintln!("error: --threshold only applies to --format html; remove it or switch formats");
-        return Err(ExitCode::FAILURE);
-    }
-
-    // Default --output-dir for html is ./coverage so a bare `report --format
-    // html foo.json` invocation produces a usable browse-friendly tree.
-    let output_dir = match (format.is_multi_file(), output_dir) {
-        (true, Some(p)) => Some(p),
-        (true, None) => Some(PathBuf::from("coverage")),
-        (false, _) => None,
-    };
-
-    let root_dir = root_dir.unwrap_or_else(|| {
-        std::env::current_dir().unwrap_or_else(|e| {
-            eprintln!(
-                "warning: cannot determine current working directory ({e}); lcov/cobertura/html paths will not be relativized"
-            );
-            PathBuf::new()
-        })
-    });
-
-    Ok(ReportArgs { coverage_file, output_file, output_dir, format, root_dir, html_threshold })
+    report.finish()
 }
 
 fn format_name(format: Format) -> &'static str {
