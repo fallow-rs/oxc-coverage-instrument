@@ -130,7 +130,8 @@ jobs:
       # Publish in topological order:
       #   oxc_coverage_types          (no internal deps)
       #   oxc_coverage_source_maps    (depends on types)
-      #   oxc_coverage_instrument     (depends on both)
+      #   oxc_coverage_v8             (depends on types)
+      #   oxc_coverage_instrument     (depends on all three)
       - name: Publish oxc_coverage_types
         run: cargo publish -p oxc_coverage_types --allow-dirty || echo "Already published, skipping"
         env:
@@ -138,6 +139,11 @@ jobs:
 
       - name: Publish oxc_coverage_source_maps
         run: cargo publish -p oxc_coverage_source_maps --allow-dirty || echo "Already published, skipping"
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish oxc_coverage_v8
+        run: cargo publish -p oxc_coverage_v8 --allow-dirty || echo "Already published, skipping"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
