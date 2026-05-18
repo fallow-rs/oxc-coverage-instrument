@@ -17,33 +17,33 @@ use std::path::Path;
 #[test]
 fn renders_actual_source_with_coverage_classes() {
     let dir = tempfile::TempDir::new().unwrap();
-    let src_path = dir.path().join("module.js");
-    fs::write(&src_path, "const x = 1;\nconst y = 2;\nif (x) y;\n").unwrap();
+    // Use a relative path as the coverage key (resolved against root_dir
+    // below). An absolute Windows path (`C:\\...`) would propagate through
+    // the report tree as a non-relative folder component, which Windows
+    // path APIs reject.
+    fs::write(dir.path().join("module.js"), "const x = 1;\nconst y = 2;\nif (x) y;\n").unwrap();
 
     // Statement 0 on line 1 (hit), statement 1 on line 2 (miss), statement 2
     // on line 3 (hit). Branch 0 on line 3, only the truthy arm taken (partial).
-    let coverage = format!(
-        r#"{{"{path}":{{
-            "path":"{path}",
-            "statementMap":{{
-                "0":{{"start":{{"line":1,"column":0}},"end":{{"line":1,"column":12}}}},
-                "1":{{"start":{{"line":2,"column":0}},"end":{{"line":2,"column":12}}}},
-                "2":{{"start":{{"line":3,"column":0}},"end":{{"line":3,"column":9}}}}
-            }},
-            "fnMap":{{}},
-            "branchMap":{{
-                "0":{{"loc":{{"start":{{"line":3,"column":0}},"end":{{"line":3,"column":9}}}},"line":3,"type":"if","locations":[{{"start":{{"line":3,"column":4}},"end":{{"line":3,"column":5}}}},{{"start":{{"line":3,"column":6}},"end":{{"line":3,"column":9}}}}]}}
-            }},
-            "s":{{"0":1,"1":0,"2":1}},
-            "f":{{}},
-            "b":{{"0":[1,0]}}
-        }}}}"#,
-        path = src_path.to_string_lossy().replace('\\', "\\\\"),
-    );
+    let coverage = r#"{"module.js":{
+        "path":"module.js",
+        "statementMap":{
+            "0":{"start":{"line":1,"column":0},"end":{"line":1,"column":12}},
+            "1":{"start":{"line":2,"column":0},"end":{"line":2,"column":12}},
+            "2":{"start":{"line":3,"column":0},"end":{"line":3,"column":9}}
+        },
+        "fnMap":{},
+        "branchMap":{
+            "0":{"loc":{"start":{"line":3,"column":0},"end":{"line":3,"column":9}},"line":3,"type":"if","locations":[{"start":{"line":3,"column":4},"end":{"line":3,"column":5}},{"start":{"line":3,"column":6},"end":{"line":3,"column":9}}]}
+        },
+        "s":{"0":1,"1":0,"2":1},
+        "f":{},
+        "b":{"0":[1,0]}
+    }}"#;
 
-    let map = parse_coverage_map(&coverage).unwrap();
+    let map = parse_coverage_map(coverage).unwrap();
     let out_dir = dir.path().join("html");
-    html::write(&map, Path::new(""), &out_dir).unwrap();
+    html::write(&map, dir.path(), &out_dir).unwrap();
 
     let detail_file = walk_for_filename(&out_dir, "module.js.html").expect("detail page exists");
     let detail = fs::read_to_string(&detail_file).unwrap();
