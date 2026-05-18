@@ -1,13 +1,16 @@
-/* oxc-coverage-instrument HTML reporter, PR G2 polish layer.
+/* oxc-coverage-instrument HTML reporter client script.
  *
  * Self-contained, no external dependencies, no network access. Provides:
  *   1. theme toggle (auto / light / dark, persisted to localStorage),
- *   2. sortable index tables (click or keyboard, aria-sort updates),
- *   3. lightweight JS / TS syntax highlighting on detail-page sources.
+ *   2. sortable index tables (click or keyboard, aria-sort updates).
  *
- * The page is fully usable without JS: missing JS just means no sort, no
- * explicit toggle (prefers-color-scheme still works), and no syntax
- * highlighting. Every feature is progressive enhancement.
+ * Syntax highlighting of source view is done server-side in Rust via
+ * syntect; the detail-page HTML arrives pre-spanned so there is no
+ * client-side tokenizer or paint-time work here.
+ *
+ * The page is fully usable without JS: missing JS just means no sort
+ * and no explicit theme toggle (prefers-color-scheme still works).
+ * Every feature is progressive enhancement.
  *
  * Note: this script uses DOM methods (createElement / textContent /
  * appendChild) exclusively. It never assigns HTML strings, so it cannot
@@ -183,159 +186,14 @@
     return trimmed;
   }
 
-  // ---------- Source prettify -------------------------------------------
-  // Tiny tokenizer covering JS / TS / JSX surface adequate for an
-  // unminified source view. Aims for "GitHub-style readable", not a
-  // full language parser. Emits <span class="tok-*"> nodes via the DOM.
-  var KEYWORDS = (
-    'abstract,any,as,async,await,boolean,break,case,catch,class,const,' +
-    'constructor,continue,debugger,declare,default,delete,do,else,enum,' +
-    'export,extends,false,finally,for,from,function,get,if,implements,' +
-    'import,in,infer,instanceof,interface,is,keyof,let,module,namespace,' +
-    'never,new,null,number,object,of,override,package,private,protected,' +
-    'public,readonly,require,return,satisfies,set,static,string,super,' +
-    'switch,symbol,this,throw,true,try,type,typeof,undefined,unique,unknown,' +
-    'var,void,while,with,yield'
-  ).split(',');
-  var KEYWORD_SET = {};
-  for (var ki = 0; ki < KEYWORDS.length; ki++) { KEYWORD_SET[KEYWORDS[ki]] = true; }
-
-  var BUILTINS = (
-    'Array,ArrayBuffer,Boolean,Buffer,console,DataView,Date,document,Error,' +
-    'EvalError,Function,globalThis,Infinity,Intl,JSON,Map,Math,NaN,' +
-    'Number,Object,process,Promise,Proxy,RangeError,ReferenceError,Reflect,' +
-    'RegExp,Set,String,Symbol,SyntaxError,TypeError,URIError,WeakMap,WeakSet,window'
-  ).split(',');
-  var BUILTIN_SET = {};
-  for (var bi = 0; bi < BUILTINS.length; bi++) { BUILTIN_SET[BUILTINS[bi]] = true; }
-
-  function isIdentStart(ch) {
-    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_' || ch === '$';
-  }
-  function isIdentCont(ch) {
-    return isIdentStart(ch) || (ch >= '0' && ch <= '9');
-  }
-  function isDigit(ch) { return ch >= '0' && ch <= '9'; }
-  function isHexCont(ch) {
-    return isDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
-      || ch === '_' || ch === '.';
-  }
-
-  function tokenize(src) {
-    var tokens = [];
-    var i = 0;
-    var n = src.length;
-    while (i < n) {
-      var ch = src.charAt(i);
-
-      // line comment
-      if (ch === '/' && src.charAt(i + 1) === '/') {
-        var j = i + 2;
-        while (j < n && src.charAt(j) !== '\n') { j++; }
-        tokens.push(['c', src.slice(i, j)]);
-        i = j;
-        continue;
-      }
-
-      // block comment
-      if (ch === '/' && src.charAt(i + 1) === '*') {
-        var k = i + 2;
-        while (k + 1 < n && !(src.charAt(k) === '*' && src.charAt(k + 1) === '/')) {
-          k++;
-        }
-        k = k + 1 < n ? k + 2 : n;
-        tokens.push(['c', src.slice(i, k)]);
-        i = k;
-        continue;
-      }
-
-      // string / template
-      if (ch === '"' || ch === '\'' || ch === '`') {
-        var quote = ch;
-        var m = i + 1;
-        while (m < n) {
-          var cc = src.charAt(m);
-          if (cc === '\\' && m + 1 < n) { m += 2; continue; }
-          if (cc === quote) { m++; break; }
-          if (cc === '\n' && quote !== '`') { break; }
-          m++;
-        }
-        tokens.push(['s', src.slice(i, m)]);
-        i = m;
-        continue;
-      }
-
-      // number (decimal / hex / float). Heuristic; good enough.
-      if (isDigit(ch) || (ch === '.' && isDigit(src.charAt(i + 1)))) {
-        var p = i + 1;
-        while (p < n && isHexCont(src.charAt(p))) { p++; }
-        if (p < n && (src.charAt(p) === 'n' || src.charAt(p) === 'e' || src.charAt(p) === 'E')) {
-          p++;
-          if (p < n && (src.charAt(p) === '+' || src.charAt(p) === '-')) { p++; }
-          while (p < n && isDigit(src.charAt(p))) { p++; }
-        }
-        tokens.push(['n', src.slice(i, p)]);
-        i = p;
-        continue;
-      }
-
-      // identifier / keyword / builtin
-      if (isIdentStart(ch)) {
-        var q = i + 1;
-        while (q < n && isIdentCont(src.charAt(q))) { q++; }
-        var word = src.slice(i, q);
-        if (KEYWORD_SET[word]) { tokens.push(['k', word]); }
-        else if (BUILTIN_SET[word]) { tokens.push(['b', word]); }
-        else { tokens.push(['i', word]); }
-        i = q;
-        continue;
-      }
-
-      // punctuation (single char is enough for highlight purposes)
-      if ('+-*/%=<>!&|^~?:,;.(){}[]'.indexOf(ch) !== -1) {
-        tokens.push(['p', ch]);
-        i++;
-        continue;
-      }
-
-      // anything else (whitespace / unicode / etc): pass through plain
-      tokens.push(['t', ch]);
-      i++;
-    }
-    return tokens;
-  }
-
-  function renderTokensInto(pre, tokens) {
-    while (pre.firstChild) { pre.removeChild(pre.firstChild); }
-    for (var i = 0; i < tokens.length; i++) {
-      var kind = tokens[i][0];
-      var text = tokens[i][1];
-      if (kind === 't' || kind === 'i') {
-        pre.appendChild(document.createTextNode(text));
-      } else {
-        var span = document.createElement('span');
-        span.className = 'tok-' + kind;
-        span.textContent = text;
-        pre.appendChild(span);
-      }
-    }
-  }
-
-  function initPrettify() {
-    var pres = document.querySelectorAll('table.source td.src pre');
-    for (var i = 0; i < pres.length; i++) {
-      var pre = pres[i];
-      var text = pre.textContent;
-      if (!text || text === '(source unavailable)') { continue; }
-      renderTokensInto(pre, tokenize(text));
-    }
-  }
+  // Source syntax highlighting is rendered server-side by syntect, so
+  // there is no client-side tokenizer here. The detail-page <pre> cells
+  // arrive with `<span class="stok-...">` markup already in the HTML.
 
   // ---------- Boot ------------------------------------------------------
   function boot() {
     buildThemeToggle();
     initSortable();
-    initPrettify();
   }
 
   if (document.readyState === 'loading') {

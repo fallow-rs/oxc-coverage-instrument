@@ -1,5 +1,16 @@
 [advisories]
 version = 2
+ignore = [
+    # bincode 1.3.3 is "unmaintained" only because the team stopped
+    # development; the 1.x line is feature-frozen. Pulled in transitively
+    # by syntect 5.x (via plist). No safe upstream upgrade is available
+    # and we are not in a position to migrate syntect off of it.
+    { id = "RUSTSEC-2025-0141", reason = "transitive via syntect; no safe upgrade" },
+    # yaml-rust 0.4.5 is unmaintained but functional; pulled in
+    # transitively by syntect 5.x for grammar / theme parsing. The
+    # `yaml-rust2` replacement is not yet adopted upstream.
+    { id = "RUSTSEC-2024-0320", reason = "transitive via syntect; no safe upgrade" },
+]
 
 [licenses]
 allow = [

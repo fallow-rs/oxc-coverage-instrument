@@ -134,9 +134,11 @@ fn unknown_format_returns_none() {
 fn all_supported_formats_parse() {
     assert_eq!(Format::parse("lcov"), Some(Format::Lcov));
     assert_eq!(Format::parse("cobertura"), Some(Format::Cobertura));
+    #[cfg(feature = "html")]
     assert_eq!(Format::parse("html"), Some(Format::Html));
 }
 
+#[cfg(feature = "html")]
 #[test]
 fn html_is_multi_file_others_are_not() {
     assert!(Format::Html.is_multi_file());
@@ -145,4 +147,15 @@ fn html_is_multi_file_others_are_not() {
     {
         assert!(!f.is_multi_file(), "{f:?} should not be multi-file");
     }
+}
+
+#[cfg(not(feature = "html"))]
+#[test]
+fn no_format_reports_multi_file_without_html_feature() {
+    for f in
+        [Format::Text, Format::TextSummary, Format::JsonSummary, Format::Lcov, Format::Cobertura]
+    {
+        assert!(!f.is_multi_file(), "{f:?} should not be multi-file");
+    }
+    assert_eq!(Format::parse("html"), None);
 }

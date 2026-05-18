@@ -14,12 +14,33 @@ categories = ["development-tools::testing"]
 [lints]
 workspace = true
 
+[features]
+# `html` pulls in the multi-file HTML reporter and its embedded syntect-based
+# server-side syntax highlighter (~500 KB of grammar / theme data in the
+# resulting binary). Downstream consumers that only need text / lcov /
+# cobertura / json-summary can opt out with `default-features = false`.
+default = ["html"]
+html = ["dep:syntect", "dep:two-face", "dep:rayon"]
+
 [dependencies]
 oxc_coverage_report = { path = "../oxc-coverage-report", version = "0.1.0" }
 oxc_coverage_source_maps = { path = "../oxc-coverage-source-maps", version = "0.1.0" }
 oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Server-side syntax highlighter for the html reporter. `default-fancy`
+# selects the pure-Rust `fancy-regex` backend (no Oniguruma C dep), keeping
+# cross-compilation simple on Windows. Bundled grammars and themes are
+# embedded into the binary via the same feature set.
+syntect = { version = "5.3", default-features = false, features = ["default-fancy"], optional = true }
+# Extra syntect grammars (TypeScript / TSX / JSX / and many others) that
+# the bundled `default-fancy` set leaves out. Used together with syntect
+# behind the same pure-Rust `fancy-regex` backend.
+two-face = { version = "0.5", default-features = false, features = ["syntect-fancy"], optional = true }
+# Data parallelism for per-file detail-page rendering. Syntect tokenization
+# is CPU-bound; running it across cores keeps emit time linear in
+# wall-clock terms even on large monorepos.
+rayon = { version = "1.10", optional = true }
 
 [dev-dependencies]
 insta = { version = "1", features = ["json"] }

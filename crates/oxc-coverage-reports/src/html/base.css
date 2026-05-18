@@ -300,10 +300,18 @@ table.source .branch-note {
   color: var(--muted);
 }
 
-/* Syntax highlighting (applied by base.js prettify pass) */
-.tok-k { color: var(--tok-keyword); font-weight: 600; }
-.tok-s { color: var(--tok-string); }
-.tok-c { color: var(--tok-comment); font-style: italic; }
-.tok-n { color: var(--tok-number); }
-.tok-b { color: var(--tok-builtin); }
-.tok-p { color: var(--tok-punct); }
+/* Syntax highlighting, applied to syntect-rendered spans on detail
+ * pages. Classes use the `stok-` prefix (server-side syntect emits
+ * them via ClassStyle::SpacedPrefixed) so they cannot collide with
+ * coverage row classes. Selectors match the leading TextMate scope
+ * segment; trailing segments (e.g. `stok-double-slash`, `stok-quoted`)
+ * are kept in markup for finer theming in G4 but ignored here. */
+.stok-comment { color: var(--tok-comment); font-style: italic; }
+.stok-keyword { color: var(--tok-keyword); font-weight: 600; }
+.stok-storage { color: var(--tok-keyword); font-weight: 600; }
+.stok-string { color: var(--tok-string); }
+.stok-constant { color: var(--tok-number); }
+.stok-support { color: var(--tok-builtin); }
+.stok-entity { color: var(--tok-builtin); }
+.stok-variable.stok-language { color: var(--tok-keyword); }
+.stok-punctuation { color: var(--tok-punct); }
