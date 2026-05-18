@@ -47,6 +47,11 @@ struct ReportArgs {
     /// when rendering the html source view. Defaults to the current working
     /// directory.
     root_dir: PathBuf,
+    /// `--threshold` (html only). Percentage cutoff for the high / medium
+    /// coverage bucket and the "below X% threshold" sentence on the
+    /// index page. Defaults to 80 if not supplied. Validated to be in
+    /// `[0, 100]` at parse time.
+    html_threshold: f64,
 }
 
 fn main() -> ExitCode {
@@ -119,6 +124,7 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
     let mut output_dir: Option<PathBuf> = None;
     let mut coverage_file: Option<String> = None;
     let mut root_dir: Option<PathBuf> = None;
+    let mut html_threshold: f64 = 80.0;
 
     let mut i = 0;
     while i < args.len() {
@@ -137,6 +143,22 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
                 output_dir = Some(PathBuf::from(take_value(args, &mut i, "--output-dir")?));
             }
             "--root" => root_dir = Some(PathBuf::from(take_value(args, &mut i, "--root")?)),
+            "--threshold" => {
+                let value = take_value(args, &mut i, "--threshold")?;
+                let parsed = value.parse::<f64>().map_err(|_| {
+                    eprintln!(
+                        "error: --threshold must be a number between 0 and 100, got '{value}'"
+                    );
+                    ExitCode::FAILURE
+                })?;
+                if !(0.0..=100.0).contains(&parsed) {
+                    eprintln!(
+                        "error: --threshold {parsed} is outside [0, 100]; pick a percentage in that range"
+                    );
+                    return Err(ExitCode::FAILURE);
+                }
+                html_threshold = parsed;
+            }
             "--help" | "-h" => {
                 print_report_usage();
                 return Err(ExitCode::SUCCESS);
@@ -199,7 +221,7 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
         })
     });
 
-    Ok(ReportArgs { coverage_file, output_file, output_dir, format, root_dir })
+    Ok(ReportArgs { coverage_file, output_file, output_dir, format, root_dir, html_threshold })
 }
 
 fn format_name(format: Format) -> &'static str {
@@ -273,7 +295,11 @@ fn run_report(args: &ReportArgs) -> ExitCode {
             eprintln!("error: --format html requires --output-dir <dir>");
             return ExitCode::FAILURE;
         };
-        if let Err(e) = args.format.write_to_dir(&map, &args.root_dir, output_dir) {
+        let html_opts =
+            oxc_coverage_reports::html::HtmlOptions { high_threshold: args.html_threshold };
+        if let Err(e) =
+            args.format.write_to_dir_with_options(&map, &args.root_dir, output_dir, &html_opts)
+        {
             eprintln!("error: failed to render report: {e}");
             return ExitCode::FAILURE;
         }
@@ -403,6 +429,7 @@ REPORT OPTIONS:
     -o, --output <file>          Write report to file (default: stdout). Not valid for --format html.
     --output-dir <dir>           Output directory for multi-file formats (html). Default: ./coverage
     --root <dir>                 Root directory used to relativize source paths and resolve html source view (default: cwd)
+    --threshold <pct>            High/medium coverage cutoff for html reports (0-100, default: 80)
 
 GLOBAL OPTIONS:
     -V, --version                Print version
@@ -423,6 +450,7 @@ OPTIONS:
     -o, --output <file>          Write report to file (default: stdout). Not valid for --format html.
     --output-dir <dir>           Output directory for multi-file formats (html). Default: ./coverage
     --root <dir>                 Root directory used to relativize source paths and resolve html source view (default: cwd)
+    --threshold <pct>            High/medium coverage cutoff for html reports (0-100, default: 80)
     -h, --help                   Print this help"
     );
 }
