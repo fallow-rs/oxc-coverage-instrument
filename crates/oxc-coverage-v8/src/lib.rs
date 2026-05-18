@@ -69,6 +69,93 @@ pub struct V8CoverageRange {
     pub count: u32,
 }
 
+struct CoverageContext<'a> {
+    source: &'a str,
+    line_offsets: &'a [u32],
+    ranges: &'a [V8CoverageRange],
+    wrapper_length: u32,
+}
+
+impl CoverageContext<'_> {
+    fn count_for_location(&self, loc: &Location) -> u32 {
+        let start =
+            self.position_to_byte_offset(loc.start.line, loc.start.column) + self.wrapper_length;
+        let end = self.position_to_byte_offset(loc.end.line, loc.end.column) + self.wrapper_length;
+        smallest_containing_range_count(start, end, self.ranges)
+    }
+
+    // Branch arms need a tight V8 block range. Falling back to an enclosing
+    // function/module range would over-report uncovered ternary and logical arms.
+    fn arm_count_for_arm(&self, arm_loc: &Location, body_byte_span: Option<(u32, u32)>) -> u32 {
+        const TOLERANCE: u32 = 4;
+
+        let (arm_start, arm_end) = match body_byte_span {
+            Some((start, end)) if !(start == 0 && end == 0) => {
+                (start + self.wrapper_length, end + self.wrapper_length)
+            }
+            _ => (
+                self.position_to_byte_offset(arm_loc.start.line, arm_loc.start.column)
+                    + self.wrapper_length,
+                self.position_to_byte_offset(arm_loc.end.line, arm_loc.end.column)
+                    + self.wrapper_length,
+            ),
+        };
+
+        let mut best: Option<(V8CoverageRange, u32)> = None;
+        for r in self.ranges {
+            let dist_start = r.start_offset.abs_diff(arm_start);
+            let dist_end = r.end_offset.abs_diff(arm_end);
+            if dist_start > TOLERANCE || dist_end > TOLERANCE {
+                continue;
+            }
+            let distance = dist_start + dist_end;
+            match best {
+                None => best = Some((*r, distance)),
+                Some((prev, prev_distance)) => {
+                    let prev_width = prev.end_offset.saturating_sub(prev.start_offset);
+                    let this_width = r.end_offset.saturating_sub(r.start_offset);
+                    if distance < prev_distance
+                        || (distance == prev_distance && this_width < prev_width)
+                    {
+                        best = Some((*r, distance));
+                    }
+                }
+            }
+        }
+        best.map_or(0, |(r, _)| r.count)
+    }
+
+    // Istanbul columns are UTF-16 code units, while V8 ranges are byte offsets.
+    fn position_to_byte_offset(&self, line_1based: u32, col_utf16: u32) -> u32 {
+        if line_1based == 0 {
+            return 0;
+        }
+        let line_idx = (line_1based - 1) as usize;
+        if line_idx >= self.line_offsets.len() - 1 {
+            return *self.line_offsets.last().unwrap_or(&0);
+        }
+        let line_start = self.line_offsets[line_idx] as usize;
+        let line_end = self.line_offsets[line_idx + 1] as usize;
+        let line_bytes = self.source.get(line_start..line_end).unwrap_or("");
+
+        let mut utf16_remaining = col_utf16;
+        let mut byte_in_line = 0usize;
+        for ch in line_bytes.chars() {
+            if utf16_remaining == 0 {
+                break;
+            }
+            let units = ch.len_utf16() as u32;
+            if units > utf16_remaining {
+                break;
+            }
+            utf16_remaining -= units;
+            byte_in_line += ch.len_utf8();
+        }
+
+        u32::try_from(line_start + byte_in_line).unwrap_or(u32::MAX)
+    }
+}
+
 /// Apply V8 coverage ranges to a pre-built `FileCoverage` by filling in its
 /// statement, function, and branch hit-count vectors.
 ///
@@ -94,16 +181,17 @@ pub fn apply_v8_coverage(
     let line_offsets = compute_line_offsets(source);
     let ranges: Vec<V8CoverageRange> =
         functions.iter().flat_map(|f| f.ranges.iter().copied()).collect();
+    let context =
+        CoverageContext { source, line_offsets: &line_offsets, ranges: &ranges, wrapper_length };
 
     for (id, loc) in &file_coverage.statement_map {
-        let count = count_for_location(source, loc, &line_offsets, &ranges, wrapper_length);
+        let count = context.count_for_location(loc);
         if let Some(slot) = file_coverage.s.get_mut(id) {
             *slot = count;
         }
     }
     for (id, fn_entry) in &file_coverage.fn_map {
-        let count =
-            count_for_location(source, &fn_entry.loc, &line_offsets, &ranges, wrapper_length);
+        let count = context.count_for_location(&fn_entry.loc);
         if let Some(slot) = file_coverage.f.get_mut(id) {
             *slot = count;
         }
@@ -115,13 +203,9 @@ pub fn apply_v8_coverage(
             .iter()
             .enumerate()
             .map(|(arm_idx, loc)| {
-                arm_count_for_arm(
-                    source,
+                context.arm_count_for_arm(
                     loc,
                     body_spans.and_then(|spans| spans.get(arm_idx).copied()),
-                    &line_offsets,
-                    &ranges,
-                    wrapper_length,
                 )
             })
             .collect();
@@ -240,137 +324,6 @@ fn compute_line_offsets(source: &str) -> Vec<u32> {
     let end = u32::try_from(source.len()).unwrap_or(u32::MAX);
     offsets.push(end);
     offsets
-}
-
-/// Byte offset of an Istanbul `(line, column)` inside `source`.
-///
-/// Istanbul columns are UTF-16 code units (Babel + `istanbul-lib-instrument`
-/// convention). srcmap is byte-based. For ASCII the two collapse, but for
-/// non-ASCII source the byte position must be computed by walking the line
-/// and consuming `col_utf16` UTF-16 code units. The walk is bounded by the
-/// `line_offsets` sentinel so a column past end-of-line clamps to end-of-line.
-fn position_to_byte_offset(
-    source: &str,
-    line_1based: u32,
-    col_utf16: u32,
-    line_offsets: &[u32],
-) -> u32 {
-    if line_1based == 0 {
-        return 0;
-    }
-    let line_idx = (line_1based - 1) as usize;
-    if line_idx >= line_offsets.len() - 1 {
-        return *line_offsets.last().unwrap_or(&0);
-    }
-    let line_start = line_offsets[line_idx] as usize;
-    let line_end = line_offsets[line_idx + 1] as usize;
-    let line_bytes = source.get(line_start..line_end).unwrap_or("");
-
-    let mut utf16_remaining = col_utf16;
-    let mut byte_in_line = 0usize;
-    for ch in line_bytes.chars() {
-        if utf16_remaining == 0 {
-            break;
-        }
-        let units = ch.len_utf16() as u32;
-        if units > utf16_remaining {
-            break;
-        }
-        utf16_remaining -= units;
-        byte_in_line += ch.len_utf8();
-    }
-
-    u32::try_from(line_start + byte_in_line).unwrap_or(u32::MAX)
-}
-
-fn count_for_location(
-    source: &str,
-    loc: &Location,
-    line_offsets: &[u32],
-    ranges: &[V8CoverageRange],
-    wrapper_length: u32,
-) -> u32 {
-    let start = position_to_byte_offset(source, loc.start.line, loc.start.column, line_offsets)
-        + wrapper_length;
-    let end = position_to_byte_offset(source, loc.end.line, loc.end.column, line_offsets)
-        + wrapper_length;
-    smallest_containing_range_count(start, end, ranges)
-}
-
-/// Resolve the V8 hit count for a branch arm.
-///
-/// Unlike statements and functions (which can correctly use a containing
-/// scope's count, because being inside an executed function implies the
-/// statement was reachable), branch arms need *arm-level* resolution. V8
-/// block coverage only emits subdivision ranges for `BlockStatement` nodes,
-/// so non-block branch shapes (ternaries, logical-expr right-hand operands,
-/// `default-arg` expressions, switch cases without `{ ... }`) have no V8
-/// range tight to the arm body. Falling back to the enclosing function /
-/// module count there over-reports execution and trips CI coverage
-/// thresholds. The honest answer is 0 ("V8 did not give us per-arm data for
-/// this branch shape").
-///
-/// The 4-byte tolerance covers the typical newline + 2-space indent gap
-/// between istanbul's reported arm location and V8's `BlockStatement` range.
-/// Longer gaps (`else /* comment */ {`) intentionally return 0 because the
-/// match is then ambiguous; under-reporting is preferable to over-reporting.
-///
-/// When multiple V8 ranges fall within tolerance of the same arm (nested
-/// blocks whose `{` characters happen to be close together), the *tightest*
-/// match wins: minimum sum of start-distance + end-distance, ties broken by
-/// the narrower range. V8 emits ranges outermost-first, so a naive
-/// first-match would prefer the enclosing block over the actual arm.
-///
-/// When `body_byte_span` is `Some`, the resolver uses that byte range
-/// directly instead of computing one from `arm_loc`. This is the if-arm 0
-/// path: istanbul's whole-IfStatement convention puts `locations[0]` at the
-/// outer `if (...) ... else ...` span, which V8 does not match; the
-/// collected consequent-body span does match V8's block range and yields
-/// "number of times the predicate evaluated truthy".
-fn arm_count_for_arm(
-    source: &str,
-    arm_loc: &Location,
-    body_byte_span: Option<(u32, u32)>,
-    line_offsets: &[u32],
-    ranges: &[V8CoverageRange],
-    wrapper_length: u32,
-) -> u32 {
-    const TOLERANCE: u32 = 4;
-
-    let (arm_start, arm_end) = match body_byte_span {
-        Some((start, end)) if !(start == 0 && end == 0) => {
-            (start + wrapper_length, end + wrapper_length)
-        }
-        _ => (
-            position_to_byte_offset(source, arm_loc.start.line, arm_loc.start.column, line_offsets)
-                + wrapper_length,
-            position_to_byte_offset(source, arm_loc.end.line, arm_loc.end.column, line_offsets)
-                + wrapper_length,
-        ),
-    };
-
-    let mut best: Option<(V8CoverageRange, u32)> = None;
-    for r in ranges {
-        let dist_start = r.start_offset.abs_diff(arm_start);
-        let dist_end = r.end_offset.abs_diff(arm_end);
-        if dist_start > TOLERANCE || dist_end > TOLERANCE {
-            continue;
-        }
-        let distance = dist_start + dist_end;
-        match best {
-            None => best = Some((*r, distance)),
-            Some((prev, prev_distance)) => {
-                let prev_width = prev.end_offset.saturating_sub(prev.start_offset);
-                let this_width = r.end_offset.saturating_sub(r.start_offset);
-                if distance < prev_distance
-                    || (distance == prev_distance && this_width < prev_width)
-                {
-                    best = Some((*r, distance));
-                }
-            }
-        }
-    }
-    best.map_or(0, |(r, _)| r.count)
 }
 
 /// Pick the count of the smallest V8 range that fully contains `[start, end)`.
