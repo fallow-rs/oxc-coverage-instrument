@@ -9,7 +9,7 @@
 //! v2 covers statement, function, and branch counts from `isBlockCoverage`
 //! output. Inline `//# sourceMappingURL=` comments are extracted and attached
 //! to the result as `inputSourceMap`, so feeding the output through
-//! [`crate::source_maps::remap_coverage`] resolves coverage positions back to
+//! [`crate::remap_coverage`] resolves coverage positions back to
 //! original sources in one chained step.
 //!
 //! ## CJS wrapper offset
@@ -85,7 +85,7 @@ impl std::error::Error for V8ToIstanbulError {}
 /// V8 range containing the corresponding location. When the source carries an
 /// inline `//# sourceMappingURL=data:application/json;base64,...` comment, the
 /// embedded map is decoded and attached as `inputSourceMap` so the result
-/// chains cleanly into [`crate::source_maps::remap_coverage`].
+/// chains cleanly into [`crate::remap_coverage`].
 ///
 /// To resolve an external `//# sourceMappingURL=foo.js.map` reference rather
 /// than the inline data-URL form, use [`v8_to_istanbul_with_loader`] and
@@ -106,7 +106,7 @@ pub fn v8_to_istanbul(
 /// inline `data:application/json` URL, the loader is called with the URL as
 /// reported by the trailer (e.g. `foo.js.map`, `https://cdn.example/x.js.map`).
 /// Returning `Some(json)` attaches the parsed map as `inputSourceMap` on the
-/// result so a subsequent [`crate::source_maps::remap_coverage`] resolves
+/// result so a subsequent [`crate::remap_coverage`] resolves
 /// positions back to the original source in one chained call. Returning
 /// `None` leaves `inputSourceMap` unset.
 ///

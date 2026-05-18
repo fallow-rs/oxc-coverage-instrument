@@ -814,6 +814,7 @@ dependencies = [
  "oxc_allocator",
  "oxc_ast",
  "oxc_codegen",
+ "oxc_coverage_source_maps",
  "oxc_coverage_types",
  "oxc_parser",
  "oxc_semantic",
@@ -837,6 +838,15 @@ dependencies = [
  "oxc_coverage_instrument",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "oxc_coverage_source_maps"
+version = "0.1.0"
+dependencies = [
+ "oxc_coverage_types",
+ "serde_json",
+ "srcmap-sourcemap",
 ]
 
 [[package]]

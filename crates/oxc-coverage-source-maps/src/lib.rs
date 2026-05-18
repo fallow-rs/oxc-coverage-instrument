@@ -5,13 +5,13 @@
 //! emitted via `tsc` and then instrumented). Downstream coverage reporters
 //! (nyc, `@vitest/coverage-istanbul`, monocart) call into
 //! `istanbul-lib-source-maps` to walk that source map and rewrite every
-//! coverage position back to the original source. This module covers both
+//! coverage position back to the original source. This crate covers both
 //! upstream usage modes:
 //!
 //! - **Mode A (remap-at-report-time)**: [`remap_coverage`] /
-//!   [`remap_coverage_map`] walk a single FileCoverage (or every entry of a
+//!   [`remap_coverage_map`] walk a single `FileCoverage` (or every entry of a
 //!   coverage-final.json shaped map) through the embedded `inputSourceMap`.
-//!   When the input map is not embedded on the FileCoverage,
+//!   When the input map is not embedded on the `FileCoverage`,
 //!   [`remap_coverage_with_loader`] / [`remap_coverage_map_with_loader`]
 //!   accept a caller-supplied loader that reads the map JSON from disk or
 //!   another source, matching `istanbul-lib-source-maps`'s `sourceStore`
@@ -136,20 +136,22 @@ fn apply_source_map(
 /// Example usage:
 ///
 /// ```
-/// use oxc_coverage_instrument::{SourceMapStore, instrument, InstrumentOptions};
+/// use oxc_coverage_source_maps::SourceMapStore;
+/// use oxc_coverage_types::FileCoverage;
 ///
 /// let mut store = SourceMapStore::new();
 /// let input_sm = r#"{"version":3,"sources":["src/app.ts"],"mappings":"AAAA","names":[]}"#;
-/// let opts = InstrumentOptions {
-///     input_source_map: Some(input_sm.to_string()),
-///     ..InstrumentOptions::default()
-/// };
-/// let result = instrument("const x = 1;", "intermediate.js", &opts).unwrap();
 /// store.add_map("intermediate.js", serde_json::from_str(input_sm).unwrap());
 ///
-/// // Later, when the runner finalizes its coverage map:
+/// // Minimal FileCoverage to demonstrate the remap; the instrumenter produces
+/// // this shape in real usage. Constructed inline here so the doctest does
+/// // not reverse-depend on the instrumenter.
+/// let fc = FileCoverage::from_json(
+///     r#"{"path":"intermediate.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}"#,
+/// ).unwrap();
+///
 /// let remapped = store
-///     .transform_coverage(&result.coverage_map)
+///     .transform_coverage(&fc)
 ///     .expect("store has a map for the file");
 /// assert_eq!(remapped.path, "src/app.ts");
 /// ```

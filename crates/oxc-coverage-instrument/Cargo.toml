@@ -15,9 +15,10 @@ categories = ["development-tools::testing", "web-programming"]
 workspace = true
 
 [dependencies]
-# Suite data-model crate. Path + version: path for workspace builds, version
-# for `cargo publish` so the lib crate can publish standalone from crates.io.
+# Suite crates. Path + version: path for workspace builds, version for
+# `cargo publish` so the lib crate can publish standalone from crates.io.
 oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.1.0" }
+oxc_coverage_source_maps = { path = "../oxc-coverage-source-maps", version = "0.1.0" }
 oxc_allocator = "0.126"
 oxc_ast = "0.126"
 oxc_codegen = "0.126"
