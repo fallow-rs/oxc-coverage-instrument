@@ -23,7 +23,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::instrument::collect_for_v8_to_istanbul;
-use crate::types::{FileCoverage, Location};
+use oxc_coverage_types::{FileCoverage, Location};
 
 /// A function's coverage data as reported by the V8 inspector.
 ///

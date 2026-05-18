@@ -3,6 +3,7 @@ members = [
     "crates/oxc-coverage-instrument",
     "crates/oxc-coverage-instrument-cli",
     "crates/oxc-coverage-instrument-napi",
+    "crates/oxc-coverage-types",
 ]
 resolver = "3"
 

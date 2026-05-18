@@ -28,7 +28,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
+use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
 
 /// Remap a single `FileCoverage` through its embedded `inputSourceMap`.
 ///

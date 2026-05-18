@@ -12,12 +12,13 @@ use oxc_traverse::traverse_mut;
 
 use std::collections::BTreeMap;
 
+use crate::coverage_builder::{CoverageMaps, build_file_coverage};
 use crate::pragma::PragmaMap;
 use crate::transform::{
     CoverageState, CoverageTransform, PreambleInputs, TransformInit, djb31_hex,
     generate_cov_fn_name, generate_preamble_source,
 };
-use crate::types::{CoverageMaps, FileCoverage, UnhandledPragma};
+use oxc_coverage_types::{FileCoverage, UnhandledPragma};
 
 /// Options for the `instrument` function.
 #[derive(Debug, Clone)]
@@ -204,7 +205,7 @@ fn empty_coverage_result(
     source: &str,
     unhandled_pragmas: Vec<UnhandledPragma>,
 ) -> InstrumentResult {
-    let coverage_map = FileCoverage::from_maps(CoverageMaps {
+    let coverage_map = build_file_coverage(CoverageMaps {
         path: filename.to_string(),
         statement_locs: Vec::new(),
         fn_entries: Vec::new(),
@@ -226,7 +227,7 @@ fn build_coverage_map(
     transform: CoverageTransform<'_, '_>,
     input_source_map: Option<&str>,
 ) -> FileCoverage {
-    let mut coverage_map = FileCoverage::from_maps(CoverageMaps {
+    let mut coverage_map = build_file_coverage(CoverageMaps {
         path: filename.to_string(),
         statement_locs: transform.statement_map,
         fn_entries: transform.fn_map,
@@ -276,7 +277,7 @@ pub(crate) fn collect_for_v8_to_istanbul(
 
     let (pragmas, _unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
     if pragmas.ignore_file {
-        let coverage_map = FileCoverage::from_maps(CoverageMaps {
+        let coverage_map = build_file_coverage(CoverageMaps {
             path: filename.to_string(),
             statement_locs: Vec::new(),
             fn_entries: Vec::new(),

@@ -28,20 +28,20 @@
 //! Function names are derived from the same Oxc parser used by other Oxc-based
 //! tools, so they match consistently across the ecosystem.
 
+mod coverage_builder;
 mod instrument;
 mod pragma;
 mod source_maps;
 mod transform;
-mod types;
 mod v8_to_istanbul;
 
 pub use instrument::{InstrumentError, InstrumentOptions, InstrumentResult, instrument};
+pub use oxc_coverage_types::{
+    BranchEntry, FileCoverage, FnEntry, Location, Position, UnhandledPragma, parse_coverage_map,
+};
 pub use source_maps::{
     SourceMapStore, remap_coverage, remap_coverage_map, remap_coverage_map_with_loader,
     remap_coverage_with_loader,
-};
-pub use types::{
-    BranchEntry, FileCoverage, FnEntry, Location, Position, UnhandledPragma, parse_coverage_map,
 };
 pub use v8_to_istanbul::{
     V8CoverageRange, V8FunctionCoverage, V8ToIstanbulError, v8_to_istanbul,
