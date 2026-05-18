@@ -190,10 +190,164 @@
   // there is no client-side tokenizer here. The detail-page <pre> cells
   // arrive with `<span class="stok-...">` markup already in the HTML.
 
+  // ---------- File filter (index pages) ---------------------------------
+  // Hooks: <input id="cov-filter"> + <div id="cov-filter-count"> +
+  // <table id="cov-file-table">. Each tbody row carries data-file="..."
+  // populated by the Rust render. Without JS the input is inert and the
+  // count region stays empty; the table is fully usable.
+  function initFilter() {
+    var input = document.getElementById('cov-filter');
+    var table = document.getElementById('cov-file-table');
+    var count = document.getElementById('cov-filter-count');
+    if (!input || !table) { return; }
+    var tbody = table.tBodies[0];
+    if (!tbody) { return; }
+    var rows = Array.prototype.slice.call(tbody.rows);
+    var total = rows.length;
+    if (count && count.getAttribute('data-total')) {
+      total = parseInt(count.getAttribute('data-total'), 10) || total;
+    }
+
+    var debounceHandle = 0;
+    function applyFilter() {
+      var q = input.value.trim().toLowerCase();
+      var shown = 0;
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var name = (r.getAttribute('data-file') || '').toLowerCase();
+        var match = q === '' || name.indexOf(q) !== -1;
+        r.style.display = match ? '' : 'none';
+        if (match) { shown++; }
+      }
+      if (count) {
+        if (q === '') {
+          count.textContent = '';
+        } else {
+          count.textContent = shown + ' of ' + total + ' files match';
+        }
+      }
+    }
+    input.addEventListener('input', function () {
+      if (debounceHandle) { clearTimeout(debounceHandle); }
+      debounceHandle = setTimeout(applyFilter, 80);
+    });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        input.value = '';
+        applyFilter();
+      }
+    });
+
+    // Power-user shortcut: pressing `/` anywhere in the page (when not
+    // already inside a form field) focuses the filter input. Guarded
+    // against active form fields to avoid stealing focus from a user
+    // typing into another input, and against contentEditable to avoid
+    // intercepting normal text entry. Browse-mode screen-reader users
+    // still see `/` as a "find in page" gesture because we only act
+    // when the activeElement is the body itself.
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) { return; }
+      var ae = document.activeElement;
+      if (ae && ae !== document.body) {
+        var tag = ae.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') { return; }
+        if (ae.isContentEditable) { return; }
+      }
+      e.preventDefault();
+      input.focus();
+      input.select();
+    });
+  }
+
+  // ---------- Line anchors (detail pages) -------------------------------
+  // Hooks: <button class="line-anchor" data-line="42"> inside td.line-num,
+  // + <div id="cov-copy-toast" role="status" aria-live="polite">.
+  // Clicking the button: scrolls to the row via hash, copies the
+  // canonical link to the clipboard, flashes a toast.
+  function initLineAnchors() {
+    var anchors = document.querySelectorAll('button.line-anchor[data-line]');
+    if (anchors.length === 0) { return; }
+    var toast = document.getElementById('cov-copy-toast');
+    var toastTimer = 0;
+
+    function flashToast(message) {
+      if (!toast) { return; }
+      // The screen-reader announcement is triggered by the textContent
+      // assignment below, not by the `visible` class toggle. The class
+      // controls only the visual fade-in; do not switch to display:none
+      // for the hide step or the live-region observer will detach.
+      toast.textContent = message;
+      toast.classList.add('visible');
+      if (toastTimer) { clearTimeout(toastTimer); }
+      toastTimer = setTimeout(function () {
+        toast.classList.remove('visible');
+        toast.textContent = '';
+      }, 1500);
+    }
+
+    function copyAndAnchor(line) {
+      var hash = '#L' + line;
+      history.replaceState(null, '', hash);
+      var url = location.href;
+      var ok = false;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () {
+          flashToast('Link to line ' + line + ' copied');
+        }).catch(function () {
+          flashToast('Linked to line ' + line);
+        });
+        ok = true;
+      }
+      if (!ok) {
+        // Older browsers / file:// origins where clipboard API is
+        // unavailable: still anchor the URL so the user can copy it
+        // from the address bar.
+        flashToast('Linked to line ' + line);
+      }
+    }
+
+    anchors.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var line = btn.getAttribute('data-line');
+        if (line) { copyAndAnchor(line); }
+      });
+    });
+  }
+
+  // ---------- "Next uncovered" jump button ------------------------------
+  // Hook: <button id="cov-next-uncovered">. Cycles through
+  // tr.line.miss and tr.line.partial in document order; wraps at end.
+  // Disabled when the page has no uncovered rows.
+  function initNextUncovered() {
+    var btn = document.getElementById('cov-next-uncovered');
+    if (!btn) { return; }
+    var rows = document.querySelectorAll('table.source tr.line.miss, table.source tr.line.partial');
+    if (rows.length === 0) {
+      btn.disabled = true;
+      btn.setAttribute('aria-label', 'No uncovered lines on this page');
+      btn.textContent = 'No uncovered lines';
+      return;
+    }
+    btn.disabled = false;
+    var cursor = -1;
+    btn.addEventListener('click', function () {
+      cursor = (cursor + 1) % rows.length;
+      var target = rows[cursor];
+      var line = target.getAttribute('id') || '';
+      if (line) { history.replaceState(null, '', '#' + line); }
+      target.scrollIntoView({ block: 'center', behavior: 'auto' });
+      var inner = target.querySelector('button.line-anchor');
+      if (inner) { inner.focus(); }
+    });
+  }
+
   // ---------- Boot ------------------------------------------------------
   function boot() {
     buildThemeToggle();
     initSortable();
+    initFilter();
+    initLineAnchors();
+    initNextUncovered();
   }
 
   if (document.readyState === 'loading') {
