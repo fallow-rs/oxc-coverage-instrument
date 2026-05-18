@@ -265,6 +265,43 @@ oxc_codegen         -- emit instrumented code + source map
 instrumented code + coverage map
 ```
 
+## Coverage stack
+
+This crate is the instrumentation stage of a larger Rust-native coverage pipeline maintained alongside [`srcmap`](https://github.com/fallow-rs/srcmap), a companion source map SDK from the same author. Together they cover the hot path of the Istanbul pipeline; the cold path (report formats, merging) stays on existing packages.
+
+```
+   source code (JS/TS)
+        |
+        v
+   +-----------------------------+
+   | oxc-coverage-instrument     |   this crate
+   | (parse, transform, codegen) |   AST-level Istanbul counters
+   +-----------------------------+
+        |
+        |  instrumented code + composed source map
+        v
+   +-----------------------------+
+   | runtime collection          |   browser / Node / V8
+   | (writes __coverage__)       |
+   +-----------------------------+
+        |
+        |  raw FileCoverage objects
+        v
+   +-----------------------------+
+   | source map remap            |   istanbul-lib-source-maps today
+   | (-> original source paths)  |   srcmap-symbolicate as Rust path
+   +-----------------------------+
+        |
+        |  remapped FileCoverage
+        v
+   +-----------------------------+
+   | report                      |   istanbul-reports
+   | (lcov, html, json-summary)  |
+   +-----------------------------+
+```
+
+When an `inputSourceMap` is supplied, the instrumenter composes the codegen's output map with the input map so that downstream remappers (Vitest, nyc, monocart) resolve coverage positions all the way back to the original source. The composition logic is shared in spirit with [`srcmap-remapping`](https://github.com/fallow-rs/srcmap/tree/main/crates/remapping); both packages target the same correctness bar.
+
 ## Related projects
 
 | Project | AST | Notes |
