@@ -17,6 +17,10 @@ unused-allowed-license = "allow"
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Path-only deps between workspace siblings (e.g. cli/napi referencing the lib
+# crate by path) are not real wildcard risks. crates.io deps still require
+# explicit version specifiers.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

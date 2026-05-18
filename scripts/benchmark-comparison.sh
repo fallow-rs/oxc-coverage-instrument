@@ -30,7 +30,8 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BENCH_DIR="${ROOT_DIR}/.bench-tmp"
 FILES_DIR="${BENCH_DIR}/files"
 OXC="${ROOT_DIR}/target/release/oxc-coverage-instrument"
-NAPI_DIR="${ROOT_DIR}/napi"
+NAPI_DIR="${ROOT_DIR}/crates/oxc-coverage-instrument-napi"
+LIB_DIR="${ROOT_DIR}/crates/oxc-coverage-instrument"
 RUNS=5
 QUICK=false
 
@@ -77,7 +78,7 @@ setup_npm() {
 }
 
 build_oxc() {
-  if [[ ! -f "$OXC" ]] || [[ "$ROOT_DIR/src/transform.rs" -nt "$OXC" ]]; then
+  if [[ ! -f "$OXC" ]] || [[ "$LIB_DIR/src/transform.rs" -nt "$OXC" ]]; then
     echo "  building oxc-coverage-instrument CLI (release)..." >&2
     cargo build --release -p oxc-coverage-instrument-cli --manifest-path "$ROOT_DIR/Cargo.toml" 2>&1 | tail -1
   fi
@@ -87,7 +88,7 @@ build_napi() {
   local node_bin
   node_bin=$(ls "${NAPI_DIR}"/coverage-instrument.*.node 2>/dev/null | head -1)
   local newest_src
-  newest_src=$(find "$ROOT_DIR/src" "$NAPI_DIR/src" "$NAPI_DIR/Cargo.toml" "$ROOT_DIR/Cargo.toml" \
+  newest_src=$(find "$LIB_DIR/src" "$NAPI_DIR/src" "$NAPI_DIR/Cargo.toml" "$ROOT_DIR/Cargo.toml" \
     -type f -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)
   if [[ -z "$node_bin" ]] || [[ -n "$newest_src" && "$newest_src" -nt "$node_bin" ]]; then
     echo "  building napi bindings (release)..." >&2

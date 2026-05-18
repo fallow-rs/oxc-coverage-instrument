@@ -19,7 +19,7 @@ node_modules/
 
 # napi build artifacts
 *.node
-napi/index.js
-napi/index.d.ts
-napi/node_modules/
-napi/package-lock.json
+crates/oxc-coverage-instrument-napi/index.js
+crates/oxc-coverage-instrument-napi/index.d.ts
+crates/oxc-coverage-instrument-napi/node_modules/
+crates/oxc-coverage-instrument-napi/package-lock.json

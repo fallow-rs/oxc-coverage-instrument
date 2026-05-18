@@ -98,7 +98,7 @@ node tests/conformance/generate-reference.mjs
 3. Make your changes
 4. Run the full quality check:
    ```bash
-   cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --all-targets && npm --prefix napi run build:debug && node scripts/istanbul-diff.mjs && node napi/test.mjs && typos
+   cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --all-targets && npm --prefix crates/oxc-coverage-instrument-napi run build:debug && node scripts/istanbul-diff.mjs && node crates/oxc-coverage-instrument-napi/test.mjs && typos
    ```
 5. Open a PR with a clear description of what changed and why
 

@@ -1,5 +1,9 @@
 [workspace]
-members = [".", "cli", "napi"]
+members = [
+    "crates/oxc-coverage-instrument",
+    "crates/oxc-coverage-instrument-cli",
+    "crates/oxc-coverage-instrument-napi",
+]
 resolver = "3"
 
 [workspace.package]
@@ -24,7 +28,7 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 
-# Restriction lints — matching Oxc's standard
+# Restriction lints, matching Oxc's standard
 dbg_macro = "warn"
 todo = "warn"
 print_stdout = "warn"
@@ -67,47 +71,6 @@ fn_params_excessive_bools = "allow"
 option_if_let_else = "allow"
 missing_const_for_fn = "allow"
 use_self = "allow"
-
-[package]
-name = "oxc_coverage_instrument"
-version = "0.4.1"
-authors.workspace = true
-edition.workspace = true
-description = "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST"
-homepage.workspace = true
-keywords.workspace = true
-license.workspace = true
-repository.workspace = true
-rust-version.workspace = true
-categories = ["development-tools::testing", "web-programming"]
-
-[lints]
-workspace = true
-
-[dependencies]
-oxc_allocator = "0.126"
-oxc_ast = "0.126"
-oxc_codegen = "0.126"
-oxc_parser = "0.126"
-oxc_semantic = "0.126"
-oxc_sourcemap = "6.1"
-oxc_span = "0.126"
-oxc_syntax = "0.126"
-oxc_traverse = "0.126"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-# Companion source map crates (fallow-rs/srcmap). Exact-pinned because srcmap is pre-1.0
-# and only the parse + composition APIs are stable; bump these explicitly.
-srcmap-remapping = "=0.3.6"
-srcmap-sourcemap = "=0.3.6"
-
-[dev-dependencies]
-criterion = { version = "0.8", features = ["html_reports"] }
-insta = { version = "1", features = ["json"] }
-
-[[bench]]
-name = "instrument"
-harness = false
 
 [profile.dev]
 debug = false

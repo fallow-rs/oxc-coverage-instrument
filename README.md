@@ -210,7 +210,7 @@ Real-world verification: **1,061 TS/TSX/JS files** from a production React monor
 
 Independently validated against the Vitest test suite: from v0.3.5 onward, `coverage-final.json` for the Vitest `math.ts` fixture is byte-for-byte identical to `@vitest/coverage-istanbul`'s output — including `statementMap`, `fnMap` spans, `branchMap`, and all counter arrays.
 
-**Column conventions:** all `start.column` / `end.column` values in `statementMap`, `fnMap`, `branchMap`, and `unhandledPragmas` are reported as **UTF-16 code units** (JavaScript string indices), matching Babel and `istanbul-lib-instrument`. Sources containing non-ASCII characters — `π`, accented identifiers, emoji — produce the same column numbers as the reference tool. Verified by the `26-non-ascii-identifiers.js` conformance fixture (`tests/conformance/fixtures/`).
+**Column conventions:** all `start.column` / `end.column` values in `statementMap`, `fnMap`, `branchMap`, and `unhandledPragmas` are reported as **UTF-16 code units** (JavaScript string indices), matching Babel and `istanbul-lib-instrument`. Sources containing non-ASCII characters — `π`, accented identifiers, emoji — produce the same column numbers as the reference tool. Verified by the `26-non-ascii-identifiers.js` conformance fixture (`crates/oxc-coverage-instrument/tests/conformance/fixtures/`).
 
 ## Differences from istanbul-lib-instrument
 
@@ -220,7 +220,7 @@ Intentional divergences from `istanbul-lib-instrument`:
 
 `x ??= y`, `x ||= y`, and `x &&= y` each contain a genuine short-circuit conditional: the right-hand side is evaluated (and the assignment happens) only when the left operand matches the operator's polarity. `oxc-coverage-instrument` emits one `binary-expr` branch entry per logical-assignment with two locations (left = always reached, right = conditional). `istanbul-lib-instrument` has no `AssignmentExpression` visitor entry and emits zero branches for these operators.
 
-Pinned by `tests/conformance_test.rs::logical_assignment_is_intentional_branch_superset`.
+Pinned by `crates/oxc-coverage-instrument/tests/conformance_test.rs::logical_assignment_is_intentional_branch_superset`.
 
 ### 2. Inferred function names over `(anonymous_N)`
 
@@ -233,7 +233,7 @@ For anonymous function expressions assigned to a variable or declared as a class
 | `class C { bar() {} }` | `bar` | `(anonymous_0)` |
 | `(function() {})()` (IIFE) | `(anonymous_0)` | `(anonymous_0)` |
 
-Coverage reports and stack traces benefit from real names. Pinned by `tests/conformance_test.rs::fn_name_inference_is_intentional_superset`.
+Coverage reports and stack traces benefit from real names. Pinned by `crates/oxc-coverage-instrument/tests/conformance_test.rs::fn_name_inference_is_intentional_superset`.
 
 ### 3. Full method-key spans in `fnMap[*].decl`
 

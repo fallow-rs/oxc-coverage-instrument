@@ -34,10 +34,10 @@ update_optional_deps() {
 echo "Syncing npm versions to $VERSION..."
 
 # Main package (with optionalDependencies)
-update_optional_deps "$ROOT/napi/package.json"
+update_optional_deps "$ROOT/crates/oxc-coverage-instrument-napi/package.json"
 
 # Platform packages
-for dir in "$ROOT/napi/npm"/*/; do
+for dir in "$ROOT/crates/oxc-coverage-instrument-napi/npm"/*/; do
   if [ -f "$dir/package.json" ]; then
     update_version "$dir/package.json"
   fi

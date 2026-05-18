@@ -95,11 +95,11 @@ jobs:
           tool: cargo-zigbuild
 
       - name: Install dependencies
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: npm ci || npm install
 
       - name: Build native binding
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: ${{ matrix.build }}
 
       - name: Upload artifact
@@ -112,9 +112,9 @@ jobs:
           # job pick one up without running the build again. The wrapper files are
           # gitignored (regenerated on every build) so they must travel via artifacts.
           path: |
-            napi/*.node
-            napi/index.js
-            napi/index.d.ts
+            crates/oxc-coverage-instrument-napi/*.node
+            crates/oxc-coverage-instrument-napi/index.js
+            crates/oxc-coverage-instrument-napi/index.d.ts
           if-no-files-found: error
 
   publish-crate:
@@ -128,7 +128,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Publish oxc_coverage_instrument
-        run: cargo publish --allow-dirty || echo "Already published, skipping"
+        run: cargo publish -p oxc_coverage_instrument --allow-dirty || echo "Already published, skipping"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -153,26 +153,26 @@ jobs:
         run: npm install -g npm@10.9.8 && npm install -g npm@latest
 
       - name: Install dependencies
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: npm ci || npm install
 
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
-          path: napi/artifacts
+          path: crates/oxc-coverage-instrument-napi/artifacts
 
       - name: Move artifacts into npm dirs
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi artifacts --output-dir artifacts
 
       - name: Restore JS/TS wrapper from build artifacts
         # The JS/TS wrapper files (index.js, index.d.ts) are gitignored because
         # `napi build` regenerates them. They ARE in every `bindings-*` artifact
-        # produced by the matrix build. Copy one pair back into napi/ so
-        # `npm publish` picks them up per the `files` field in package.json.
+        # produced by the matrix build. Copy one pair back into the napi crate
+        # directory so `npm publish` picks them up per the `files` field in package.json.
         # Without this, the tarball ships without index.js and `require('./index.js')`
         # in vitest.js fails at import time (see issue triggered after v0.3.1).
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: |
           for dir in artifacts/bindings-*/; do
             if [ -f "$dir/index.js" ] && [ -f "$dir/index.d.ts" ]; then
@@ -185,7 +185,7 @@ jobs:
           test -f index.js && test -f index.d.ts
 
       - name: Update versions from tag
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: |
           VERSION="${TAG_REF#refs/tags/v}"
           for pkg in package.json npm/*/package.json; do
@@ -205,11 +205,11 @@ jobs:
           done
 
       - name: Prepare root package
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi pre-publish --no-gh-release -t npm --skip-optional-publish
 
       - name: Publish platform packages
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: |
           VERSION="${TAG_REF#refs/tags/v}"
           FAILED=0
@@ -235,7 +235,7 @@ jobs:
           fi
 
       - name: Publish root package
-        working-directory: napi
+        working-directory: crates/oxc-coverage-instrument-napi
         run: |
           VERSION="${TAG_REF#refs/tags/v}"
           if npm view "oxc-coverage-instrument@$VERSION" version >/dev/null 2>&1; then
