@@ -2141,18 +2141,24 @@ fn source_map_composition_with_partial_input_map() {
 
 #[test]
 fn source_map_composition_preserves_input_names() {
-    // Names from the input source map must be carried into the composed map so
-    // downstream reporters can still resolve symbolicated identifiers. The
-    // input map below declares two names; both should survive composition.
+    // Names referenced by an input source map's mappings must survive composition
+    // so downstream reporters can resolve symbolicated identifiers. Matches
+    // `@ampproject/remapping` semantics: only names that some mapping actually
+    // references are propagated; unreferenced names are dropped (this prevents
+    // unbounded growth of the names table through long transform chains).
+    //
+    // Input mappings (on intermediate source `const foo = bar;`):
+    //   gen 0:0  -> src 0:0  name "foo" (idx 0)  -> "AAAAA"
+    //   gen 0:6  -> src 0:6  name "bar" (idx 1)  -> delta [6,0,0,6,1] -> "MAAMC"
     let opts = InstrumentOptions {
         source_map: true,
         input_source_map: Some(
-            r#"{"version":3,"sources":["original.ts"],"sourcesContent":["const foo = bar;"],"names":["foo","bar"],"mappings":"AAAA"}"#
+            r#"{"version":3,"sources":["original.ts"],"sourcesContent":["const foo = bar;"],"names":["foo","bar"],"mappings":"AAAAA,MAAMC"}"#
                 .to_string(),
         ),
         ..InstrumentOptions::default()
     };
-    let result = instrument("const x = 1;", "test.js", &opts).unwrap();
+    let result = instrument("const foo = bar;", "test.js", &opts).unwrap();
     let sm: serde_json::Value = serde_json::from_str(result.source_map.as_ref().unwrap()).unwrap();
     let names: Vec<&str> =
         sm["names"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();

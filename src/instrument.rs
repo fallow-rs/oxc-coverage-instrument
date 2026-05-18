@@ -169,6 +169,7 @@ pub fn instrument(
         options,
     });
     let source_map = raw_source_map
+        .as_ref()
         .map(|sm| finalize_source_map(sm, &preamble, options.input_source_map.as_deref()));
 
     Ok(InstrumentResult {
@@ -260,78 +261,51 @@ fn emit_code(inputs: EmitInputs<'_, '_>) -> (String, Option<oxc_sourcemap::Sourc
     (code, codegen_ret.map)
 }
 
+/// Offset the codegen source map by the preamble line count and, if an input
+/// source map was provided, compose the result with it so the final map chains
+/// all the way back to the original source (e.g., TypeScript).
+///
+/// Composition is delegated to `srcmap-remapping`, which mirrors the semantics
+/// of `@ampproject/remapping` (the prior art `istanbul-lib-source-maps` and
+/// most JS bundlers also follow). Line offsetting uses `srcmap-remapping`'s
+/// `ConcatBuilder`.
 fn finalize_source_map(
-    sm: oxc_sourcemap::SourceMap,
+    sm: &oxc_sourcemap::SourceMap,
     preamble: &str,
     input_source_map: Option<&str>,
 ) -> String {
-    // Offset mappings by preamble line count so generated positions in the combined
-    // output map correctly resolve back to the original source.
     let preamble_lines =
         u32::try_from(preamble.chars().filter(|&c| c == '\n').count()).unwrap_or(u32::MAX);
-    let offset_sm = if preamble_lines > 0 {
-        oxc_sourcemap::ConcatSourceMapBuilder::from_sourcemaps(&[(&sm, preamble_lines)])
-            .into_sourcemap()
-    } else {
-        sm
+
+    // Bridge oxc_sourcemap → srcmap_sourcemap via JSON. Both crates emit the
+    // standard source map v3 format, so the round-trip is lossless. Bail out
+    // to the raw oxc serialization if the parse ever fails.
+    let output_json = sm.to_json_string();
+    let Ok(output_sm) = srcmap_sourcemap::SourceMap::from_json(&output_json) else {
+        return output_json;
     };
 
-    // If an input source map was provided, compose it with the output map so the
-    // final map chains back to the original source (e.g., TypeScript).
+    let offset_sm = if preamble_lines > 0 {
+        let mut builder = srcmap_remapping::ConcatBuilder::new(None);
+        builder.add_map(&output_sm, preamble_lines);
+        builder.build()
+    } else {
+        output_sm
+    };
+
     if let Some(input_sm_json) = input_source_map
-        && let Ok(input_sm) = oxc_sourcemap::SourceMap::from_json_string(input_sm_json)
+        && let Ok(input_sm) = srcmap_sourcemap::SourceMap::from_json(input_sm_json)
     {
-        return compose_source_maps(&offset_sm, &input_sm).to_json_string();
+        // The output map has exactly one source (the instrumented file).
+        // Return the input map for any source name; remap drops sources it
+        // can't load. Clone per call since `remap` may invoke the loader
+        // more than once per unique source name.
+        let composed =
+            srcmap_remapping::remap(&offset_sm, |_name: &str| Some(input_sm.clone()));
+        return composed.to_json();
     }
 
-    offset_sm.to_json_string()
-}
-
-/// Compose two source maps: for each mapping in `output_sm` (instrumented → intermediate),
-/// look up the corresponding position in `input_sm` (intermediate → original) to produce
-/// a composed map (instrumented → original).
-fn compose_source_maps(
-    output_sm: &oxc_sourcemap::SourceMap,
-    input_sm: &oxc_sourcemap::SourceMap,
-) -> oxc_sourcemap::SourceMap {
-    let input_lookup = input_sm.generate_lookup_table();
-    let mut builder = oxc_sourcemap::SourceMapBuilder::default();
-
-    // Copy source files and contents from input (the originals)
-    for (source, content) in input_sm.get_sources().zip(input_sm.get_source_contents()) {
-        let content_str = content.map_or("", |c| c.as_ref());
-        builder.add_source_and_content(source, content_str);
-    }
-
-    // Copy names from input map
-    for name in input_sm.get_names() {
-        builder.add_name(name);
-    }
-
-    // For each token in the output map, look up in the input map.
-    // When the input map has no mapping for a given intermediate position, the
-    // composed map cannot reference an original source either — the output map's
-    // source/name ids index a different table. Emit a position-only token so the
-    // generated position still decodes, but don't claim a wrong original source.
-    for token in output_sm.get_tokens() {
-        let src_line = token.get_src_line();
-        let src_col = token.get_src_col();
-
-        if let Some(original) = input_sm.lookup_token(&input_lookup, src_line, src_col) {
-            builder.add_token(
-                token.get_dst_line(),
-                token.get_dst_col(),
-                original.get_src_line(),
-                original.get_src_col(),
-                original.get_source_id(),
-                original.get_name_id(),
-            );
-        } else {
-            builder.add_token(token.get_dst_line(), token.get_dst_col(), 0, 0, None, None);
-        }
-    }
-
-    builder.into_sourcemap()
+    offset_sm.to_json()
 }
 
 /// Error type for instrumentation failures.

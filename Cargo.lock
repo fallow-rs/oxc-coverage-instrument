@@ -822,6 +822,8 @@ dependencies = [
  "oxc_traverse",
  "serde",
  "serde_json",
+ "srcmap-remapping",
+ "srcmap-sourcemap",
 ]
 
 [[package]]
@@ -1331,6 +1333,55 @@ name = "smawk"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
+
+[[package]]
+name = "srcmap-codec"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb59e0dc99488e5df4228114213cc2cfc1fa6071ab1b90706ba999fba866bee8"
+
+[[package]]
+name = "srcmap-generator"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "217a648dc740bafed246c92226fbbffde1d9ee1ab1cb7c7f7dd4d3f4a140a725"
+dependencies = [
+ "rustc-hash",
+ "srcmap-codec",
+ "srcmap-scopes",
+ "srcmap-sourcemap",
+]
+
+[[package]]
+name = "srcmap-remapping"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54bfd3f72f8d61b4992eac122212a6afc60388d4df703ca027379244bae7daab"
+dependencies = [
+ "srcmap-generator",
+ "srcmap-sourcemap",
+]
+
+[[package]]
+name = "srcmap-scopes"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45412ac7dcc91d43395072a2aa2480022963895c9791e52b519ab922e03c401a"
+dependencies = [
+ "srcmap-codec",
+]
+
+[[package]]
+name = "srcmap-sourcemap"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6cfb6ac3ef26caf22443bda4db17468e936a4adeaf073ac5235d9d367d98115d"
+dependencies = [
+ "serde",
+ "serde_json",
+ "srcmap-codec",
+ "srcmap-scopes",
+]
 
 [[package]]
 name = "static_assertions"
