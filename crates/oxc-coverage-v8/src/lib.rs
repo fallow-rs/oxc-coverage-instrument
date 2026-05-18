@@ -108,32 +108,25 @@ pub fn apply_v8_coverage(
             *slot = count;
         }
     }
-    let branch_updates: Vec<(String, Vec<u32>)> = file_coverage
-        .branch_map
-        .iter()
-        .map(|(id, branch_entry)| {
-            let body_spans = arm_body_byte_spans.get(id);
-            let arm_counts: Vec<u32> = branch_entry
-                .locations
-                .iter()
-                .enumerate()
-                .map(|(arm_idx, loc)| {
-                    arm_count_for_arm(
-                        source,
-                        loc,
-                        body_spans.and_then(|spans| spans.get(arm_idx).copied()),
-                        &line_offsets,
-                        &ranges,
-                        wrapper_length,
-                    )
-                })
-                .collect();
-            (id.clone(), arm_counts)
-        })
-        .collect();
-    for (id, counts) in branch_updates {
-        if let Some(slot) = file_coverage.b.get_mut(&id) {
-            *slot = counts;
+    for (id, branch_entry) in &file_coverage.branch_map {
+        let body_spans = arm_body_byte_spans.get(id);
+        let arm_counts: Vec<u32> = branch_entry
+            .locations
+            .iter()
+            .enumerate()
+            .map(|(arm_idx, loc)| {
+                arm_count_for_arm(
+                    source,
+                    loc,
+                    body_spans.and_then(|spans| spans.get(arm_idx).copied()),
+                    &line_offsets,
+                    &ranges,
+                    wrapper_length,
+                )
+            })
+            .collect();
+        if let Some(slot) = file_coverage.b.get_mut(id) {
+            *slot = arm_counts;
         }
     }
 }
