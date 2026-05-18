@@ -472,3 +472,164 @@ fn explicit_instrument_subcommand_works() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("var "), "explicit instrument should still emit instrumented code");
 }
+
+#[test]
+fn report_help_flag_prints_usage_and_exits_success() {
+    for arg in ["--help", "-h"] {
+        let out = cli().arg("report").arg(arg).output().unwrap();
+        assert!(out.status.success(), "`report {arg}` should exit 0");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("USAGE"), "`report {arg}` should print USAGE, got: {stderr}");
+        assert!(
+            stderr.contains("--threshold"),
+            "report-specific help must mention --threshold, got: {stderr}",
+        );
+    }
+}
+
+#[test]
+fn report_rejects_a_second_positional_coverage_file() {
+    let cov_a = write_temp("report_two_a.json", SAMPLE_COVERAGE);
+    let cov_b = write_temp("report_two_b.json", SAMPLE_COVERAGE);
+    let out = cli().arg("report").arg(&cov_a).arg(&cov_b).output().unwrap();
+    assert!(!out.status.success(), "two coverage files must be rejected");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("only one coverage file may be supplied"),
+        "should explain the single-file rule, got: {stderr}",
+    );
+}
+
+#[test]
+fn report_lcov_rejects_output_dir_with_friendly_error() {
+    let cov = write_temp("report_lcov_dir.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("lcov")
+        .arg("--output-dir")
+        .arg(std::env::temp_dir().join("oxc_cov_cli_lcov_dir_out"))
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("--format lcov"), "format name must reach the error, got: {stderr}");
+    assert!(stderr.contains("only valid for multi-file formats"), "got: {stderr}");
+}
+
+#[test]
+fn report_cobertura_rejects_output_dir_with_friendly_error() {
+    let cov = write_temp("report_cobertura_dir.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("cobertura")
+        .arg("--output-dir")
+        .arg(std::env::temp_dir().join("oxc_cov_cli_cobertura_dir_out"))
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("--format cobertura"), "got: {stderr}");
+}
+
+#[test]
+fn report_text_summary_rejects_output_dir_with_friendly_error() {
+    let cov = write_temp("report_text_summary_dir.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("text-summary")
+        .arg("--output-dir")
+        .arg(std::env::temp_dir().join("oxc_cov_cli_text_summary_dir_out"))
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("--format text-summary"), "got: {stderr}");
+}
+
+#[test]
+fn report_json_summary_rejects_output_dir_with_friendly_error() {
+    let cov = write_temp("report_json_summary_dir.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("json-summary")
+        .arg("--output-dir")
+        .arg(std::env::temp_dir().join("oxc_cov_cli_json_summary_dir_out"))
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("--format json-summary"), "got: {stderr}");
+}
+
+#[test]
+fn report_html_defaults_output_dir_to_coverage_subdir() {
+    // Without --output-dir, the CLI defaults to `./coverage` for html so users
+    // get a usable report from the simplest invocation. The default kicks in
+    // only on the success path, so we have to run from a temp cwd to avoid
+    // littering the repo with a `coverage/` directory.
+    let cov = write_temp("report_html_default_dir.json", SAMPLE_COVERAGE);
+    let workdir = std::env::temp_dir().join("oxc_cov_cli_html_default_workdir");
+    let _ = std::fs::remove_dir_all(&workdir);
+    std::fs::create_dir_all(&workdir).unwrap();
+
+    let out = cli()
+        .current_dir(&workdir)
+        .arg("report")
+        .arg("--format")
+        .arg("html")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        workdir.join("coverage").join("index.html").is_file(),
+        "default --output-dir should be ./coverage/ relative to cwd",
+    );
+}
+
+#[test]
+fn instrument_version_flag_mid_args_short_circuits() {
+    // `--version` inside the instrument argument loop must short-circuit even
+    // when a filename argument precedes it. The top-level dispatch tests cover
+    // the bare flag; this test covers the mid-args path inside parse_instrument_args.
+    let src = write_temp("version_mid_args.js", "const x = 1;");
+    let out = cli().arg(&src).arg("--version").output().unwrap();
+    assert!(out.status.success(), "mid-args --version should exit 0");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("oxc-coverage-instrument"), "got: {stdout}");
+}
+
+#[test]
+fn report_unknown_long_option_exits_failure() {
+    // Hits the report parser's catch-all for unknown `--flag` arguments,
+    // distinct from the report_text path tested via the format dispatcher.
+    let cov = write_temp("report_unknown_long.json", SAMPLE_COVERAGE);
+    let out = cli().arg("report").arg("--definitely-not-a-flag").arg(&cov).output().unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("unknown option"),
+        "unknown report flag must yield a friendly error, got: {stderr}",
+    );
+}
+
+#[test]
+fn report_flag_without_value_exits_failure() {
+    // `--format` is the last argument: take_value runs off the end of argv and
+    // must report a clear error rather than panic on out-of-bounds indexing.
+    let out = cli().arg("report").arg("--format").output().unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("--format requires a value"),
+        "trailing --format must surface a missing-value error, got: {stderr}",
+    );
+}
