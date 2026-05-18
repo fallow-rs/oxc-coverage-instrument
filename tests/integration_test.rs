@@ -797,17 +797,21 @@ fn composed_source_map_resolves_positions_to_original_source() {
         );
     }
 
-    // Skip line 0 (the preamble megaline that embeds the coverage object literal, which contains
-    // a JSON-encoded copy of the inputSourceMap's sourcesContent and thus also matches "const x").
-    let lines: Vec<&str> = result.code.lines().skip(1).collect();
+    // The preamble embeds a JSON-encoded copy of the inputSourceMap's
+    // sourcesContent, so the needles also appear in preamble lines. Pick the
+    // LAST occurrence of each needle in the file: the actual instrumented
+    // statement is always emitted after the preamble. This stays robust if
+    // codegen ever splits the preamble across multiple lines.
+    let all_lines: Vec<&str> = result.code.lines().collect();
     let lookup = composed.generate_lookup_table();
     for (needle, expected_src_line) in [("const x", 0u32), ("const y", 1), ("const z", 2)] {
-        let (rel_idx, line) = lines
+        let (gen_line_idx, line) = all_lines
             .iter()
             .enumerate()
+            .rev()
             .find(|(_, l)| l.contains(needle))
             .unwrap_or_else(|| panic!("instrumented code lines must contain `{needle}`"));
-        let gen_line = (rel_idx + 1) as u32;
+        let gen_line = gen_line_idx as u32;
         let gen_col = line.find(needle).expect("substring column") as u32;
         let token = composed.lookup_token(&lookup, gen_line, gen_col).unwrap_or_else(|| {
             panic!("`{needle}` at {gen_line}:{gen_col} resolves in composed map")

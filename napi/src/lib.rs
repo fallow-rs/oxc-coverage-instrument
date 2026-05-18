@@ -97,8 +97,9 @@ pub fn instrument(
 /// nyc's CLI mode.
 #[napi]
 pub fn remap_coverage_map(coverage_json: String) -> napi::Result<String> {
-    let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json)
-        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;
+    let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json).map_err(|e| {
+        napi::Error::new(napi::Status::InvalidArg, format!("invalid coverage JSON: {e}"))
+    })?;
     let remapped = oxc_coverage_instrument::remap_coverage_map(&parsed);
     serde_json::to_string(&remapped)
         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))

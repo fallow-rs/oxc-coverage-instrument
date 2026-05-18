@@ -89,6 +89,8 @@ pub fn v8_to_istanbul(
     functions: &[V8FunctionCoverage],
     wrapper_length: u32,
 ) -> Result<FileCoverage, V8ToIstanbulError> {
+    // TODO(v2): swap for a visit-only AST pass that collects locations
+    // without emitting the instrumented code + preamble we throw away.
     let instrumented = instrument(source, filename, &InstrumentOptions::default())
         .map_err(|e| V8ToIstanbulError::Parse(e.to_string()))?;
 
@@ -98,13 +100,14 @@ pub fn v8_to_istanbul(
         functions.iter().flat_map(|f| f.ranges.iter().copied()).collect();
 
     for (id, loc) in &file_coverage.statement_map {
-        let count = count_for_location(loc, &line_offsets, &ranges, wrapper_length);
+        let count = count_for_location(source, loc, &line_offsets, &ranges, wrapper_length);
         if let Some(slot) = file_coverage.s.get_mut(id) {
             *slot = count;
         }
     }
     for (id, fn_entry) in &file_coverage.fn_map {
-        let count = count_for_location(&fn_entry.loc, &line_offsets, &ranges, wrapper_length);
+        let count =
+            count_for_location(source, &fn_entry.loc, &line_offsets, &ranges, wrapper_length);
         if let Some(slot) = file_coverage.f.get_mut(id) {
             *slot = count;
         }
@@ -130,12 +133,19 @@ fn compute_line_offsets(source: &str) -> Vec<u32> {
     offsets
 }
 
-/// Best-effort byte offset of an Istanbul `(line, column)`. Istanbul columns
-/// are UTF-16 code units; for ASCII sources they collapse to byte indices.
-/// Non-ASCII columns are approximated by treating the column as a UTF-16
-/// code-unit count and walking the line until that many code units have been
-/// consumed; this matches what `istanbul-lib-source-maps` does in practice.
-fn position_to_byte_offset(line_1based: u32, col_utf16: u32, line_offsets: &[u32]) -> u32 {
+/// Byte offset of an Istanbul `(line, column)` inside `source`.
+///
+/// Istanbul columns are UTF-16 code units (Babel + `istanbul-lib-instrument`
+/// convention). srcmap is byte-based. For ASCII the two collapse, but for
+/// non-ASCII source the byte position must be computed by walking the line
+/// and consuming `col_utf16` UTF-16 code units. The walk is bounded by the
+/// `line_offsets` sentinel so a column past end-of-line clamps to end-of-line.
+fn position_to_byte_offset(
+    source: &str,
+    line_1based: u32,
+    col_utf16: u32,
+    line_offsets: &[u32],
+) -> u32 {
     if line_1based == 0 {
         return 0;
     }
@@ -143,24 +153,49 @@ fn position_to_byte_offset(line_1based: u32, col_utf16: u32, line_offsets: &[u32
     if line_idx >= line_offsets.len() - 1 {
         return *line_offsets.last().unwrap_or(&0);
     }
-    line_offsets[line_idx] + col_utf16
+    let line_start = line_offsets[line_idx] as usize;
+    let line_end = line_offsets[line_idx + 1] as usize;
+    let line_bytes = source.get(line_start..line_end).unwrap_or("");
+
+    let mut utf16_remaining = col_utf16;
+    let mut byte_in_line = 0usize;
+    for ch in line_bytes.chars() {
+        if utf16_remaining == 0 {
+            break;
+        }
+        let units = ch.len_utf16() as u32;
+        if units > utf16_remaining {
+            break;
+        }
+        utf16_remaining -= units;
+        byte_in_line += ch.len_utf8();
+    }
+
+    u32::try_from(line_start + byte_in_line).unwrap_or(u32::MAX)
 }
 
 fn count_for_location(
+    source: &str,
     loc: &Location,
     line_offsets: &[u32],
     ranges: &[V8CoverageRange],
     wrapper_length: u32,
 ) -> u32 {
-    let start =
-        position_to_byte_offset(loc.start.line, loc.start.column, line_offsets) + wrapper_length;
-    let end = position_to_byte_offset(loc.end.line, loc.end.column, line_offsets) + wrapper_length;
+    let start = position_to_byte_offset(source, loc.start.line, loc.start.column, line_offsets)
+        + wrapper_length;
+    let end = position_to_byte_offset(source, loc.end.line, loc.end.column, line_offsets)
+        + wrapper_length;
     smallest_containing_range_count(start, end, ranges)
 }
 
 /// Pick the count of the smallest V8 range that fully contains `[start, end)`.
 /// Smaller ranges represent inner blocks (with their own counts under
 /// `isBlockCoverage`) and override the outer function-level count.
+///
+/// Both V8 ranges and the statement byte span use the half-open convention
+/// (`endOffset` / `end` are exclusive). The containment predicate is therefore
+/// `r.start <= start && r.end >= end`: a range whose exclusive end is equal
+/// to the statement's exclusive end is the smallest possible exact container.
 fn smallest_containing_range_count(start: u32, end: u32, ranges: &[V8CoverageRange]) -> u32 {
     let mut best: Option<V8CoverageRange> = None;
     for r in ranges {

@@ -84,6 +84,24 @@ fn applies_wrapper_length_for_cjs_modules() {
 }
 
 #[test]
+fn handles_non_ascii_source_columns() {
+    // Istanbul reports UTF-16 columns; srcmap and V8 work in bytes. A
+    // statement that follows a non-ASCII character must still land inside
+    // the V8 range that contains it. `π` is 2 bytes UTF-8 / 1 UTF-16 unit,
+    // so the byte position of `const y` shifts by an extra byte per π.
+    let source = "const π = 1;\nconst y = π + 1;\n";
+    let end = source.len() as u32;
+    let functions = vec![function("", vec![range(0, end, 7)], false)];
+
+    let fc = v8_to_istanbul(source, "greek.js", &functions, 0).unwrap();
+    let s_values: Vec<u32> = fc.s.values().copied().collect();
+    assert!(
+        s_values.iter().all(|&c| c == 7),
+        "non-ASCII statements must still resolve into the V8 range, got: {s_values:?}"
+    );
+}
+
+#[test]
 fn function_counts_track_call_counts() {
     let source = "function add(a, b) { return a + b; }\nadd(1, 2);\n";
     let end = source.len() as u32;

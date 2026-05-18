@@ -147,6 +147,7 @@ fn remap_coverage_round_trips_through_parse_coverage_map() {
     let opts =
         InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() };
     let result = instrument(&intermediate, "intermediate.js", &opts).unwrap();
+    let original_statement_count = result.coverage_map.statement_map.len();
 
     let coverage_json = format!(
         r#"{{"intermediate.js":{}}}"#,
@@ -155,5 +156,12 @@ fn remap_coverage_round_trips_through_parse_coverage_map() {
     let parsed = parse_coverage_map(&coverage_json).expect("parse coverage-final.json shape");
 
     let remapped = remap_coverage_map(&parsed);
-    assert!(remapped.contains_key("src/app.ts"));
+    let fc = remapped.get("src/app.ts").expect("remapped under original path");
+    assert_eq!(
+        fc.statement_map.len(),
+        original_statement_count,
+        "statementMap entries must survive serialize-parse-remap"
+    );
+    assert_eq!(fc.s.len(), original_statement_count, "hit-count slots must survive the round-trip");
+    assert!(fc.input_source_map.is_none(), "inputSourceMap should be consumed during remap");
 }

@@ -300,7 +300,7 @@ This crate is the instrumentation stage of a larger Rust-native coverage pipelin
    +-----------------------------+
 ```
 
-When an `inputSourceMap` is supplied, the instrumenter composes the codegen's output map with the input map so that downstream remappers (Vitest, nyc, monocart) resolve coverage positions all the way back to the original source. The composition logic is shared in spirit with [`srcmap-remapping`](https://github.com/fallow-rs/srcmap/tree/main/crates/remapping); both packages target the same correctness bar.
+When an `inputSourceMap` is supplied, the instrumenter composes the codegen's output map with the input map so that downstream remappers (Vitest, nyc, monocart) resolve coverage positions all the way back to the original source. Composition is delegated to [`srcmap-remapping`](https://crates.io/crates/srcmap-remapping), which mirrors `@ampproject/remapping` semantics (the same primitive `istanbul-lib-source-maps` and every major bundler rely on).
 
 ## Related projects
 
