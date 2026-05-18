@@ -1,10 +1,10 @@
 //! CLI for oxc-coverage-instrument.
 //!
 //! Usage:
-//!   oxc-coverage-instrument <file>                  # instrument, print to stdout
-//!   oxc-coverage-instrument <file> -o <output>      # instrument, write to file
-//!   oxc-coverage-instrument <file> --coverage-map   # print coverage map JSON
-//!   oxc-coverage-instrument <file> --source-map     # include source map
+//!   `oxc-coverage-instrument FILE`                  # instrument, print to stdout
+//!   `oxc-coverage-instrument FILE -o OUTPUT`        # instrument, write to file
+//!   `oxc-coverage-instrument FILE --coverage-map`   # print coverage map JSON
+//!   `oxc-coverage-instrument FILE --source-map`     # include source map
 
 #![expect(clippy::print_stdout, clippy::print_stderr, reason = "CLI binary")]
 

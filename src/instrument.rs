@@ -12,8 +12,8 @@ use oxc_traverse::traverse_mut;
 
 use crate::pragma::PragmaMap;
 use crate::transform::{
-    CoverageState, CoverageTransform, PreambleInputs, TransformInit, generate_cov_fn_name,
-    generate_preamble_source,
+    CoverageState, CoverageTransform, PreambleInputs, TransformInit, djb31_hex,
+    generate_cov_fn_name, generate_preamble_source,
 };
 use crate::types::{CoverageMaps, FileCoverage, UnhandledPragma};
 
@@ -80,12 +80,14 @@ fn is_valid_js_identifier(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
-fn stable_hex_hash(input: &str) -> String {
-    let mut hash: u64 = 0;
-    for byte in input.bytes() {
-        hash = hash.wrapping_mul(31).wrapping_add(u64::from(byte));
-    }
-    format!("{hash:x}")
+/// Serialize a `FileCoverage` to JSON.
+///
+/// `FileCoverage` is composed of `BTreeMap`, `Vec`, `String`, and primitive
+/// numbers, all with first-party serde implementations that cannot fail at
+/// runtime. The .expect call documents this rather than threading a
+/// never-produced error variant through the call chain.
+fn serialize_coverage_map(coverage_map: &FileCoverage) -> String {
+    serde_json::to_string(coverage_map).expect("FileCoverage serializes to JSON infallibly")
 }
 
 /// Instrument a JavaScript/TypeScript source file for coverage collection.
@@ -146,14 +148,8 @@ pub fn instrument(
     // the preamble's coverageData literal. Istanbul refreshes stale coverage
     // objects when the same path is reinstrumented with a different shape, and
     // the hash is computed over the same JSON we embed in the preamble.
-    //
-    // `FileCoverage` is composed of `BTreeMap`, `Vec`, `String`, and primitive
-    // numbers, all with first-party serde implementations that cannot fail
-    // at runtime. The .expect call documents this rather than threading a
-    // never-produced error variant through the call chain.
-    let coverage_json =
-        serde_json::to_string(&coverage_map).expect("FileCoverage serializes to JSON infallibly");
-    let coverage_hash = stable_hex_hash(&coverage_json);
+    let coverage_json = serialize_coverage_map(&coverage_map);
+    let coverage_hash = djb31_hex(&coverage_json);
 
     let preamble = generate_preamble_source(&PreambleInputs {
         coverage: &coverage_map,
@@ -212,8 +208,7 @@ fn empty_coverage_result(
         branch_entries: Vec::new(),
         logical_branch_ids: Vec::new(),
     });
-    let coverage_map_json =
-        serde_json::to_string(&coverage_map).expect("FileCoverage serializes to JSON infallibly");
+    let coverage_map_json = serialize_coverage_map(&coverage_map);
     InstrumentResult {
         code: source.to_string(),
         coverage_map,

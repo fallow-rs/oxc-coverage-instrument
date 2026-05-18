@@ -268,7 +268,6 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         &mut self,
         stmt: &mut IfStatement<'arena>,
         branch_id: usize,
-        cov_fn: &'arena str,
         ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         if stmt.alternate.is_none() {
@@ -285,7 +284,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             };
             inject_branch_counter_into_statement(
                 alt,
-                CounterKind::branch(cov_fn, branch_id, path_idx),
+                CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
                 ctx,
             );
         }
@@ -301,18 +300,14 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         path_idx
     }
 
-    fn drain_pending_insertions_for_target(&mut self, target_start: u32) -> Vec<PendingInsertion> {
-        let mut drained = Vec::new();
-        let mut remaining = Vec::with_capacity(self.pending_stmts.len());
-        for pending in self.pending_stmts.drain(..) {
-            if pending.target_start == target_start {
-                drained.push(pending);
-            } else {
-                remaining.push(pending);
-            }
-        }
-        self.pending_stmts = remaining;
-        drained
+    // NOTE: callers must drive the iterator to completion (e.g. via `.collect`
+    // or `for`). `Vec::extract_if` is lazy, so dropping early leaves matching
+    // items in `pending_stmts`.
+    fn drain_pending_insertions_for_target(
+        &mut self,
+        target_start: u32,
+    ) -> impl Iterator<Item = PendingInsertion> + '_ {
+        self.pending_stmts.extract_if(.., move |p| p.target_start == target_start)
     }
 
     fn retarget_pending_insertions(&mut self, from_start: u32, to_start: u32) {
@@ -337,7 +332,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             return;
         }
 
-        let pending = self.drain_pending_insertions_for_target(span.start);
+        let pending: Vec<_> = self.drain_pending_insertions_for_target(span.start).collect();
         if pending.is_empty() {
             return;
         }
@@ -458,6 +453,23 @@ fn build_counter_stmt<'a>(
     ctx.ast.statement_expression(SPAN, expr)
 }
 
+/// Replace `target` with the sequence expression `(counter, target)`, where
+/// `counter` is the `kind` slot's increment expression. This is the canonical
+/// shape Istanbul uses to attach a counter to an expression slot (statement
+/// init, ternary arm, logical-assignment RHS, branch leaf, etc.).
+fn prepend_counter<'a>(
+    target: &mut Expression<'a>,
+    kind: CounterKind<'a>,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) {
+    let counter = build_counter_expr(kind, ctx);
+    let orig = mem::replace(target, dummy_expr(ctx));
+    let mut items = ctx.ast.vec();
+    items.push(counter);
+    items.push(orig);
+    *target = ctx.ast.expression_sequence(SPAN, items);
+}
+
 fn numeric_literal<'a>(ctx: &TraverseCtx<'a, CoverageState>, value: f64) -> Expression<'a> {
     ctx.ast.expression_numeric_literal(SPAN, value, None, oxc_syntax::number::NumberBase::Decimal)
 }
@@ -529,13 +541,19 @@ fn append_logic_helper(buf: &mut String, cov_fn_name: &str) {
     );
 }
 
-/// Generate a deterministic coverage function name from the file path.
-pub fn generate_cov_fn_name(file_path: &str) -> String {
+/// Stable DJB31 hex hash. Used for both the per-file coverage function name
+/// and Istanbul's stale-cache guard hash on the embedded coverage object.
+pub fn djb31_hex(input: &str) -> String {
     let mut hash: u64 = 0;
-    for byte in file_path.bytes() {
+    for byte in input.bytes() {
         hash = hash.wrapping_mul(31).wrapping_add(u64::from(byte));
     }
-    format!("cov_{hash:x}")
+    format!("{hash:x}")
+}
+
+/// Generate a deterministic coverage function name from the file path.
+pub fn generate_cov_fn_name(file_path: &str) -> String {
+    format!("cov_{}", djb31_hex(file_path))
 }
 
 /// Create a dummy expression for `mem::replace` operations.
@@ -699,15 +717,11 @@ fn wrap_expression_with_branch_counter<'a>(
     state: &LogicalWrapState<'a>,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) {
-    let counter = build_counter_expr(
+    prepend_counter(
+        operand,
         CounterKind::branch(state.cov_fn_name, state.branch_id, state.current_path_idx()),
         ctx,
     );
-    let orig = mem::replace(operand, dummy_expr(ctx));
-    let mut items = ctx.ast.vec();
-    items.push(counter);
-    items.push(orig);
-    *operand = ctx.ast.expression_sequence(SPAN, items);
 }
 
 /// Wrap `inner` with the truthy-tracking helper call:
@@ -972,13 +986,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             return;
         }
         let stmt_id = self.add_statement(init_span);
-        let cov_fn = self.cov_fn_name;
-        let counter = build_counter_expr(CounterKind::stmt(cov_fn, stmt_id), ctx);
-        let orig = mem::replace(init, dummy_expr(ctx));
-        let mut items = ctx.ast.vec();
-        items.push(counter);
-        items.push(orig);
-        *init = ctx.ast.expression_sequence(SPAN, items);
+        prepend_counter(init, CounterKind::stmt(self.cov_fn_name, stmt_id), ctx);
     }
 
     fn exit_variable_declarator(
@@ -1065,19 +1073,13 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // Istanbul creates a statement counter for each initializer expression.
         // Since PropertyDefinition is a class element (not a Statement), enter_statement
         // won't catch it. We wrap the initializer: x = (++cov.s[N], expr).
-        let Some(value) = &prop.value else { return };
+        let Some(value) = prop.value.as_mut() else { return };
         let span = value.span();
         if span.start == 0 && span.end == 0 {
             return;
         }
         let stmt_id = self.add_statement(span);
-        let cov_fn = self.cov_fn_name;
-        let counter = build_counter_expr(CounterKind::stmt(cov_fn, stmt_id), ctx);
-        let orig = mem::replace(prop.value.as_mut().unwrap(), dummy_expr(ctx));
-        let mut items = ctx.ast.vec();
-        items.push(counter);
-        items.push(orig);
-        *prop.value.as_mut().unwrap() = ctx.ast.expression_sequence(SPAN, items);
+        prepend_counter(value, CounterKind::stmt(self.cov_fn_name, stmt_id), ctx);
     }
 
     fn exit_property_definition(
@@ -1242,7 +1244,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             );
         }
         if pragma != Some(IgnoreType::Else) {
-            self.inject_else_branch_counter(stmt, branch_id, cov_fn, ctx);
+            self.inject_else_branch_counter(stmt, branch_id, ctx);
         }
     }
 
@@ -1278,25 +1280,21 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
 
         let branch_id = self.add_branch("cond-expr", expr.span);
 
-        let cov_fn = self.cov_fn_name;
-
         // Wrap consequent: (cov.b[id][path]++, originalExpr)
         let path_idx = self.add_branch_path(branch_id, expr.consequent.span());
-        let counter = build_counter_expr(CounterKind::branch(cov_fn, branch_id, path_idx), ctx);
-        let orig_consequent = mem::replace(&mut expr.consequent, dummy_expr(ctx));
-        let mut items = ctx.ast.vec();
-        items.push(counter);
-        items.push(orig_consequent);
-        expr.consequent = ctx.ast.expression_sequence(SPAN, items);
+        prepend_counter(
+            &mut expr.consequent,
+            CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
+            ctx,
+        );
 
         // Wrap alternate: (cov.b[id][path]++, originalExpr)
         let path_idx = self.add_branch_path(branch_id, expr.alternate.span());
-        let counter = build_counter_expr(CounterKind::branch(cov_fn, branch_id, path_idx), ctx);
-        let orig_alternate = mem::replace(&mut expr.alternate, dummy_expr(ctx));
-        let mut items = ctx.ast.vec();
-        items.push(counter);
-        items.push(orig_alternate);
-        expr.alternate = ctx.ast.expression_sequence(SPAN, items);
+        prepend_counter(
+            &mut expr.alternate,
+            CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
+            ctx,
+        );
     }
 
     fn enter_switch_statement(
@@ -1568,9 +1566,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             self.add_branch_path(branch_id, left_span);
             self.add_branch_path(branch_id, right_span);
 
-            let cov_fn = self.cov_fn_name;
-
-            // The left branch (no assignment) is always entered — increment before
+            // The left branch (no assignment) is always entered, increment before
             // the assignment. The right branch (assignment happens) is conditional.
             // We insert the left counter as a pending statement before this expression,
             // and wrap the right side with the right counter.
@@ -1581,12 +1577,11 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             });
 
             // Wrap the right side: x ??= (++cov.b[id][1], y)
-            let counter = build_counter_expr(CounterKind::branch(cov_fn, branch_id, 1), ctx);
-            let orig_right = mem::replace(&mut expr.right, dummy_expr(ctx));
-            let mut items = ctx.ast.vec();
-            items.push(counter);
-            items.push(orig_right);
-            expr.right = ctx.ast.expression_sequence(SPAN, items);
+            prepend_counter(
+                &mut expr.right,
+                CounterKind::branch(self.cov_fn_name, branch_id, 1),
+                ctx,
+            );
         }
     }
 }
