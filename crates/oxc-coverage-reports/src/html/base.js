@@ -261,7 +261,8 @@
 
   // ---------- Line anchors (detail pages) -------------------------------
   // Hooks: <button class="line-anchor" data-line="42"> inside td.line-num,
-  // + <div id="cov-copy-toast" role="status" aria-live="polite">.
+  // + <div id="cov-copy-toast" role="status">. (role="status" implies
+  // aria-live="polite" per the WAI-ARIA spec, no need to declare both.)
   // Clicking the button: scrolls to the row via hash, copies the
   // canonical link to the clipboard, flashes a toast.
   function initLineAnchors() {

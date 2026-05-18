@@ -340,7 +340,7 @@ fn render_detail(
     body.push_str("      </table>\n");
     body.push_str("    </div>\n");
     body.push_str(
-        "    <div class=\"copy-toast\" id=\"cov-copy-toast\" role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></div>\n",
+        "    <div class=\"copy-toast\" id=\"cov-copy-toast\" role=\"status\" aria-atomic=\"true\"></div>\n",
     );
     render_page(&title, depth, &body)
 }
