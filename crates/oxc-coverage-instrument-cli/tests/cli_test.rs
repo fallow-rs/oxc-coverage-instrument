@@ -357,6 +357,97 @@ fn report_html_rejects_dash_o_with_friendly_error() {
 }
 
 #[test]
+fn report_html_threshold_flag_overrides_default_summary() {
+    let cov = write_temp("report_html_threshold.json", SAMPLE_COVERAGE);
+    let out_dir = std::env::temp_dir().join("oxc_cov_cli_html_threshold_out");
+    let _ = std::fs::remove_dir_all(&out_dir);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("html")
+        .arg("--output-dir")
+        .arg(&out_dir)
+        .arg("--threshold")
+        .arg("40")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let index = std::fs::read_to_string(out_dir.join("index.html")).unwrap();
+    // SAMPLE_COVERAGE has one file with 50% statement coverage. With the
+    // CLI default 80% threshold the sentence reads "below the 80%
+    // coverage threshold"; with --threshold 40 the cutoff drops and
+    // the file is now above, so the sentence flips to the all-met form.
+    assert!(
+        index.contains("40% coverage threshold"),
+        "summary should reflect --threshold 40, got:\n{index}",
+    );
+}
+
+#[test]
+fn report_html_threshold_rejects_out_of_range_values() {
+    let cov = write_temp("report_html_threshold_bad.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("html")
+        .arg("--output-dir")
+        .arg(std::env::temp_dir().join("oxc_cov_cli_html_threshold_bad_out"))
+        .arg("--threshold")
+        .arg("150")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "should reject --threshold 150");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("outside [0, 100]"), "got: {stderr}");
+}
+
+#[test]
+fn report_html_threshold_rejects_non_finite_values() {
+    let cov = write_temp("report_html_threshold_nan.json", SAMPLE_COVERAGE);
+    // `f64::from_str` parses NaN successfully; without an explicit
+    // `is_finite()` guard the value would slip past the range check
+    // and silently degrade every percent to the "medium" bucket.
+    for bad in ["nan", "inf", "-inf"] {
+        let out = cli()
+            .arg("report")
+            .arg("--format")
+            .arg("html")
+            .arg("--output-dir")
+            .arg(std::env::temp_dir().join("oxc_cov_cli_html_threshold_nan_out"))
+            .arg("--threshold")
+            .arg(bad)
+            .arg(&cov)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "should reject --threshold {bad}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("finite number") || stderr.contains("outside [0, 100]"),
+            "rejection for {bad:?} should mention finite-number or range; got: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn report_threshold_rejected_on_non_html_formats() {
+    let cov = write_temp("report_threshold_lcov.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("lcov")
+        .arg("--threshold")
+        .arg("70")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "should reject --threshold on lcov");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("--threshold only applies to --format html"), "got: {stderr}");
+}
+
+#[test]
 fn report_text_rejects_output_dir_with_friendly_error() {
     let cov = write_temp("report_text_dash_dir.json", SAMPLE_COVERAGE);
     let out = cli()

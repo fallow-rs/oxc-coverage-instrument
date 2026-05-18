@@ -161,4 +161,27 @@ impl Format {
             )),
         }
     }
+
+    /// Like [`Format::write_to_dir`] but threads through caller-supplied
+    /// options. Currently only [`Format::Html`] consumes the options
+    /// (via [`html::HtmlOptions`]); other multi-file formats added in
+    /// the future may extend this signature.
+    #[cfg(feature = "html")]
+    pub fn write_to_dir_with_options(
+        self,
+        coverage_map: &oxc_coverage_report::CoverageMap,
+        root_dir: &Path,
+        output_dir: &Path,
+        html_options: &html::HtmlOptions,
+    ) -> std::io::Result<()> {
+        match self {
+            Self::Html => {
+                html::write_with_options(coverage_map, root_dir, output_dir, html_options)
+            }
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "single-file format; use Format::write",
+            )),
+        }
+    }
 }

@@ -64,6 +64,11 @@ Coverage suite (umbrella [#45](https://github.com/fallow-rs/oxc-coverage-instrum
   - `rayon` parallelism on per-file render (`children.par_iter()`); 100-file / 200-LOC project emits in under 2 s on a typical laptop
   - New `html` Cargo feature (default-enabled) gates `syntect` + `two-face` + `rayon` so downstream consumers that only want text / lcov / cobertura / json-summary can drop the grammar payload via `default-features = false`
   - `~+2.2 MiB` binary delta for the bundled grammar set; acceptable for a CI-class tool
+- [x] **PR G5**: configurable line-coverage threshold
+  - New `HtmlOptions { high_threshold: f64 }` struct with `Default` (80.0, matching Istanbul's traditional cutoff). Constructed via struct-update syntax so future fields are additive without breaking callers
+  - New `html::write_with_options()` companion to `html::write()`; new `Format::write_to_dir_with_options()` companion to `Format::write_to_dir()`. The original entry points keep their signatures for backward compat and dispatch through `HtmlOptions::default()`
+  - Threshold drives both the index page's "N of M files fall below the X% line-coverage threshold" sentence AND the high/medium/low colour bucketing on every metric pill, row, and inline coverage meter, so the visual story stays consistent. Medium / low boundary stays fixed at 50%
+  - CLI `--threshold <pct>` flag on `report` subcommand; validates `0 <= x <= 100` at parse time with a friendly error message
 - [x] **PR G4**: fallow "Mode B" visual pass
   - New `coverage-tokens.css` vendored from fallow-cloud's design system (Radix Sand palette, severity stops, type ramp, font stacks). Light-default per Mode B; dark via explicit `data-theme="dark"` OR `prefers-color-scheme: dark` + no override
   - KPI metric pills with `[ Statements ]` bracket labels and severity-coloured values; per-row mini coverage meter on the Lines column (1px outline, severity fill, `role="meter"`); breadcrumb as semantic `<ol><li>` with `aria-current="page"`
