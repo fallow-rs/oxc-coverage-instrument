@@ -83,3 +83,23 @@ pub fn instrument(
         unhandled_pragmas,
     })
 }
+
+/// Remap a coverage-final.json-shaped JSON string through each entry's
+/// embedded `inputSourceMap` (typically attached during instrumentation).
+///
+/// Entries without an `inputSourceMap` are returned unchanged under their
+/// original key. Entries with one are walked through the map and re-keyed by
+/// the original source path (with `sourceRoot` joined per
+/// `istanbul-lib-source-maps` semantics). Returns the remapped JSON.
+///
+/// Equivalent to `createSourceMapStore().transformCoverage(coverageMap)` in
+/// the Vitest istanbul reporter path, minus the disk-read fallback used by
+/// nyc's CLI mode.
+#[napi]
+pub fn remap_coverage_map(coverage_json: String) -> napi::Result<String> {
+    let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json)
+        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;
+    let remapped = oxc_coverage_instrument::remap_coverage_map(&parsed);
+    serde_json::to_string(&remapped)
+        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
+}

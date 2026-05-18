@@ -1,5 +1,5 @@
 // Quick test for the napi bindings
-import { instrument } from './index.js';
+import { instrument, remapCoverageMap } from './index.js';
 import { strict as assert } from 'node:assert';
 
 console.log('Testing oxc-coverage-instrument napi bindings...\n');
@@ -505,6 +505,35 @@ function runInstrumented(result, filename, callExpression) {
   const clean = instrument('const x = 1;', 'clean.js');
   assert.equal(clean.unhandledPragmas.length, 0, 'Clean source should have no unhandled pragmas');
   console.log('  [PASS] unhandledPragmas surfaces unknown directives');
+}
+
+// Test 17: remapCoverageMap rewrites coverage paths and positions through inputSourceMap
+{
+  const originalTs = 'const x: number = 1;\nconst y: number = 2;\nconst z: number = 3;\n';
+  const intermediateJs = 'const x = 1;\nconst y = 2;\nconst z = 3;\n';
+  const inputSourceMap = {
+    version: 3,
+    sources: ['src/app.ts'],
+    sourcesContent: [originalTs],
+    mappings: 'AAAA;AACA;AACA',
+    names: [],
+  };
+  const result = instrument(intermediateJs, 'intermediate.js', {
+    inputSourceMap: JSON.stringify(inputSourceMap),
+  });
+
+  const coverageMap = { 'intermediate.js': JSON.parse(result.coverageMap) };
+  const remapped = JSON.parse(remapCoverageMap(JSON.stringify(coverageMap)));
+
+  assert(remapped['src/app.ts'], 'remapped map should be keyed by the resolved original path');
+  assert(!remapped['intermediate.js'], 'remapped map should not retain the intermediate key');
+  assert.equal(remapped['src/app.ts'].path, 'src/app.ts', 'path on the file coverage should match');
+  assert(!remapped['src/app.ts'].inputSourceMap, 'inputSourceMap should be cleared after remap');
+  const lines = Object.values(remapped['src/app.ts'].statementMap)
+    .map((loc) => loc.start.line)
+    .sort();
+  assert.deepEqual(lines, [1, 2, 3], 'statement lines should map back to original.ts lines');
+  console.log('  [PASS] remapCoverageMap rewrites coverage through inputSourceMap');
 }
 
 console.log('\nAll tests passed!');

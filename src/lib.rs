@@ -30,10 +30,12 @@
 
 mod instrument;
 mod pragma;
+mod source_maps;
 mod transform;
 mod types;
 
 pub use instrument::{InstrumentError, InstrumentOptions, InstrumentResult, instrument};
+pub use source_maps::{remap_coverage, remap_coverage_map};
 pub use types::{
     BranchEntry, FileCoverage, FnEntry, Location, Position, UnhandledPragma, parse_coverage_map,
 };
