@@ -117,7 +117,24 @@ font-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'";
 /// `base.js`. All three must travel together; copying only `base.css`
 /// to a new location without `coverage-tokens.css` leaves the report
 /// visually broken (the token cascade resolves to the browser default).
+///
+/// Uses [`HtmlOptions::default()`] (80% high-coverage threshold matching
+/// Istanbul's convention). Call [`write_with_options`] to override.
 pub fn write(coverage_map: &CoverageMap, root_dir: &Path, output_dir: &Path) -> io::Result<()> {
+    write_with_options(coverage_map, root_dir, output_dir, &HtmlOptions::default())
+}
+
+/// Render a complete HTML coverage report with explicit [`HtmlOptions`].
+///
+/// Same semantics as [`write()`], but the caller controls the threshold
+/// that drives the high/medium/low colour bucketing and the index
+/// page's threshold-summary sentence.
+pub fn write_with_options(
+    coverage_map: &CoverageMap,
+    root_dir: &Path,
+    output_dir: &Path,
+    options: &HtmlOptions,
+) -> io::Result<()> {
     let remapped = remap_coverage_map(coverage_map);
     let root = summarize(&remapped);
 
@@ -126,13 +143,37 @@ pub fn write(coverage_map: &CoverageMap, root_dir: &Path, output_dir: &Path) -> 
     fs::write(output_dir.join("coverage-tokens.css"), COVERAGE_TOKENS_CSS)?;
     fs::write(output_dir.join("base.js"), BASE_JS)?;
 
-    let ctx = RenderContext { root_dir };
+    let ctx = RenderContext { root_dir, options };
     render_node(&root, &ctx, output_dir, 0)?;
     Ok(())
 }
 
+/// Tunable knobs for the HTML reporter.
+///
+/// Stable across breaking changes; new fields are added at the end with
+/// defaults supplied by [`HtmlOptions::default`]. Construct via
+/// `HtmlOptions { high_threshold: 75.0, ..Default::default() }` so
+/// future fields don't require updating every call site.
+#[derive(Debug, Clone)]
+pub struct HtmlOptions {
+    /// Percentage cutoff that separates "high" coverage (green) from
+    /// "medium" (amber) on per-metric colouring, and powers the index
+    /// page's "N of M files fall below the X% line-coverage threshold"
+    /// sentence. The medium-to-low boundary stays fixed at 50%.
+    /// Must be in `[0.0, 100.0]`; the CLI clamps user input.
+    /// Default: `80.0` (Istanbul's traditional value).
+    pub high_threshold: f64,
+}
+
+impl Default for HtmlOptions {
+    fn default() -> Self {
+        Self { high_threshold: 80.0 }
+    }
+}
+
 struct RenderContext<'a> {
     root_dir: &'a Path,
+    options: &'a HtmlOptions,
 }
 
 fn render_node(
@@ -150,7 +191,7 @@ fn render_node(
                 output_dir.join(&node.relative_path)
             };
             fs::create_dir_all(&folder_dir)?;
-            let html = render_folder_index(node, children, depth);
+            let html = render_folder_index(node, children, ctx, depth);
             fs::write(folder_dir.join(INDEX_FILE), html)?;
 
             // Render children in parallel. The file branch is CPU-bound
@@ -193,22 +234,28 @@ fn child_depth_delta(_parent: &ReportNode, child: &ReportNode) -> usize {
 
 // -- Folder index page ------------------------------------------------------
 
-fn render_folder_index(node: &ReportNode, children: &[ReportNode], depth: usize) -> String {
+fn render_folder_index(
+    node: &ReportNode,
+    children: &[ReportNode],
+    ctx: &RenderContext,
+    depth: usize,
+) -> String {
     let title = if node.relative_path.is_empty() {
         "All files".to_owned()
     } else {
         node.relative_path.clone()
     };
+    let threshold = ctx.options.high_threshold;
     let mut body = String::new();
-    body.push_str(&render_summary_header(&title, &node.summary, depth, node));
+    body.push_str(&render_summary_header(&title, &node.summary, depth, node, threshold));
     body.push_str("    <div class=\"pad1\">\n");
-    body.push_str(&render_threshold_summary(children));
+    body.push_str(&render_threshold_summary(children, threshold));
     body.push_str(&render_filter_group(children.len()));
     body.push_str("      <table class=\"coverage-summary\" id=\"cov-file-table\">\n");
     body.push_str(&render_summary_table_header());
     body.push_str("        <tbody>\n");
     for child in children {
-        body.push_str(&render_summary_row(child));
+        body.push_str(&render_summary_row(child, threshold));
     }
     body.push_str("        </tbody>\n");
     body.push_str("      </table>\n");
@@ -216,23 +263,22 @@ fn render_folder_index(node: &ReportNode, children: &[ReportNode], depth: usize)
     render_page(&title, depth, &body)
 }
 
-/// One-line summary above the file table: "N of M files below the 80%
+/// One-line summary above the file table: "N of M files below the X%
 /// line-coverage threshold". Renders as muted body text when at least
 /// one file falls below; silent when every file is at or above.
-fn render_threshold_summary(children: &[ReportNode]) -> String {
-    const THRESHOLD: f64 = 80.0;
+fn render_threshold_summary(children: &[ReportNode], threshold: f64) -> String {
     let total = children.len();
     if total == 0 {
         return String::new();
     }
-    let below = children.iter().filter(|c| c.summary.lines.pct < THRESHOLD).count();
+    let below = children.iter().filter(|c| c.summary.lines.pct < threshold).count();
     if below == 0 {
         return format!(
-            "      <p class=\"threshold-summary\"><strong>All {total} files</strong> meet the {THRESHOLD:.0}% line-coverage threshold.</p>\n",
+            "      <p class=\"threshold-summary\"><strong>All {total} files</strong> meet the {threshold:.0}% line-coverage threshold.</p>\n",
         );
     }
     format!(
-        "      <p class=\"threshold-summary\"><strong>{below}</strong> of {total} files fall below the {THRESHOLD:.0}% line-coverage threshold.</p>\n",
+        "      <p class=\"threshold-summary\"><strong>{below}</strong> of {total} files fall below the {threshold:.0}% line-coverage threshold.</p>\n",
     )
 }
 
@@ -260,13 +306,13 @@ fn render_summary_table_header() -> String {
     out
 }
 
-fn render_summary_row(child: &ReportNode) -> String {
+fn render_summary_row(child: &ReportNode, threshold: f64) -> String {
     let href = match &child.kind {
         NodeKind::Folder { .. } => format!("{}/{INDEX_FILE}", html_attr_escape(&child.name)),
         NodeKind::File { .. } => format!("{}{DETAIL_SUFFIX}", html_attr_escape(&child.name)),
     };
     let display = html_text_escape(&child.name);
-    let row_class = pct_class(child.summary.lines.pct);
+    let row_class = pct_class(child.summary.lines.pct, threshold);
     let mut out = format!(
         "          <tr class=\"row-{row_class}\" data-file=\"{file}\">\n",
         file = html_attr_escape(&child.name),
@@ -279,7 +325,7 @@ fn render_summary_row(child: &ReportNode) -> String {
         ("Lines", child.summary.lines),
     ];
     for (idx, (label, metric)) in metrics.iter().enumerate() {
-        let mc = pct_class(metric.pct);
+        let mc = pct_class(metric.pct, threshold);
         // Mini coverage meter only on the Lines column (final column);
         // duplicating it on every column would clutter the table.
         let meter = if idx == metrics.len() - 1 {
@@ -316,7 +362,13 @@ fn render_detail(
     let fn_lines = compute_fn_lines(coverage);
 
     let mut body = String::new();
-    body.push_str(&render_summary_header(&title, &node.summary, depth, node));
+    body.push_str(&render_summary_header(
+        &title,
+        &node.summary,
+        depth,
+        node,
+        ctx.options.high_threshold,
+    ));
     body.push_str("    <div class=\"pad1\">\n");
     body.push_str(
         "      <div class=\"detail-actions\">\n        <button type=\"button\" class=\"btn-ghost\" id=\"cov-next-uncovered\" aria-label=\"Jump to next uncovered line\" disabled>Next uncovered</button>\n      </div>\n",
@@ -503,6 +555,7 @@ fn render_summary_header(
     summary: &CoverageSummary,
     depth: usize,
     node: &ReportNode,
+    threshold: f64,
 ) -> String {
     let mut out = String::from("    <header class=\"summary\">\n");
     let _ = writeln!(out, "      <h1>{}</h1>", html_text_escape(title));
@@ -514,7 +567,7 @@ fn render_summary_header(
         ("Functions", summary.functions),
         ("Lines", summary.lines),
     ] {
-        let class = pct_class(m.pct);
+        let class = pct_class(m.pct, threshold);
         let _ = writeln!(
             out,
             "        <li class=\"kpi-cell kpi-cell--{class}\"><span class=\"kpi-cell__label\">[ {label} ]</span><span class=\"kpi-cell__value\">{:.2}%</span><span class=\"kpi-cell__sub\">{}/{}</span></li>",
@@ -654,8 +707,14 @@ fn read_source(file: &FileCoverage, root_dir: &Path) -> Option<String> {
 
 // -- Class assignment ------------------------------------------------------
 
-fn pct_class(pct: f64) -> &'static str {
-    if pct >= 80.0 {
+/// Map a percentage to one of `"high"`/`"medium"`/`"low"`, used as the
+/// `kpi-cell--*`, `row-*`, `pct *`, and `cov-meter--*` modifier
+/// suffixes. `high_threshold` separates high from medium; the medium /
+/// low boundary is fixed at 50% (a hardcoded medium threshold below
+/// `high_threshold` keeps the three-bucket UX legible while still
+/// honouring caller preferences for the green/amber line).
+fn pct_class(pct: f64, high_threshold: f64) -> &'static str {
+    if pct >= high_threshold {
         "high"
     } else if pct >= 50.0 {
         "medium"
@@ -1006,6 +1065,52 @@ mod tests {
                 "missing generator meta in {html_path:?}",
             );
         }
+    }
+
+    #[test]
+    fn custom_threshold_drives_summary_sentence_and_pct_class() {
+        // Two files: one at 70% lines, one at 90% lines. With the default
+        // 80% threshold the 70% file is "below"; with --threshold 60 both
+        // are "above" and the row colour bucketing flips.
+        let json = r#"{
+            "lo.js":{"path":"lo.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"1":{"start":{"line":2,"column":0},"end":{"line":2,"column":1}},"2":{"start":{"line":3,"column":0},"end":{"line":3,"column":1}},"3":{"start":{"line":4,"column":0},"end":{"line":4,"column":1}},"4":{"start":{"line":5,"column":0},"end":{"line":5,"column":1}},"5":{"start":{"line":6,"column":0},"end":{"line":6,"column":1}},"6":{"start":{"line":7,"column":0},"end":{"line":7,"column":1}},"7":{"start":{"line":8,"column":0},"end":{"line":8,"column":1}},"8":{"start":{"line":9,"column":0},"end":{"line":9,"column":1}},"9":{"start":{"line":10,"column":0},"end":{"line":10,"column":1}}},"fnMap":{},"branchMap":{},"s":{"0":1,"1":1,"2":1,"3":1,"4":1,"5":1,"6":1,"7":0,"8":0,"9":0},"f":{},"b":{}},
+            "hi.js":{"path":"hi.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"1":{"start":{"line":2,"column":0},"end":{"line":2,"column":1}},"2":{"start":{"line":3,"column":0},"end":{"line":3,"column":1}},"3":{"start":{"line":4,"column":0},"end":{"line":4,"column":1}},"4":{"start":{"line":5,"column":0},"end":{"line":5,"column":1}},"5":{"start":{"line":6,"column":0},"end":{"line":6,"column":1}},"6":{"start":{"line":7,"column":0},"end":{"line":7,"column":1}},"7":{"start":{"line":8,"column":0},"end":{"line":8,"column":1}},"8":{"start":{"line":9,"column":0},"end":{"line":9,"column":1}},"9":{"start":{"line":10,"column":0},"end":{"line":10,"column":1}}},"fnMap":{},"branchMap":{},"s":{"0":1,"1":1,"2":1,"3":1,"4":1,"5":1,"6":1,"7":1,"8":1,"9":0},"f":{},"b":{}}
+        }"#;
+        let map = parse_coverage_map(json).unwrap();
+
+        // Default (80%): 70% file is "low" via lines pct < 50.0? Actually
+        // 70% > 50%, so it's "medium"; threshold-summary should say
+        // "1 of 2 files fall below the 80% line-coverage threshold".
+        let dir_default = tempfile::TempDir::new().unwrap();
+        write(&map, Path::new(""), dir_default.path()).unwrap();
+        let default_root = fs::read_to_string(dir_default.path().join("index.html")).unwrap();
+        assert!(
+            default_root.contains("1</strong> of 2 files fall below the 80%"),
+            "default threshold should report 1 below 80%: {default_root}",
+        );
+        assert!(
+            default_root.contains("row-medium"),
+            "70% file should bucket medium under default threshold",
+        );
+
+        // Custom 60%: both files are above; sentence should report all met.
+        let dir_loose = tempfile::TempDir::new().unwrap();
+        write_with_options(
+            &map,
+            Path::new(""),
+            dir_loose.path(),
+            &HtmlOptions { high_threshold: 60.0 },
+        )
+        .unwrap();
+        let loose_root = fs::read_to_string(dir_loose.path().join("index.html")).unwrap();
+        assert!(
+            loose_root.contains("All 2 files</strong> meet the 60% line-coverage threshold"),
+            "60% threshold should clear all files: {loose_root}",
+        );
+        assert!(
+            loose_root.contains("row-high"),
+            "70% file should bucket high under a 60% threshold",
+        );
     }
 
     fn walkdir(dir: &Path) -> Vec<PathBuf> {
