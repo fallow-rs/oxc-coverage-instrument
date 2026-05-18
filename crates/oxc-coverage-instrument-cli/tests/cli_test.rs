@@ -250,6 +250,63 @@ fn report_invalid_json_exits_failure() {
 }
 
 #[test]
+fn report_lcov_format_writes_tracefile_with_sf_records() {
+    let cov = write_temp("report_lcov_cov.json", SAMPLE_COVERAGE);
+    let out = cli().arg("report").arg("--format").arg("lcov").arg(&cov).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!stdout.is_empty(), "lcov output must not be empty");
+    assert!(stdout.contains("SF:a.js"), "expected SF: record, got:\n{stdout}");
+    assert!(stdout.contains("end_of_record"), "expected end_of_record, got:\n{stdout}");
+}
+
+#[test]
+fn report_cobertura_format_writes_coverage_xml_root() {
+    let cov = write_temp("report_cobertura_cov.json", SAMPLE_COVERAGE);
+    let out = cli().arg("report").arg("--format").arg("cobertura").arg(&cov).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!stdout.is_empty(), "cobertura output must not be empty");
+    assert!(stdout.contains("<?xml"), "expected XML declaration, got:\n{stdout}");
+    assert!(stdout.contains("<coverage "), "expected <coverage> root, got:\n{stdout}");
+    assert!(stdout.contains("line-rate="), "expected line-rate attribute, got:\n{stdout}");
+    assert!(stdout.contains("timestamp="), "expected timestamp attribute, got:\n{stdout}");
+}
+
+#[test]
+fn report_root_flag_relativizes_lcov_sf_paths() {
+    // Build a coverage map with absolute paths under a synthetic root and
+    // verify the emitter strips that root in the SF: records.
+    let absolute_cov = r#"{
+        "/synthetic/proj/src/a.js": {
+            "path": "/synthetic/proj/src/a.js",
+            "statementMap": {
+                "0": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 5}}
+            },
+            "fnMap": {},
+            "branchMap": {},
+            "s": {"0": 1},
+            "f": {},
+            "b": {}
+        }
+    }"#;
+    let cov = write_temp("report_root_cov.json", absolute_cov);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("lcov")
+        .arg("--root")
+        .arg("/synthetic/proj")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("SF:src/a.js"), "expected relativized SF, got:\n{stdout}");
+    assert!(!stdout.contains("SF:/synthetic/proj"));
+}
+
+#[test]
 fn explicit_instrument_subcommand_works() {
     let src = write_temp("explicit_instrument.js", "const x = 1;");
     let out = cli().arg("instrument").arg(&src).output().unwrap();

@@ -3,7 +3,7 @@ name = "oxc_coverage_reports"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
-description = "Coverage reporters (text, text-summary, json-summary) for the oxc-coverage suite (port of istanbul-reports)"
+description = "Coverage reporters (text, text-summary, json-summary, lcov, cobertura) for the oxc-coverage suite (port of istanbul-reports)"
 homepage.workspace = true
 keywords.workspace = true
 license.workspace = true
@@ -22,3 +22,4 @@ serde_json = "1"
 
 [dev-dependencies]
 insta = { version = "1", features = ["json"] }
+lcov = "0.8"

@@ -12,8 +12,12 @@
 //!   comment or CI summary.
 //! - [`json_summary`]: `coverage-summary.json` shape consumed by Codecov,
 //!   Vitest, and dashboard tools.
+//! - [`lcov`]: LCOV `tracefile` consumed by Codecov, Coveralls, GitLab MR
+//!   widget, and the `lcov`/`genhtml` toolchain.
+//! - [`cobertura`]: Cobertura XML consumed by GitLab MR widget, Jenkins,
+//!   Azure DevOps, and Codecov.
 //!
-//! `lcov`, `cobertura`, and `html` reporters will land in follow-on PRs.
+//! The `html` reporter will land in a follow-on PR.
 //!
 //! # Example
 //!
@@ -32,9 +36,13 @@
 //! [upstream]: https://github.com/istanbuljs/istanbuljs/tree/main/packages/istanbul-reports
 //! [rn]: oxc_coverage_report::ReportNode
 
+pub mod cobertura;
 pub mod json_summary;
+pub mod lcov;
 pub mod text;
 pub mod text_summary;
+
+use std::path::Path;
 
 /// Convenience enum for selecting a reporter at runtime (e.g., from a CLI flag).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,30 +50,42 @@ pub enum Format {
     Text,
     TextSummary,
     JsonSummary,
+    Lcov,
+    Cobertura,
 }
 
 impl Format {
-    /// Parse a CLI-style format name (`text`, `text-summary`, `json-summary`).
-    /// Returns `None` for unknown values; the CLI is responsible for the user-facing error.
+    /// Parse a CLI-style format name (`text`, `text-summary`, `json-summary`,
+    /// `lcov`, `cobertura`). Returns `None` for unknown values; the CLI is
+    /// responsible for the user-facing error.
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "text" => Some(Self::Text),
             "text-summary" => Some(Self::TextSummary),
             "json-summary" => Some(Self::JsonSummary),
+            "lcov" => Some(Self::Lcov),
+            "cobertura" => Some(Self::Cobertura),
             _ => None,
         }
     }
 
     /// Render `root` in this format to `out`.
+    ///
+    /// `root_dir` is only consulted by formats that emit source-file paths
+    /// (currently [`Format::Lcov`] and [`Format::Cobertura`]); other formats
+    /// ignore it. Pass `Path::new("")` if path relativization is not needed.
     pub fn write<W: std::io::Write>(
         self,
         root: &oxc_coverage_report::ReportNode,
+        root_dir: &Path,
         out: &mut W,
     ) -> std::io::Result<()> {
         match self {
             Self::Text => text::write(root, out),
             Self::TextSummary => text_summary::write(root, out),
             Self::JsonSummary => json_summary::write(root, out),
+            Self::Lcov => lcov::write(root, root_dir, out),
+            Self::Cobertura => cobertura::write(root, root_dir, out),
         }
     }
 }

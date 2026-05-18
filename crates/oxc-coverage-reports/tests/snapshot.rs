@@ -4,8 +4,9 @@
 //! intentionally requires accepting the snapshot via `cargo insta review`.
 
 use oxc_coverage_report::summarize;
-use oxc_coverage_reports::{Format, json_summary, text, text_summary};
+use oxc_coverage_reports::{Format, cobertura, json_summary, lcov, text, text_summary};
 use oxc_coverage_types::parse_coverage_map;
+use std::path::Path;
 
 const FIXTURE: &str = r#"{
   "src/a.js": {
@@ -43,7 +44,7 @@ fn render(format: Format) -> String {
     let map = parse_coverage_map(FIXTURE).unwrap();
     let root = summarize(&map);
     let mut buf = Vec::new();
-    format.write(&root, &mut buf).unwrap();
+    format.write(&root, Path::new(""), &mut buf).unwrap();
     String::from_utf8(buf).unwrap()
 }
 
@@ -70,6 +71,28 @@ fn json_summary_snapshot() {
 }
 
 #[test]
+fn lcov_snapshot() {
+    let map = parse_coverage_map(FIXTURE).unwrap();
+    let root = summarize(&map);
+    let mut buf = Vec::new();
+    lcov::write(&root, Path::new(""), &mut buf).unwrap();
+    let out = String::from_utf8(buf).unwrap();
+    insta::assert_snapshot!(out);
+}
+
+#[test]
+fn cobertura_snapshot() {
+    let map = parse_coverage_map(FIXTURE).unwrap();
+    let root = summarize(&map);
+    let mut buf = Vec::new();
+    // Pinning timestamp to 0 keeps the snapshot deterministic; the runtime
+    // `cobertura::write` uses `SystemTime::now()`.
+    cobertura::write_with_timestamp(&root, Path::new(""), 0, &mut buf).unwrap();
+    let out = String::from_utf8(buf).unwrap();
+    insta::assert_snapshot!(out);
+}
+
+#[test]
 fn format_dispatch_matches_module_writers() {
     let map = parse_coverage_map(FIXTURE).unwrap();
     let root = summarize(&map);
@@ -77,25 +100,37 @@ fn format_dispatch_matches_module_writers() {
     let mut a = Vec::new();
     text::write(&root, &mut a).unwrap();
     let mut b = Vec::new();
-    Format::Text.write(&root, &mut b).unwrap();
+    Format::Text.write(&root, Path::new(""), &mut b).unwrap();
     assert_eq!(a, b);
 
     let mut a = Vec::new();
     text_summary::write(&root, &mut a).unwrap();
     let mut b = Vec::new();
-    Format::TextSummary.write(&root, &mut b).unwrap();
+    Format::TextSummary.write(&root, Path::new(""), &mut b).unwrap();
     assert_eq!(a, b);
 
     let mut a = Vec::new();
     json_summary::write(&root, &mut a).unwrap();
     let mut b = Vec::new();
-    Format::JsonSummary.write(&root, &mut b).unwrap();
+    Format::JsonSummary.write(&root, Path::new(""), &mut b).unwrap();
+    assert_eq!(a, b);
+
+    let mut a = Vec::new();
+    lcov::write(&root, Path::new(""), &mut a).unwrap();
+    let mut b = Vec::new();
+    Format::Lcov.write(&root, Path::new(""), &mut b).unwrap();
     assert_eq!(a, b);
 }
 
 #[test]
 fn unknown_format_returns_none() {
     assert_eq!(Format::parse("html"), None);
-    assert_eq!(Format::parse("lcov"), None);
+    assert_eq!(Format::parse("xml"), None);
     assert_eq!(Format::parse(""), None);
+}
+
+#[test]
+fn lcov_and_cobertura_are_parseable_format_names() {
+    assert_eq!(Format::parse("lcov"), Some(Format::Lcov));
+    assert_eq!(Format::parse("cobertura"), Some(Format::Cobertura));
 }

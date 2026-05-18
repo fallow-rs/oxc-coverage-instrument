@@ -43,9 +43,10 @@ Coverage suite (umbrella [#45](https://github.com/fallow-rs/oxc-coverage-instrum
   - `oxc_coverage_report`: port of `istanbul-lib-report` (`CoverageSummary`, `ReportNode` tree, `summarize()`, `Visitor` trait with default no-op methods)
   - `oxc_coverage_reports`: `text`, `text-summary`, `json-summary` (matches `istanbul-reports` shape; `pct` rounded to 2 decimals; `total` first in JSON output)
   - CLI: new `report --format <fmt> COVERAGE.json` subcommand on the existing binary; existing `instrument FILE` invocation unchanged
-- [ ] **PR F**: `lcov` and `cobertura` reporters
+- [x] **PR F**: `lcov` and `cobertura` reporters
   - Hand-rolled `lcov` emitter with correct `BRDA` block numbering (use `BranchEntry` id, not line) and configurable `SF:` root-relative path normalization
-  - Hand-rolled `cobertura` XML; relative `<class filename=...>` for GitLab + Jenkins, document Azure DevOps `pathToSources` workaround
+  - Hand-rolled `cobertura` XML; relative `<class filename=...>` for GitLab + Jenkins, `complexity="0"` on `<method>` for Azure DevOps, no `<missing-branches>`, `line-rate` / `branch-rate` / `timestamp` at root
+  - CLI: `--root <dir>` flag on the `report` subcommand to relativize source-file paths (defaults to cwd)
 - [ ] **PR G**: `html` reporter
   - Per-line gutter highlights driven through `oxc_coverage_source_maps` so TypeScript projects see original source, not compiled output
   - Embedded CSS / icons / sortable JS so reports render offline behind corporate proxies

@@ -338,8 +338,7 @@ When an `inputSourceMap` is supplied, the instrumenter composes the codegen's ou
 | [`oxc_coverage_source_maps`](https://crates.io/crates/oxc_coverage_source_maps) | shipped | `istanbul-lib-source-maps` |
 | [`oxc_coverage_v8`](https://crates.io/crates/oxc_coverage_v8) | shipped | `v8-to-istanbul` (npm) |
 | [`oxc_coverage_report`](https://crates.io/crates/oxc_coverage_report) | shipped | `istanbul-lib-report` |
-| `oxc_coverage_reports` (`text`, `text-summary`, `json-summary`) | shipped | `istanbul-reports` (partial) |
-| `oxc_coverage_reports` (`lcov`, `cobertura`) | planned | `istanbul-reports` |
+| `oxc_coverage_reports` (`text`, `text-summary`, `json-summary`, `lcov`, `cobertura`) | shipped | `istanbul-reports` (partial) |
 | `oxc_coverage_reports` (`html`) | planned | `istanbul-reports` |
 
 Use the new `report` subcommand to render any of the available formats:
@@ -348,7 +347,11 @@ Use the new `report` subcommand to render any of the available formats:
 oxc-coverage-instrument report --format text         coverage-final.json
 oxc-coverage-instrument report --format text-summary coverage-final.json
 oxc-coverage-instrument report --format json-summary coverage-final.json -o coverage-summary.json
+oxc-coverage-instrument report --format lcov         --root . coverage-final.json -o lcov.info
+oxc-coverage-instrument report --format cobertura    --root . coverage-final.json -o cobertura.xml
 ```
+
+The `lcov` and `cobertura` formats use `--root` to relativize source-file paths in the output (defaults to the cwd); repo-relative paths are required by Codecov self-hosted, GitLab MR widget, Jenkins, and Azure DevOps.
 
 ## Related projects
 
