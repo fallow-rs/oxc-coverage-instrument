@@ -53,11 +53,11 @@ Coverage suite (umbrella [#45](https://github.com/fallow-rs/oxc-coverage-instrum
   - Source-map remapping via `oxc_coverage_source_maps` so TS / JSX projects show original source
   - Embedded `base.css` (no external assets / CDN deps); dark mode via `prefers-color-scheme`
   - New CLI flag `--output-dir <dir>` for multi-file output (default `coverage/`)
-- [ ] **PR G2**: `html` polish layer
-  - Sortable index-table JS (sort by file name, statements %, branches %, functions %, lines %)
-  - Explicit dark-mode toggle button overriding `prefers-color-scheme`
-  - Prettify syntax highlighting on detail-page source
-  - Corporate-proxy hardening verification (no third-party fetches at runtime)
+- [x] **PR G2**: `html` polish layer
+  - Sortable index-table JS (click or keyboard; `aria-sort` updates; numeric `%` columns sort numerically; tri-state ascending / descending / original)
+  - Explicit auto / light / dark theme toggle, persisted to `localStorage`, overriding `prefers-color-scheme`
+  - Lightweight JS / TS syntax highlighting on detail-page source (tokenizer for keywords, builtins, strings, numbers, comments, punctuation)
+  - Corporate-proxy hardening: strict `Content-Security-Policy` `<meta>` (`default-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; ...`) and a test that scans every emitted asset for external URLs
 
 ## Future
 

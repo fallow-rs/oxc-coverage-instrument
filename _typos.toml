@@ -7,3 +7,7 @@ extend-exclude = [
     "tests/conformance/reference",
     "tests/snapshots",
 ]
+
+[default.extend-words]
+# Local variable for "table header cells" in the HTML reporter's JS.
+ths = "ths"

@@ -17,8 +17,10 @@
 //! - [`cobertura`]: Cobertura XML consumed by GitLab MR widget, Jenkins,
 //!   Azure DevOps, and Codecov.
 //! - [`html`]: self-contained directory of HTML pages with per-file source
-//!   gutter. Multi-file output (uses [`Format::write_to_dir`]). PR G2 will
-//!   add sortable table JS, a dark-mode toggle, and prettify highlighting.
+//!   gutter. Multi-file output (uses [`Format::write_to_dir`]). Ships
+//!   sortable index tables, an auto/light/dark theme toggle, JS/TS
+//!   syntax highlighting on detail pages, and a strict Content-Security-
+//!   Policy so the report performs zero outbound network requests.
 //!
 //! # Example
 //!

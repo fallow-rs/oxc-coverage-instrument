@@ -326,9 +326,12 @@ fn report_html_format_writes_directory_tree() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert!(out_dir.join("index.html").exists(), "root index.html missing");
     assert!(out_dir.join("base.css").exists(), "base.css missing");
+    assert!(out_dir.join("base.js").exists(), "base.js missing");
     assert!(out_dir.join("a.js.html").exists(), "per-file detail page missing");
     let detail = std::fs::read_to_string(out_dir.join("a.js.html")).unwrap();
     assert!(detail.contains("<title>Coverage: a.js</title>"), "got:\n{detail}");
+    assert!(detail.contains("Content-Security-Policy"), "CSP meta missing in CLI output");
+    assert!(detail.contains("base.js"), "script reference missing in CLI output");
 }
 
 #[test]
