@@ -76,6 +76,13 @@ struct CoverageContext<'a> {
     wrapper_length: u32,
 }
 
+struct CoverageInput<'a> {
+    source: &'a str,
+    functions: &'a [V8FunctionCoverage],
+    wrapper_length: u32,
+    arm_body_byte_spans: &'a BTreeMap<String, Vec<(u32, u32)>>,
+}
+
 impl CoverageContext<'_> {
     fn count_for_location(&self, loc: &Location) -> u32 {
         let start =
@@ -178,11 +185,20 @@ pub fn apply_v8_coverage(
     wrapper_length: u32,
     arm_body_byte_spans: &BTreeMap<String, Vec<(u32, u32)>>,
 ) {
-    let line_offsets = compute_line_offsets(source);
+    let input = CoverageInput { source, functions, wrapper_length, arm_body_byte_spans };
+    apply_v8_coverage_inner(file_coverage, &input);
+}
+
+fn apply_v8_coverage_inner(file_coverage: &mut FileCoverage, input: &CoverageInput<'_>) {
+    let line_offsets = compute_line_offsets(input.source);
     let ranges: Vec<V8CoverageRange> =
-        functions.iter().flat_map(|f| f.ranges.iter().copied()).collect();
-    let context =
-        CoverageContext { source, line_offsets: &line_offsets, ranges: &ranges, wrapper_length };
+        input.functions.iter().flat_map(|f| f.ranges.iter().copied()).collect();
+    let context = CoverageContext {
+        source: input.source,
+        line_offsets: &line_offsets,
+        ranges: &ranges,
+        wrapper_length: input.wrapper_length,
+    };
 
     for (id, loc) in &file_coverage.statement_map {
         let count = context.count_for_location(loc);
@@ -197,7 +213,7 @@ pub fn apply_v8_coverage(
         }
     }
     for (id, branch_entry) in &file_coverage.branch_map {
-        let body_spans = arm_body_byte_spans.get(id);
+        let body_spans = input.arm_body_byte_spans.get(id);
         let arm_counts: Vec<u32> = branch_entry
             .locations
             .iter()
