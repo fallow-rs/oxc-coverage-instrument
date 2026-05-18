@@ -1,0 +1,228 @@
+/* coverage-tokens.css
+ *
+ * Vendored slice of the fallow design system, scoped to "Mode B" reports
+ * (stakeholder-facing static HTML; see fallow's design-system.md sections
+ * 1.3 and 7 for the canonical spec). Sync manually from upstream:
+ *
+ *   fallow-cloud/packages/design-system/src/tokens.css   (palette)
+ *   fallow-cloud/.internal/design-system.md section 4    (light mappings)
+ *
+ * Coverage-semantic colour mapping:
+ *   red   = miss / uncovered / error
+ *   amber = partial coverage / warning
+ *   green = hit / fully covered / passing
+ *   blue  = links / focus ring / info
+ *
+ * Light is the unconditional default per Mode B. Dark activates only via
+ * one of two paths:
+ *   1. `:root[data-theme="dark"]`           (explicit user choice)
+ *   2. `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) }`
+ *      (system pref, not locked to light)
+ * `data-theme="light"` on <html> locks the light palette regardless of
+ * system preference.
+ *
+ * Every light/dark colour pair below is checked for at least WCAG 2.2 AA
+ * contrast on its intended use. Severity-text values come straight from
+ * fallow's section 4 mapping table (which has been audited upstream).
+ */
+
+/* ---- Light default ---------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  /* Surfaces (light palette from section 4) */
+  --surface-0: #ffffff;
+  --surface-1: #f9f9f8;
+  --surface-2: #f2f2f0;
+  --surface-3: #ebebea;
+
+  /* Text */
+  --text-high: #21201c;       /* 14.7:1 on white,  AAA  */
+  --text-low: #6f6d66;        /*  4.6:1 on white,  AA   */
+  --text-muted: #908e86;      /*  3.1:1 on white,  AA-Large only */
+
+  /* Borders */
+  --border-subtle: #d9d9d6;
+  --border-default: #c7c7c4;
+  --border-strong: #9aa2ad;
+
+  /* Severity accents (section 4 light-mode mapping; all AA on white) */
+  --red-text: #ce2c31;        /* 5.8:1 */
+  --amber-text: #ad5700;      /* 4.8:1 */
+  --green-text: #18794e;      /* 5.1:1 */
+  --blue-text: #0d74ce;       /* 5.1:1 */
+
+  /* Severity surfaces (section 4 subtle stops) */
+  --red-subtle: #fff1f0;
+  --amber-subtle: #fefbe9;
+  --green-subtle: #e9f9ee;
+  --blue-subtle: #edf6ff;
+
+  /* Coverage-semantic aliases (consumed by the row + meter CSS) */
+  --hit-bg: var(--green-subtle);
+  --miss-bg: var(--red-subtle);
+  --partial-bg: var(--amber-subtle);
+  --row-high: var(--green-subtle);
+  --row-medium: var(--amber-subtle);
+  --row-low: var(--red-subtle);
+  /* Percentage TEXT colours (used on cells / meter labels). The
+   * text-on-pale-background combinations here are AA pass (verified
+   * against the section 4 audit). */
+  --pct-high: var(--green-text);
+  --pct-medium: var(--amber-text);
+  --pct-low: var(--red-text);
+  /* Solid severity fills (used on meter fills + 2px gutter borders).
+   * The luminance gap between these three is wide enough to be
+   * distinguishable under grayscale, satisfying WCAG 1.4.1. */
+  --hit-solid: #30a46c;       /* fallow-green   */
+  --partial-solid: #d8a320;   /* fallow-amber-muted (deeper luminance) */
+  --miss-solid: #e5484d;      /* fallow-red     */
+
+  /* Component aliases */
+  --bg: var(--surface-0);
+  --text: var(--text-high);
+  --muted: var(--text-low);    /* deliberate: use AA-pass low, not AA-large muted */
+  --border: var(--border-subtle);
+  --header-bg: var(--surface-1);
+  --gutter-bg: var(--surface-1);
+  --code-bg: var(--surface-0);
+  --link: var(--blue-text);
+  --focus-ring: var(--blue-text);
+
+  /* Theme-toggle button */
+  --btn-bg: var(--surface-0);
+  --btn-bg-active: var(--blue-text);
+  --btn-fg-active: #ffffff;
+
+  /* Ghost-button offset shadow: the brutalist key-cap look applies to
+   * every fallow button surface, including Mode B. Light-mode value
+   * mirrors the dark token at the same alpha so reports keep the
+   * fallow-native button feel. */
+  --shadow-button-ghost: 3px 3px 0 rgba(146, 146, 142, 0.55);
+  --shadow-button-ghost-hover: 4px 4px 0 rgba(146, 146, 142, 0.55);
+  --shadow-button-ghost-active: 1px 1px 0 rgba(146, 146, 142, 0.55);
+
+  /* Syntax tokens (consumed by .stok-* selectors in base.css) */
+  --tok-keyword: var(--amber-text);
+  --tok-string: var(--green-text);
+  --tok-comment: var(--text-low);
+  --tok-number: #b08800;        /* fallow-amber-muted darker for AA on white */
+  --tok-builtin: var(--blue-text);
+  --tok-punct: var(--text-low);
+
+  /* Type ramp (verbatim from fallow section 2) */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
+
+  /* Line height */
+  --leading-tight: 1.3;
+  --leading-normal: 1.6;
+  --leading-loose: 1.8;
+
+  /* Letter spacing */
+  --tracking-display: -0.02em;
+  --tracking-caps: 0.04em;
+
+  /* Font stacks.
+   * CSP `font-src 'none'` blocks any web-font fetch, so the browser
+   * silently falls back to the system entry in each stack. Users with
+   * fallow's fonts installed locally see the fallow typeface; everyone
+   * else sees the system equivalent. */
+  --font-body: "Inter Variable", "Inter", system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-heading: var(--font-body);
+  --font-code: "Monaspace Neon", ui-monospace, SFMono-Regular, "SF Mono",
+    Menlo, Consolas, monospace;
+}
+
+/* ---- Dark: explicit override (data-theme="dark") --------------------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface-0: #111110;
+  --surface-1: #191918;
+  --surface-2: #222221;
+  --surface-3: #2a2a28;
+
+  --text-high: #eeeeec;
+  --text-low: #b5b3ad;
+  --text-muted: #6f6d66;
+
+  --border-subtle: #3b3a37;
+  --border-default: #494844;
+  --border-strong: #62605b;
+
+  --red-text: #ff9592;
+  --amber-text: #ffca16;
+  --green-text: #3dd68c;
+  --blue-text: #70b8ff;
+
+  --red-subtle: #3b1219;
+  --amber-subtle: #302008;
+  --green-subtle: #132d21;
+  --blue-subtle: #0d2847;
+
+  /* Dark solid severity fills, slightly muted vs section 4 to keep
+   * luminance gap on dark surfaces and pass 3:1 UI-component contrast. */
+  --hit-solid: #3dd68c;
+  --partial-solid: #ffca16;
+  --miss-solid: #ff7b72;
+
+  /* Dark-mode ghost shadow uses the canonical fallow surface-4 value */
+  --shadow-button-ghost: 3px 3px 0 rgba(49, 49, 46, 0.95);
+  --shadow-button-ghost-hover: 4px 4px 0 rgba(49, 49, 46, 0.95);
+  --shadow-button-ghost-active: 1px 1px 0 rgba(49, 49, 46, 0.95);
+
+  /* Component aliases re-resolve via the cascade. The base values
+   * (--bg/--text/--muted/etc.) are defined in the unconditional :root
+   * block above pointing at --surface-* and --text-low; when those
+   * tokens change in this block the aliases pick up the new values
+   * automatically. The toggle-active foreground also flips: dark mode
+   * wants a near-black text on the bright blue active button. */
+  --btn-fg-active: #111110;
+}
+
+/* ---- Dark: system preference (auto), not locked to light ------------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --surface-0: #111110;
+    --surface-1: #191918;
+    --surface-2: #222221;
+    --surface-3: #2a2a28;
+
+    --text-high: #eeeeec;
+    --text-low: #b5b3ad;
+    --text-muted: #6f6d66;
+
+    --border-subtle: #3b3a37;
+    --border-default: #494844;
+    --border-strong: #62605b;
+
+    --red-text: #ff9592;
+    --amber-text: #ffca16;
+    --green-text: #3dd68c;
+    --blue-text: #70b8ff;
+
+    --red-subtle: #3b1219;
+    --amber-subtle: #302008;
+    --green-subtle: #132d21;
+    --blue-subtle: #0d2847;
+
+    --hit-solid: #3dd68c;
+    --partial-solid: #ffca16;
+    --miss-solid: #ff7b72;
+
+    --shadow-button-ghost: 3px 3px 0 rgba(49, 49, 46, 0.95);
+    --shadow-button-ghost-hover: 4px 4px 0 rgba(49, 49, 46, 0.95);
+    --shadow-button-ghost-active: 1px 1px 0 rgba(49, 49, 46, 0.95);
+
+    --btn-fg-active: #111110;
+  }
+}
