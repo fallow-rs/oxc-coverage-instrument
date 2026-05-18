@@ -47,6 +47,7 @@
 
 mod highlight;
 
+use crate::escape::{html_attr, html_text};
 use oxc_coverage_report::{CoverageMap, CoverageSummary, NodeKind, ReportNode, summarize};
 use oxc_coverage_source_maps::remap_coverage_map;
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry};
@@ -315,14 +316,14 @@ fn render_summary_table_header() -> String {
 
 fn render_summary_row(child: &ReportNode, threshold: f64) -> String {
     let href = match &child.kind {
-        NodeKind::Folder { .. } => format!("{}/{INDEX_FILE}", html_attr_escape(&child.name)),
-        NodeKind::File { .. } => format!("{}{DETAIL_SUFFIX}", html_attr_escape(&child.name)),
+        NodeKind::Folder { .. } => format!("{}/{INDEX_FILE}", html_attr(&child.name)),
+        NodeKind::File { .. } => format!("{}{DETAIL_SUFFIX}", html_attr(&child.name)),
     };
-    let display = html_text_escape(&child.name);
+    let display = html_text(&child.name);
     let row_class = pct_class(child.summary.lines.pct, threshold);
     let mut out = format!(
         "          <tr class=\"row-{row_class}\" data-file=\"{file}\">\n",
-        file = html_attr_escape(&child.name),
+        file = html_attr(&child.name),
     );
     let _ = writeln!(out, "            <td class=\"file\"><a href=\"{href}\">{display}</a></td>");
     let metrics = [
@@ -551,16 +552,15 @@ fn render_page(title: &str, depth: usize, body: &str) -> String {
     out.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
     out.push_str("  <meta charset=\"utf-8\">\n");
     out.push_str("  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
-    let _ =
-        writeln!(out, "  <meta name=\"generator\" content=\"{}\">", html_attr_escape(GENERATOR));
+    let _ = writeln!(out, "  <meta name=\"generator\" content=\"{}\">", html_attr(GENERATOR));
     let _ = writeln!(
         out,
         "  <meta http-equiv=\"Content-Security-Policy\" content=\"{}\">",
-        html_attr_escape(CSP_POLICY),
+        html_attr(CSP_POLICY),
     );
-    let _ = writeln!(out, "  <title>Coverage: {}</title>", html_text_escape(title));
-    let _ = writeln!(out, "  <link rel=\"stylesheet\" href=\"{}\">", html_attr_escape(&css_href));
-    let _ = writeln!(out, "  <script src=\"{}\" defer></script>", html_attr_escape(&js_href));
+    let _ = writeln!(out, "  <title>Coverage: {}</title>", html_text(title));
+    let _ = writeln!(out, "  <link rel=\"stylesheet\" href=\"{}\">", html_attr(&css_href));
+    let _ = writeln!(out, "  <script src=\"{}\" defer></script>", html_attr(&js_href));
     out.push_str("</head>\n<body>\n");
     out.push_str(body);
     out.push_str("</body>\n</html>\n");
@@ -575,7 +575,7 @@ fn render_summary_header(
     threshold: f64,
 ) -> String {
     let mut out = String::from("    <header class=\"summary\">\n");
-    let _ = writeln!(out, "      <h1>{}</h1>", html_text_escape(title));
+    let _ = writeln!(out, "      <h1>{}</h1>", html_text(title));
     out.push_str(&render_breadcrumb(node, depth));
     out.push_str("      <ul class=\"kpi-row\" aria-label=\"Coverage metrics\">\n");
     for (label, m) in [
@@ -606,7 +606,7 @@ fn render_breadcrumb(node: &ReportNode, depth: usize) -> String {
     let _ = writeln!(
         out,
         "          <li><a href=\"{}\">All files</a><span class=\"breadcrumb-sep\" aria-hidden=\"true\">/</span></li>",
-        html_attr_escape(&root_href),
+        html_attr(&root_href),
     );
 
     let parts: Vec<&str> = node.relative_path.split('/').collect();
@@ -617,7 +617,7 @@ fn render_breadcrumb(node: &ReportNode, depth: usize) -> String {
             let _ = writeln!(
                 out,
                 "          <li><span class=\"current\" aria-current=\"page\">{}</span></li>",
-                html_text_escape(part),
+                html_text(part),
             );
         } else {
             depth_remaining = depth_remaining.saturating_sub(1);
@@ -625,8 +625,8 @@ fn render_breadcrumb(node: &ReportNode, depth: usize) -> String {
             let _ = writeln!(
                 out,
                 "          <li><a href=\"{}\">{}</a><span class=\"breadcrumb-sep\" aria-hidden=\"true\">/</span></li>",
-                html_attr_escape(&href),
-                html_text_escape(part),
+                html_attr(&href),
+                html_text(part),
             );
         }
     }
@@ -738,36 +738,6 @@ fn pct_class(pct: f64, high_threshold: f64) -> &'static str {
     } else {
         "low"
     }
-}
-
-// -- HTML escaping ---------------------------------------------------------
-
-fn html_text_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-fn html_attr_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(c),
-        }
-    }
-    out
 }
 
 #[cfg(test)]

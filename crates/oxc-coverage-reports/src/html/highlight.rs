@@ -27,6 +27,9 @@
 
 use std::path::Path;
 use std::sync::OnceLock;
+
+use crate::escape::html_text;
+
 use syntect::html::{ClassStyle, line_tokens_to_classed_spans};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
@@ -67,7 +70,7 @@ pub fn highlight_lines(source: &str, file_path: &Path) -> Vec<String> {
         // Plain HTML-escaped fallback, one line per `\n`. Mirrors the
         // shape of the highlighted path so the caller does not branch
         // on language availability.
-        return source.split('\n').map(html_escape).collect();
+        return source.split('\n').map(html_text).collect();
     };
 
     let mut parse_state = ParseState::new(syntax);
@@ -117,20 +120,6 @@ pub fn highlight_lines(source: &str, file_path: &Path) -> Vec<String> {
 fn pick_syntax<'a>(ss: &'a SyntaxSet, file_path: &Path) -> Option<&'a SyntaxReference> {
     let ext = file_path.extension().and_then(|e| e.to_str())?;
     ss.find_syntax_by_extension(ext)
-}
-
-/// Plain HTML escaping used for the unknown-language fallback path.
-fn html_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
-    }
-    out
 }
 
 #[cfg(test)]

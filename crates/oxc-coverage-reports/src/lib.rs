@@ -46,6 +46,7 @@
 //! [rn]: oxc_coverage_report::ReportNode
 
 pub mod cobertura;
+mod escape;
 #[cfg(feature = "html")]
 pub mod html;
 pub mod json_summary;

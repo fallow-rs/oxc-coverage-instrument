@@ -103,7 +103,7 @@ fn write_package<W: io::Write>(
     writeln!(
         out,
         "    <package name=\"{}\" line-rate=\"{line_rate}\" branch-rate=\"{branch_rate}\" complexity=\"0\">",
-        escape_attr(name)
+        crate::escape::xml_attr(name)
     )?;
     writeln!(out, "      <classes>")?;
     for entry in files {
@@ -140,8 +140,8 @@ fn write_class<W: io::Write>(
     writeln!(
         out,
         "        <class name=\"{}\" filename=\"{}\" line-rate=\"{line_rate}\" branch-rate=\"{branch_rate}\" complexity=\"0\">",
-        escape_attr(&class_name),
-        escape_attr(&relative)
+        crate::escape::xml_attr(&class_name),
+        crate::escape::xml_attr(&relative)
     )?;
 
     write_methods(out, file)?;
@@ -172,7 +172,7 @@ fn write_methods<W: io::Write>(out: &mut W, file: &FileCoverage) -> io::Result<(
         writeln!(
             out,
             "            <method name=\"{}\" signature=\"()V\" line-rate=\"{method_rate}\" branch-rate=\"0.0000\" hits=\"{hits}\" complexity=\"0\">",
-            escape_attr(&entry.name)
+            crate::escape::xml_attr(&entry.name)
         )?;
         writeln!(out, "              <lines>")?;
         writeln!(out, "                <line number=\"{line}\" hits=\"{hits}\"/>")?;
@@ -374,38 +374,6 @@ fn rate(covered: u32, total: u32) -> String {
     // corrupted coverage data (covered > total) producing >1.0 which would
     // fail DTD-strict validators (Azure DevOps).
     format!("{:.4}", (raw * 10_000.0).round() / 10_000.0)
-}
-
-fn escape_attr(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&apos;"),
-            // XML 1.0 forbids most control characters; strict parsers
-            // (Azure DevOps, libxml2 in strict mode, Saxon) panic or
-            // reject the document when they appear. Function names and
-            // file paths can in principle contain anything from the
-            // source coverage JSON, so map disallowed chars to U+FFFD.
-            c if !is_xml10_char(c) => out.push('\u{FFFD}'),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-fn is_xml10_char(c: char) -> bool {
-    matches!(
-        c,
-        '\t' | '\n'
-            | '\r'
-            | '\u{0020}'..='\u{D7FF}'
-            | '\u{E000}'..='\u{FFFD}'
-            | '\u{10000}'..='\u{10FFFF}'
-    )
 }
 
 #[cfg(test)]
