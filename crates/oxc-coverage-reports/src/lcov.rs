@@ -83,30 +83,27 @@ fn source_path(file: &FileCoverage, node: &ReportNode, root_dir: &Path) -> Strin
 }
 
 fn write_functions<W: io::Write>(out: &mut W, file: &FileCoverage) -> io::Result<()> {
-    let mut total: u32 = 0;
-    let mut hit: u32 = 0;
-
-    // Order by id (BTreeMap iteration), but match istanbul-reports by emitting
-    // FN: rows first, then all FNDA: rows.
-    let entries: Vec<(&String, &oxc_coverage_types::FnEntry, u32)> = file
+    // Match istanbul-reports/lib/lcovonly record order: FN x N, then FNF / FNH,
+    // then FNDA x N. Codecov / Coveralls / genhtml all accept either order, but
+    // matching the reference implementation keeps a future diff against
+    // istanbul-reports output minimal.
+    let entries: Vec<(&oxc_coverage_types::FnEntry, u32)> = file
         .fn_map
         .iter()
-        .map(|(id, entry)| (id, entry, file.f.get(id).copied().unwrap_or(0)))
+        .map(|(id, entry)| (entry, file.f.get(id).copied().unwrap_or(0)))
         .collect();
 
-    for (_id, entry, _count) in &entries {
-        writeln!(out, "FN:{},{}", entry.decl.start.line, sanitize_fn_name(&entry.name))?;
-        total += 1;
-    }
-    for (_id, entry, count) in &entries {
-        if *count > 0 {
-            hit += 1;
-        }
-        writeln!(out, "FNDA:{},{}", count, sanitize_fn_name(&entry.name))?;
-    }
+    let total = entries.len() as u32;
+    let hit = entries.iter().filter(|(_, count)| *count > 0).count() as u32;
 
+    for (entry, _count) in &entries {
+        writeln!(out, "FN:{},{}", entry.decl.start.line, sanitize_fn_name(&entry.name))?;
+    }
     writeln!(out, "FNF:{total}")?;
     writeln!(out, "FNH:{hit}")?;
+    for (entry, count) in &entries {
+        writeln!(out, "FNDA:{},{}", count, sanitize_fn_name(&entry.name))?;
+    }
     Ok(())
 }
 
@@ -116,7 +113,13 @@ fn sanitize_fn_name(name: &str) -> String {
     // `(<anonymous>)` into `<anonymous>`, leaving angle brackets that some
     // LCOV parsers treat as delimiters.
     let stripped = name.strip_prefix('(').and_then(|s| s.strip_suffix(')')).unwrap_or(name);
-    if stripped.is_empty() { "anonymous".to_owned() } else { stripped.to_owned() }
+    if stripped.is_empty() {
+        return "anonymous".to_owned();
+    }
+    // Replace residual parens (asymmetric inputs like `(` alone, or names
+    // containing internal parens from minified output) with `_`; lcov 2.x's
+    // genhtml treats `(` and `)` as delimiters in FN: records.
+    stripped.replace(['(', ')'], "_")
 }
 
 fn write_lines<W: io::Write>(out: &mut W, file: &FileCoverage) -> io::Result<()> {
@@ -147,8 +150,15 @@ fn write_lines<W: io::Write>(out: &mut W, file: &FileCoverage) -> io::Result<()>
 fn write_branches<W: io::Write>(out: &mut W, file: &FileCoverage) -> io::Result<()> {
     let mut total: u32 = 0;
     let mut hit: u32 = 0;
-    for (id, entry) in &file.branch_map {
-        let block: u32 = id.parse().unwrap_or(0);
+    // The `block` field of `BRDA:` must be a stable per-file discriminator so
+    // Codecov does not merge unrelated branches on the same line. Istanbul
+    // ids are always numeric strings; we honor that mapping when possible
+    // (preserves a small diff against istanbul-reports' output), and fall
+    // back to the iteration index for non-numeric ids so a hand-crafted /
+    // damaged coverage map cannot silently collapse every branch into
+    // block=0.
+    for (block_idx, (id, entry)) in file.branch_map.iter().enumerate() {
+        let block: u32 = id.parse().unwrap_or(block_idx as u32);
         let arms = file.b.get(id).cloned().unwrap_or_default();
         let block_entered = arms.iter().any(|&c| c > 0);
         for (idx, count) in arms.iter().enumerate() {
@@ -295,6 +305,56 @@ mod tests {
         let out = String::from_utf8(buf).unwrap();
         assert!(out.contains("SF:src/a.js"), "got:\n{out}");
         assert!(!out.contains("SF:/proj/src/a.js"));
+    }
+
+    #[test]
+    fn fn_name_with_internal_parens_is_neutralized() {
+        // Asymmetric paren shapes ("(", ")") and names with internal parens
+        // (minified output) must not survive into the FN: line because lcov 2.x
+        // genhtml treats `(` / `)` as delimiters.
+        let json = r#"{
+            "a.js": {
+                "path": "a.js",
+                "statementMap": {},
+                "fnMap": {
+                    "0": {"name": "(", "line": 1, "decl": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 3}}, "loc": {"start": {"line": 1, "column": 0}, "end": {"line": 5, "column": 0}}},
+                    "1": {"name": "foo(x)bar", "line": 2, "decl": {"start": {"line": 2, "column": 0}, "end": {"line": 2, "column": 3}}, "loc": {"start": {"line": 2, "column": 0}, "end": {"line": 5, "column": 0}}}
+                },
+                "branchMap": {},
+                "s": {},
+                "f": {"0": 1, "1": 1},
+                "b": {}
+            }
+        }"#;
+        let out = render(json);
+        assert!(out.contains("FN:1,_"), "asymmetric paren must be replaced; got:\n{out}");
+        assert!(out.contains("FN:2,foo_x_bar"), "internal parens must be replaced; got:\n{out}");
+    }
+
+    #[test]
+    fn brda_block_falls_back_to_index_for_non_numeric_id() {
+        // Hand-crafted coverage maps can ship non-numeric branch ids (e.g.
+        // "br_0" from a third-party emitter). The block field must still be
+        // unique per branch; falling back to the iteration index achieves that.
+        let json = r#"{
+            "a.js": {
+                "path": "a.js",
+                "statementMap": {},
+                "fnMap": {},
+                "branchMap": {
+                    "br_a": {"loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 1}}, "line": 1, "type": "if", "locations": [{"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 1}}, {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 1}}]},
+                    "br_b": {"loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 1}}, "line": 1, "type": "if", "locations": [{"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 1}}, {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 1}}]}
+                },
+                "s": {},
+                "f": {},
+                "b": {"br_a": [1, 0], "br_b": [0, 1]}
+            }
+        }"#;
+        let out = render(json);
+        // Both branches sit on line 1 but must produce DISTINCT block ids
+        // (0 and 1 via enumeration) so Codecov treats them as separate ifs.
+        assert!(out.contains("BRDA:1,0,0,1"), "got:\n{out}");
+        assert!(out.contains("BRDA:1,1,0,0"), "got:\n{out}");
     }
 
     #[test]

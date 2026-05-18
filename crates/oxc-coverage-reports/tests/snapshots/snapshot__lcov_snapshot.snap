@@ -5,9 +5,9 @@ expression: out
 TN:
 SF:src/a.js
 FN:1,foo
-FNDA:1,foo
 FNF:1
 FNH:1
+FNDA:1,foo
 DA:1,1
 DA:2,1
 DA:4,0

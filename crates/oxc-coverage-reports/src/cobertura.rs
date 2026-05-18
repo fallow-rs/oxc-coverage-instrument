@@ -15,18 +15,20 @@
 //! - Every `<method>` carries `complexity="0"`. Older versions of Microsoft's
 //!   Azure DevOps Cobertura parser reject methods without a `complexity`
 //!   attribute, even though the DTD makes it optional.
-//! - `<missing-branches>` is NEVER emitted. Some Cobertura tools (Coverage.py)
-//!   emit it as a Cobertura extension, but Azure DevOps rejects the document
-//!   when it appears.
+//! - `<missing-branches>` is NEVER emitted. It is a Coverage.py extension
+//!   outside the published DTD; strict DTD validators reject it and several
+//!   real-world consumers (Azure DevOps among them) have been observed
+//!   refusing the document.
 //! - `line-rate`, `branch-rate`, and `timestamp` are set on the root
 //!   `<coverage>` element. Several consumers (Codecov, GitLab) error out
 //!   silently when these are missing and report zero coverage.
 //! - `condition-coverage` is computed per branched line as `N% (covered/total)`
 //!   to match istanbul-reports.
 //!
-//! Timestamps default to `SystemTime::now()` milliseconds since epoch; for
-//! deterministic snapshot tests, callers can use [`write_with_timestamp`] to
-//! pin the value.
+//! Timestamps default to `SystemTime::now()` seconds since epoch, matching
+//! the Cobertura 0.4 DTD. The deterministic-timestamp variant
+//! [`write_with_timestamp`] is `#[doc(hidden)]` and exists only for snapshot
+//! testing; production callers should use [`write()`].
 
 use oxc_coverage_report::{NodeKind, ReportNode, Visitor, walk};
 use oxc_coverage_types::{BranchEntry, FileCoverage};
@@ -42,8 +44,10 @@ pub fn write<W: io::Write>(root: &ReportNode, root_dir: &Path, out: &mut W) -> i
 }
 
 /// Write a Cobertura XML report with an explicit `timestamp` (seconds since
-/// epoch, matching the Cobertura 0.4 DTD). Used by snapshot tests to produce
-/// deterministic output.
+/// epoch, matching the Cobertura 0.4 DTD). Implementation detail used by
+/// the snapshot tests in the sibling integration-test crate to produce
+/// deterministic output; production callers should use [`write`] instead.
+#[doc(hidden)]
 pub fn write_with_timestamp<W: io::Write>(
     root: &ReportNode,
     root_dir: &Path,
@@ -94,9 +98,11 @@ fn write_package<W: io::Write>(
     let line_rate = rate(lines_covered, lines_total);
     let branch_rate = rate(branches_covered, branches_total);
 
+    // `complexity` is #REQUIRED on <package> per the Cobertura 0.4 DTD;
+    // strict validators (xmllint --valid) reject the document without it.
     writeln!(
         out,
-        "    <package name=\"{}\" line-rate=\"{line_rate}\" branch-rate=\"{branch_rate}\">",
+        "    <package name=\"{}\" line-rate=\"{line_rate}\" branch-rate=\"{branch_rate}\" complexity=\"0\">",
         escape_attr(name)
     )?;
     writeln!(out, "      <classes>")?;
@@ -129,9 +135,11 @@ fn write_class<W: io::Write>(
     let line_rate = rate(lines_covered, lines_total);
     let branch_rate = rate(branches_covered, branches_total);
 
+    // `complexity` is #REQUIRED on <class> per the Cobertura 0.4 DTD;
+    // strict validators (xmllint --valid) reject the document without it.
     writeln!(
         out,
-        "        <class name=\"{}\" filename=\"{}\" line-rate=\"{line_rate}\" branch-rate=\"{branch_rate}\">",
+        "        <class name=\"{}\" filename=\"{}\" line-rate=\"{line_rate}\" branch-rate=\"{branch_rate}\" complexity=\"0\">",
         escape_attr(&class_name),
         escape_attr(&relative)
     )?;
@@ -148,11 +156,22 @@ fn write_methods<W: io::Write>(out: &mut W, file: &FileCoverage) -> io::Result<(
     for (id, entry) in &file.fn_map {
         let hits = file.f.get(id).copied().unwrap_or(0);
         let line = entry.decl.start.line;
-        // Azure DevOps parser rejects methods missing `complexity`; emit `0`
-        // because we do not compute cyclomatic complexity yet.
+        // `line-rate` and `branch-rate` are #REQUIRED on <method> per the
+        // Cobertura 0.4 DTD; xmllint --valid rejects the document without
+        // them. We approximate as a binary did-the-method-run rate
+        // (1.0000 / 0.0000) because the istanbul model tracks only the
+        // method's invocation count, not per-line statement counts within
+        // its body. Real consumers (Codecov, GitLab, Azure DevOps) read
+        // class-level rates, so the approximation has no observable cost.
+        //
+        // `hits` and `signature` are not in the DTD ATTLIST for <method> but
+        // are emitted by istanbul-reports and consumed by Codecov / GitLab.
+        // `complexity` is also not in the DTD for <method>, but Azure DevOps'
+        // Cobertura parser has been observed rejecting methods without it.
+        let method_rate = if hits > 0 { "1.0000" } else { "0.0000" };
         writeln!(
             out,
-            "            <method name=\"{}\" hits=\"{hits}\" signature=\"()V\" complexity=\"0\">",
+            "            <method name=\"{}\" signature=\"()V\" line-rate=\"{method_rate}\" branch-rate=\"0.0000\" hits=\"{hits}\" complexity=\"0\">",
             escape_attr(&entry.name)
         )?;
         writeln!(out, "              <lines>")?;
@@ -197,9 +216,8 @@ struct FileEntry<'a> {
 }
 
 #[derive(Default)]
-struct FileCollector<'a> {
+struct FileCollector {
     files: Vec<OwnedFileEntry>,
-    _marker: std::marker::PhantomData<&'a ()>,
 }
 
 struct OwnedFileEntry {
@@ -207,7 +225,7 @@ struct OwnedFileEntry {
     display_path: String,
 }
 
-impl Visitor for FileCollector<'_> {
+impl Visitor for FileCollector {
     fn on_detail(&mut self, node: &ReportNode) -> io::Result<()> {
         if let NodeKind::File { coverage } = &node.kind {
             let display_path = if coverage.path.is_empty() {
@@ -344,7 +362,11 @@ fn sum_branches(files: &[FileEntry<'_>]) -> (u32, u32) {
 
 fn rate(covered: u32, total: u32) -> String {
     if total == 0 {
-        return "0".to_owned();
+        // Use the 4-decimal form (not bare "0") so every line-rate /
+        // branch-rate attribute uses the same fixed shape; Azure DevOps'
+        // validator has been observed rejecting `"0"` where it expects a
+        // float-shaped value.
+        return "0.0000".to_owned();
     }
     let raw = (f64::from(covered) / f64::from(total)).clamp(0.0, 1.0);
     // Truncate to 4 decimals; trailing zeros are kept (e.g., "0.5000") to match
@@ -363,10 +385,27 @@ fn escape_attr(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
+            // XML 1.0 forbids most control characters; strict parsers
+            // (Azure DevOps, libxml2 in strict mode, Saxon) panic or
+            // reject the document when they appear. Function names and
+            // file paths can in principle contain anything from the
+            // source coverage JSON, so map disallowed chars to U+FFFD.
+            c if !is_xml10_char(c) => out.push('\u{FFFD}'),
             _ => out.push(c),
         }
     }
     out
+}
+
+fn is_xml10_char(c: char) -> bool {
+    matches!(
+        c,
+        '\t' | '\n'
+            | '\r'
+            | '\u{0020}'..='\u{D7FF}'
+            | '\u{E000}'..='\u{FFFD}'
+            | '\u{10000}'..='\u{10FFFF}'
+    )
 }
 
 #[cfg(test)]
@@ -477,6 +516,60 @@ mod tests {
         }"#;
         let out = render(json);
         assert!(out.contains("branch=\"true\" condition-coverage=\"50% (1/2)\""), "got:\n{out}");
+    }
+
+    #[test]
+    fn xml_illegal_control_chars_are_replaced() {
+        // XML 1.0 forbids most control characters in document content;
+        // strict parsers (Azure DevOps, libxml2 strict, Saxon) reject the
+        // document when they appear. Verify NUL and `\x1F` are sanitized
+        // out of attribute values rather than passed through unmodified.
+        let json = "{
+            \"a.js\": {
+                \"path\": \"a.js\",
+                \"statementMap\": {},
+                \"fnMap\": {
+                    \"0\": {\"name\": \"foo\\u0000bar\\u001fbaz\", \"line\": 1, \"decl\": {\"start\": {\"line\": 1, \"column\": 0}, \"end\": {\"line\": 1, \"column\": 3}}, \"loc\": {\"start\": {\"line\": 1, \"column\": 0}, \"end\": {\"line\": 3, \"column\": 0}}}
+                },
+                \"branchMap\": {},
+                \"s\": {},
+                \"f\": {\"0\": 1},
+                \"b\": {}
+            }
+        }";
+        let out = render(json);
+        assert!(!out.contains('\u{0000}'), "NUL must not survive into output");
+        assert!(!out.contains('\u{001F}'), "control char must not survive");
+        // Both should be replaced by U+FFFD (the Unicode replacement char).
+        assert!(out.contains('\u{FFFD}'), "expected replacement char in output:\n{out}");
+    }
+
+    #[test]
+    fn complexity_attribute_present_on_class_and_package() {
+        // Cobertura 0.4 DTD declares `complexity` as #REQUIRED on <coverage>,
+        // <package>, <class>, and <method>. xmllint --valid rejects the
+        // document if any are missing.
+        let json = r#"{
+            "src/a.js": {
+                "path": "src/a.js",
+                "statementMap": {"0": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 5}}},
+                "fnMap": {},
+                "branchMap": {},
+                "s": {"0": 1},
+                "f": {},
+                "b": {}
+            }
+        }"#;
+        let out = render(json);
+        assert!(out.contains("<package "), "expected <package> tag in:\n{out}");
+        assert!(out.contains("<class "), "expected <class> tag in:\n{out}");
+        // Count `complexity="0"` occurrences; we expect one each on
+        // <coverage>, <package>, <class>, <method> -> 3 here (no methods).
+        let count = out.matches("complexity=\"0\"").count();
+        assert!(
+            count >= 3,
+            "expected complexity=\"0\" on coverage, package, class; got {count}:\n{out}"
+        );
     }
 
     #[test]
