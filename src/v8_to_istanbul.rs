@@ -6,10 +6,11 @@
 //! is to walk the same AST that `instrument()` walks, recover each location's
 //! byte range, and intersect with the V8 ranges to assign counts.
 //!
-//! Status: v1 covers statement and function counts from `isBlockCoverage`
-//! output. Branch counts and inline-`sourceMappingURL` extraction are pinned
-//! follow-ups. Composing through a separate `inputSourceMap` should be done
-//! by feeding the result into [`crate::source_maps::remap_coverage`].
+//! v2 covers statement, function, and branch counts from `isBlockCoverage`
+//! output. Inline `//# sourceMappingURL=` comments are extracted and attached
+//! to the result as `inputSourceMap`, so feeding the output through
+//! [`crate::source_maps::remap_coverage`] resolves coverage positions back to
+//! original sources in one chained step.
 //!
 //! ## CJS wrapper offset
 //!
@@ -80,9 +81,11 @@ impl std::error::Error for V8ToIstanbulError {}
 /// `wrapper_length` accounts for Node's CJS module wrapper prefix
 /// (`(function(exports,require,module,__filename,__dirname){`). Pass 0 for ESM.
 ///
-/// Statement and function counts are populated from the smallest V8 range
-/// containing each location. Branch counts are emitted at zero in v1; richer
-/// branch resolution against block-coverage ranges is a follow-up.
+/// Statement, function, and branch counts are each populated from the smallest
+/// V8 range containing the corresponding location. When the source carries an
+/// inline `//# sourceMappingURL=data:application/json;base64,...` comment, the
+/// embedded map is decoded and attached as `inputSourceMap` so the result
+/// chains cleanly into [`crate::source_maps::remap_coverage`].
 pub fn v8_to_istanbul(
     source: &str,
     filename: &str,
@@ -112,8 +115,98 @@ pub fn v8_to_istanbul(
             *slot = count;
         }
     }
+    for (id, branch_entry) in &file_coverage.branch_map {
+        let arm_counts: Vec<u32> = branch_entry
+            .locations
+            .iter()
+            .map(|loc| count_for_location(source, loc, &line_offsets, &ranges, wrapper_length))
+            .collect();
+        if let Some(slot) = file_coverage.b.get_mut(id) {
+            *slot = arm_counts;
+        }
+    }
+
+    if file_coverage.input_source_map.is_none()
+        && let Some(inline_map) = extract_inline_source_map(source)
+    {
+        file_coverage.input_source_map = Some(inline_map);
+    }
 
     Ok(file_coverage)
+}
+
+/// Pull an inline `//# sourceMappingURL=data:application/json;base64,...`
+/// comment from the tail of `source` and decode the embedded source map.
+///
+/// Only the data-URL form (the dominant case for ESM bundles emitted by Vite,
+/// esbuild, swc, and tsc) is supported. External URLs are left to the caller
+/// to fetch and pass in via the `inputSourceMap` field directly.
+fn extract_inline_source_map(source: &str) -> Option<serde_json::Value> {
+    const NEEDLE: &str = "//# sourceMappingURL=data:application/json";
+    let idx = source.rfind(NEEDLE)?;
+    let line = source[idx..].lines().next()?;
+
+    let comma = line.find(',')?;
+    let payload = &line[comma + 1..];
+    let is_base64 = line[..comma].contains(";base64");
+    let json = if is_base64 {
+        let bytes = decode_base64(payload).ok()?;
+        String::from_utf8(bytes).ok()?
+    } else {
+        urlencoding_decode(payload).ok()?
+    };
+    serde_json::from_str(&json).ok()
+}
+
+/// Tiny base64 decoder (standard alphabet, no padding required).
+/// Kept in-crate to avoid pulling a base64 dep just for this one site.
+fn decode_base64(input: &str) -> Result<Vec<u8>, ()> {
+    fn value(c: u8) -> Result<u8, ()> {
+        match c {
+            b'A'..=b'Z' => Ok(c - b'A'),
+            b'a'..=b'z' => Ok(c - b'a' + 26),
+            b'0'..=b'9' => Ok(c - b'0' + 52),
+            b'+' => Ok(62),
+            b'/' => Ok(63),
+            _ => Err(()),
+        }
+    }
+    let trimmed: Vec<u8> =
+        input.bytes().filter(|b| *b != b'=' && !b.is_ascii_whitespace()).collect();
+    let mut out = Vec::with_capacity(trimmed.len() * 3 / 4);
+    for chunk in trimmed.chunks(4) {
+        let n0 = value(chunk[0])?;
+        let n1 = value(chunk[1])?;
+        out.push((n0 << 2) | (n1 >> 4));
+        if let Some(&c2) = chunk.get(2) {
+            let n2 = value(c2)?;
+            out.push((n1 << 4) | (n2 >> 2));
+            if let Some(&c3) = chunk.get(3) {
+                let n3 = value(c3)?;
+                out.push((n2 << 6) | n3);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Decode percent-encoded URL payload for non-base64 inline source maps.
+fn urlencoding_decode(input: &str) -> Result<String, ()> {
+    let mut out = Vec::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16).ok_or(())? as u8;
+            let lo = (bytes[i + 2] as char).to_digit(16).ok_or(())? as u8;
+            out.push((hi << 4) | lo);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| ())
 }
 
 /// Precompute byte offsets for the start of each line in `source`.

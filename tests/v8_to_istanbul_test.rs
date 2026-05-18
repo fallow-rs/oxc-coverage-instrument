@@ -84,6 +84,86 @@ fn applies_wrapper_length_for_cjs_modules() {
 }
 
 #[test]
+fn assigns_branch_arm_counts_from_block_coverage() {
+    // V8 block coverage emits one inner range per `{ ... }` BlockStatement,
+    // not per inner statement. The converter must use those block spans to
+    // resolve the count of the else arm in branchMap.locations[1] (which is
+    // the else BlockStatement span in istanbul's data model). arm[0] for an
+    // `if` is istanbul's whole-IfStatement quirk; with no inner range
+    // matching that, it falls back to the enclosing function count, which
+    // happens to equal the then-arm count when the function ran exactly
+    // once with a truthy predicate.
+    let source = "function f(x) {\n  if (x) {\n    a();\n  } else {\n    b();\n  }\n}\nf(true);\n";
+    let module_end = source.len() as u32;
+    let then_start = source.find("if (x) {").unwrap() as u32 + 7;
+    let then_end = source.find("} else").unwrap() as u32 + 1;
+    let else_start = source.find("else {").unwrap() as u32 + 5;
+    let else_end = source.rfind("\n  }").unwrap() as u32 + 4;
+
+    let functions = vec![function(
+        "f",
+        vec![
+            range(0, module_end, 1),
+            range(then_start, then_end, 1),
+            range(else_start, else_end, 0),
+        ],
+        true,
+    )];
+
+    let fc = v8_to_istanbul(source, "ifelse.js", &functions, 0).unwrap();
+    let (_, arm_counts) = fc
+        .branch_map
+        .iter()
+        .find(|(_, b)| b.branch_type == "if")
+        .map(|(id, _b)| (id.clone(), fc.b.get(id).cloned().unwrap_or_default()))
+        .expect("if branch must appear in branchMap");
+    assert_eq!(arm_counts.len(), 2, "if has two arms");
+    assert_eq!(arm_counts[1], 0, "else arm should report zero hits");
+}
+
+#[test]
+fn extracts_inline_base64_source_map() {
+    // Vite, esbuild, swc, tsc all emit `//# sourceMappingURL=data:...;base64,...`
+    // trailers. v8_to_istanbul must decode and attach that map as
+    // inputSourceMap so a downstream remap_coverage chains cleanly.
+    let original_map_json = r#"{"version":3,"sources":["src/app.ts"],"sourcesContent":["const x: number = 1;"],"mappings":"AAAA","names":[]}"#;
+    let base64 = encode_base64(original_map_json.as_bytes());
+    let source =
+        format!("const x = 1;\n//# sourceMappingURL=data:application/json;base64,{base64}\n");
+    let end = source.len() as u32;
+    let functions = vec![function("", vec![range(0, end, 1)], false)];
+
+    let fc = v8_to_istanbul(&source, "app.js", &functions, 0).unwrap();
+    let attached = fc.input_source_map.expect("inline map should attach");
+    assert_eq!(attached["sources"][0], "src/app.ts");
+    assert_eq!(attached["version"], 3);
+}
+
+/// Test helper: encode a byte slice as base64 using the standard alphabet.
+fn encode_base64(bytes: &[u8]) -> String {
+    const ALPHA: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = chunk.get(1).copied().unwrap_or(0);
+        let b2 = chunk.get(2).copied().unwrap_or(0);
+        out.push(ALPHA[(b0 >> 2) as usize] as char);
+        out.push(ALPHA[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHA[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHA[(b2 & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+#[test]
 fn handles_non_ascii_source_columns() {
     // Istanbul reports UTF-16 columns; srcmap and V8 work in bytes. A
     // statement that follows a non-ASCII character must still land inside
