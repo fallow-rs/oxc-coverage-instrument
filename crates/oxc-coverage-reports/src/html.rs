@@ -587,39 +587,30 @@ mod tests {
 
     #[test]
     fn html_special_chars_are_escaped_in_titles_and_breadcrumbs() {
-        let json = r#"{"<scary>.js":{"path":"<scary>.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        // Use '&' as the HTML-special character: it exercises the escaping
+        // path (`&` -> `&amp;`) AND is a valid filename on every platform,
+        // unlike `<` or `>` which Windows path APIs reject.
+        let json = r#"{"a&b.js":{"path":"a&b.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
         let dir = write_to_temp(json);
-        let detail = fs::read_to_string(dir.path().join("<scary>.js.html")).unwrap();
-        assert!(detail.contains("&lt;scary&gt;.js"), "got:\n{detail}");
+        let detail = fs::read_to_string(dir.path().join("a&b.js.html")).unwrap();
+        assert!(detail.contains("a&amp;b.js"), "got:\n{detail}");
     }
 
     #[test]
     fn detail_row_class_marks_misses() {
         // statementMap with one statement on line 1, hit count 0 -> "miss" class
-        // on the source row.
+        // on the source row. The coverage key uses a relative path resolved
+        // against `root_dir` so the same JSON works on every platform; an
+        // absolute Windows path (`C:\\...`) would round-trip through the
+        // report tree as a non-relative folder component, which Windows path
+        // APIs reject.
         let dir = tempfile::TempDir::new().unwrap();
-        let src_path = dir.path().join("a.js");
-        fs::write(&src_path, "const x = 1;\n").unwrap();
-        let json = format!(
-            r#"{{"{path}":{{"path":"{path}","statementMap":{{"0":{{"start":{{"line":1,"column":0}},"end":{{"line":1,"column":12}}}}}},"fnMap":{{}},"branchMap":{{}},"s":{{"0":0}},"f":{{}},"b":{{}}}}}}"#,
-            path = src_path.to_string_lossy().replace('\\', "\\\\"),
-        );
-        let map = parse_coverage_map(&json).unwrap();
+        fs::write(dir.path().join("a.js"), "const x = 1;\n").unwrap();
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":12}}},"fnMap":{},"branchMap":{},"s":{"0":0},"f":{},"b":{}}}"#;
+        let map = parse_coverage_map(json).unwrap();
         let out_dir = dir.path().join("html");
-        write(&map, Path::new(""), &out_dir).unwrap();
-        let file_name = src_path.file_name().unwrap().to_string_lossy().to_string();
-        let detail =
-            fs::read_to_string(out_dir.join(format!("{file_name}.html"))).unwrap_or_else(|_| {
-                // The escape may produce nested paths; fall back to scanning.
-                let mut found = None;
-                for entry in walkdir(&out_dir) {
-                    if entry.ends_with(format!("{file_name}.html")) {
-                        found = Some(fs::read_to_string(entry).unwrap());
-                        break;
-                    }
-                }
-                found.expect("detail file present")
-            });
+        write(&map, dir.path(), &out_dir).unwrap();
+        let detail = fs::read_to_string(out_dir.join("a.js.html")).unwrap();
         assert!(detail.contains("line miss"), "expected miss class; got:\n{detail}");
     }
 
