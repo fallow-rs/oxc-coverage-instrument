@@ -749,6 +749,79 @@ fn source_map_composed_with_input_source_map() {
 }
 
 #[test]
+fn composed_source_map_resolves_positions_to_original_source() {
+    // Guard for the composition path: a non-trivial inputSourceMap that maps each generated
+    // line back to a different line of an original TypeScript file. After instrumentation +
+    // composition, the resulting source map must (a) still reference the original source and
+    // (b) be able to resolve generated positions in the instrumented output back to the
+    // expected original-source lines.
+    //
+    // Pinned by the v0.3.8 "position-only token" fix; the conformance suite (istanbul-diff
+    // and real-world-parity scripts) exercises only the no-inputSourceMap path.
+    use oxc_sourcemap::SourceMap as OxcSourceMap;
+
+    let original_ts = "const x: number = 1;\nconst y: number = 2;\nconst z: number = 3;\n";
+    let intermediate_js = "const x = 1;\nconst y = 2;\nconst z = 3;\n";
+
+    // Identity-line mapping: each generated line maps to the same line in original_ts.
+    // VLQ: "AAAA;AACA;AACA" = (gen 0:0 -> src[0] 0:0); next line src_line += 1; next line src_line += 1.
+    let input_sm = format!(
+        r#"{{"version":3,"sources":["original.ts"],"sourcesContent":[{original_ts:?}],"mappings":"AAAA;AACA;AACA","names":[]}}"#,
+    );
+
+    let opts = InstrumentOptions {
+        source_map: true,
+        input_source_map: Some(input_sm),
+        ..InstrumentOptions::default()
+    };
+    let result = instrument(intermediate_js, "intermediate.js", &opts).unwrap();
+
+    let raw = result.source_map.expect("output source map present");
+    let composed = OxcSourceMap::from_json_string(&raw).expect("composed map parses");
+
+    let sources: Vec<String> = composed.get_sources().map(|s| s.to_string()).collect();
+    assert!(
+        sources.iter().any(|s| s == "original.ts"),
+        "composed map must reference original.ts after composition, got: {sources:?}"
+    );
+
+    let reached: std::collections::HashSet<u32> = composed
+        .get_source_view_tokens()
+        .filter(|t| t.get_source_id().is_some())
+        .map(|t| t.get_src_line())
+        .collect();
+    for original_line in 0u32..3 {
+        assert!(
+            reached.contains(&original_line),
+            "composed map must reach original.ts line {original_line}; reached: {reached:?}"
+        );
+    }
+
+    // Skip line 0 (the preamble megaline that embeds the coverage object literal, which contains
+    // a JSON-encoded copy of the inputSourceMap's sourcesContent and thus also matches "const x").
+    let lines: Vec<&str> = result.code.lines().skip(1).collect();
+    let lookup = composed.generate_lookup_table();
+    for (needle, expected_src_line) in [("const x", 0u32), ("const y", 1), ("const z", 2)] {
+        let (rel_idx, line) = lines
+            .iter()
+            .enumerate()
+            .find(|(_, l)| l.contains(needle))
+            .unwrap_or_else(|| panic!("instrumented code lines must contain `{needle}`"));
+        let gen_line = (rel_idx + 1) as u32;
+        let gen_col = line.find(needle).expect("substring column") as u32;
+        let token = composed.lookup_token(&lookup, gen_line, gen_col).unwrap_or_else(|| {
+            panic!("`{needle}` at {gen_line}:{gen_col} resolves in composed map")
+        });
+        assert_eq!(
+            token.get_src_line(),
+            expected_src_line,
+            "`{needle}` at gen {gen_line}:{gen_col} must resolve to original.ts line {expected_src_line}, got {}",
+            token.get_src_line()
+        );
+    }
+}
+
+#[test]
 fn input_source_map_invalid_json_ignored() {
     let opts = InstrumentOptions {
         input_source_map: Some("not valid json".to_string()),
