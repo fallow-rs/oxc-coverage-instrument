@@ -102,7 +102,7 @@ export default defineConfig({
 })
 ```
 
-The factory receives Vitest's runtime coverage options (`coverageVariable`, `ignoreClassMethods`) and forwards them to the native instrumenter. Everything else in the Istanbul provider (collection, merging, reporting) keeps working unchanged.
+The factory forwards `coverageVariable` and `ignoreClassMethods` to the native instrumenter. Everything else in the Istanbul provider (collection, merging, reporting) keeps working unchanged.
 
 ### vite-plugin-istanbul integration
 
