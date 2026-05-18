@@ -1,0 +1,19 @@
+[package]
+name = "oxc_coverage_types"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+description = "Istanbul-compatible coverage data types (FileCoverage, CoverageMap, etc.) for the oxc-coverage suite"
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+categories = ["development-tools::testing", "data-structures"]
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

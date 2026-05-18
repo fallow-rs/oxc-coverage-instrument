@@ -127,6 +127,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Publish in topological order: oxc_coverage_types (no internal deps)
+      # before oxc_coverage_instrument (depends on oxc_coverage_types).
+      - name: Publish oxc_coverage_types
+        run: cargo publish -p oxc_coverage_types --allow-dirty || echo "Already published, skipping"
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
       - name: Publish oxc_coverage_instrument
         run: cargo publish -p oxc_coverage_instrument --allow-dirty || echo "Already published, skipping"
         env:

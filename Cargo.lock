@@ -814,6 +814,7 @@ dependencies = [
  "oxc_allocator",
  "oxc_ast",
  "oxc_codegen",
+ "oxc_coverage_types",
  "oxc_parser",
  "oxc_semantic",
  "oxc_sourcemap",
@@ -834,6 +835,14 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "oxc_coverage_instrument",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "oxc_coverage_types"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]

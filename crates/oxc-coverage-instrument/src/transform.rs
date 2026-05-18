@@ -17,7 +17,7 @@ use oxc_syntax::operator::{LogicalOperator, UpdateOperator};
 use oxc_traverse::{Traverse, TraverseCtx};
 
 use crate::pragma::{IgnoreType, PragmaMap};
-use crate::types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
+use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
 
 /// State carried through the traverse for coverage instrumentation.
 pub struct CoverageState {

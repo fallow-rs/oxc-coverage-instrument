@@ -3,6 +3,20 @@
 //! First-party serde types derived from Istanbul's JSON schema
 //! (`@istanbuljs/schema`). Produces `coverage-final.json` compatible
 //! output that Jest, Vitest, c8, nyc, and Codecov all consume.
+//!
+//! This crate is the data-model layer of the `oxc-coverage` suite. The
+//! instrumenter, source-map remapper, V8-to-Istanbul converter, and any future
+//! reporter all share these types.
+//!
+//! # Example
+//!
+//! ```
+//! use oxc_coverage_types::{FileCoverage, parse_coverage_map};
+//!
+//! let json = r#"{"file.js": {"path": "file.js", "statementMap": {}, "fnMap": {}, "branchMap": {}, "s": {}, "f": {}, "b": {}}}"#;
+//! let map = parse_coverage_map(json).unwrap();
+//! assert!(map.contains_key("file.js"));
+//! ```
 
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
@@ -59,9 +73,9 @@ pub struct FileCoverage {
         deserialize_with = "deserialize_optional_null_as_zero_vec_map"
     )]
     pub b_t: Option<BTreeMap<String, Vec<u32>>>,
-    /// Input source map from a prior transformation (e.g., TypeScript → JS).
+    /// Input source map from a prior transformation (e.g., TypeScript to JS).
     /// Stored so downstream tools can chain back to the original source.
-    /// Only present when `InstrumentOptions::input_source_map` was provided.
+    /// Only present when the instrumenter received an `inputSourceMap`.
     #[serde(rename = "inputSourceMap", skip_serializing_if = "Option::is_none")]
     pub input_source_map: Option<serde_json::Value>,
 }
@@ -206,13 +220,13 @@ where
 
 /// Parse a `coverage-final.json` string into a map of file paths to coverage data.
 ///
-/// This is the inverse of instrumentation, it reads existing coverage data
+/// This is the inverse of instrumentation: it reads existing coverage data
 /// produced by any Istanbul-compatible tool (Jest, Vitest, c8, nyc, etc.).
 ///
 /// # Example
 ///
 /// ```
-/// use oxc_coverage_instrument::parse_coverage_map;
+/// use oxc_coverage_types::parse_coverage_map;
 ///
 /// let json = r#"{"file.js": {"path": "file.js", "statementMap": {}, "fnMap": {}, "branchMap": {}, "s": {}, "f": {}, "b": {}}}"#;
 /// let map = parse_coverage_map(json).unwrap();
@@ -230,66 +244,4 @@ impl FileCoverage {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
-
-    /// Create a new `FileCoverage` with empty hit counts from sequential
-    /// id-indexed Vecs collected during AST traversal. The Vecs are converted
-    /// once into the Istanbul-shaped `BTreeMap<String, _>` here so the hot
-    /// traversal path avoids per-add String allocations and tree rebalancing.
-    pub(crate) fn from_maps(maps: CoverageMaps) -> Self {
-        let CoverageMaps { path, statement_locs, fn_entries, branch_entries, logical_branch_ids } =
-            maps;
-        let statement_map: BTreeMap<String, Location> =
-            statement_locs.into_iter().enumerate().map(|(i, loc)| (i.to_string(), loc)).collect();
-        let fn_map: BTreeMap<String, FnEntry> =
-            fn_entries.into_iter().enumerate().map(|(i, e)| (i.to_string(), e)).collect();
-        // Drop branches that never got any path locations (e.g. both `if` arms
-        // suppressed by pragmas). Original ids are preserved so generated
-        // counter ids still line up with the public maps.
-        let branch_map: BTreeMap<String, BranchEntry> = branch_entries
-            .into_iter()
-            .enumerate()
-            .filter(|(_, entry)| !entry.locations.is_empty())
-            .map(|(i, entry)| (i.to_string(), entry))
-            .collect();
-
-        let s = statement_map.keys().map(|k| (k.clone(), 0)).collect();
-        let f = fn_map.keys().map(|k| (k.clone(), 0)).collect();
-        let b = branch_map
-            .iter()
-            .map(|(k, entry)| (k.clone(), vec![0; entry.locations.len()]))
-            .collect();
-        let b_t = if logical_branch_ids.is_empty() {
-            None
-        } else {
-            Some(
-                logical_branch_ids
-                    .iter()
-                    .filter_map(|&id| {
-                        let key = id.to_string();
-                        let len = branch_map.get(&key)?.locations.len();
-                        Some((key, vec![0; len]))
-                    })
-                    .collect(),
-            )
-        };
-
-        Self { path, statement_map, fn_map, branch_map, s, f, b, b_t, input_source_map: None }
-    }
-}
-
-/// Inputs to [`FileCoverage::from_maps`], grouped so callers thread one value
-/// instead of five.
-pub struct CoverageMaps {
-    /// File path stored on the resulting `FileCoverage`.
-    pub path: String,
-    /// Statement spans collected during traversal, indexed by counter id.
-    pub statement_locs: Vec<Location>,
-    /// Function metadata (name, decl span, body span) indexed by counter id.
-    pub fn_entries: Vec<FnEntry>,
-    /// Branch metadata indexed by counter id; entries with empty `locations`
-    /// are dropped during map construction.
-    pub branch_entries: Vec<BranchEntry>,
-    /// Counter ids of branches that should also be tracked in the truthy
-    /// (`bT`) map; only populated when `report_logic` is on.
-    pub logical_branch_ids: Vec<usize>,
 }
