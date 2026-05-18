@@ -1,4 +1,4 @@
-//! HTML reporter (PR G1).
+//! HTML reporter.
 //!
 //! Writes a self-contained directory of HTML pages matching the structure
 //! produced by istanbul-reports' `html` reporter: a root `index.html`, a
@@ -19,19 +19,21 @@
 //! - **No template engine**: hand-rolled string concatenation with
 //!   careful HTML-attribute and HTML-text escaping. Adding handlebars /
 //!   askama for one reporter is not worth the dependency surface.
-//! - **Offline**: all CSS is embedded as a `&'static str` constant and
-//!   copied to `<output_dir>/base.css`. PR G2 will add prettify syntax
-//!   highlighting, sortable table JS, and an explicit dark-mode toggle.
+//! - **Offline / corporate-proxy safe**: CSS and JS are embedded via
+//!   `include_str!` and copied to `<output_dir>/base.css` and
+//!   `<output_dir>/base.js`. Every page also carries a strict
+//!   `Content-Security-Policy` `<meta>` tag (`default-src 'self';
+//!   connect-src 'none'; font-src 'none'; object-src 'none'; ...`) so the
+//!   report makes zero network requests even if served from an HTTP
+//!   origin behind an inspecting proxy.
+//! - **Progressive enhancement**: without JS the report still renders
+//!   correctly; JS adds sortable index tables, an explicit
+//!   auto/light/dark toggle that overrides `prefers-color-scheme`, and
+//!   lightweight syntax highlighting on detail-page source views.
 //! - **Graceful missing-source**: if a file's source cannot be read from
 //!   disk (CI runs without the original tree, remapped path that does
 //!   not exist locally), the detail page shows the coverage statistics
 //!   alongside a `(source unavailable)` placeholder rather than failing.
-//!
-//! The emitter is intentionally not styled with vendor JS or color
-//! pickers in v1; the styling matches istanbul-reports' green / red /
-//! yellow gutter convention via the `prefers-color-scheme` CSS media
-//! query so the report is readable in both light and dark terminals
-//! without an explicit toggle button.
 
 use oxc_coverage_report::{CoverageMap, CoverageSummary, NodeKind, ReportNode, summarize};
 use oxc_coverage_source_maps::remap_coverage_map;
@@ -51,6 +53,29 @@ const DETAIL_SUFFIX: &str = ".html";
 /// Embedded stylesheet copied to `<output_dir>/base.css`.
 const BASE_CSS: &str = include_str!("html/base.css");
 
+/// Embedded enhancement script copied to `<output_dir>/base.js`.
+///
+/// Provides the sortable index tables, the auto / light / dark theme
+/// toggle, and the lightweight JS/TS syntax highlighter. Pure DOM API,
+/// never assigns `innerHTML`, never makes a network request, so the
+/// page stays compatible with the strict CSP emitted by [`render_page`].
+const BASE_JS: &str = include_str!("html/base.js");
+
+/// Strict Content-Security-Policy applied to every emitted page.
+///
+/// - `default-src 'self'`: only same-origin scripts, styles, images.
+/// - `connect-src 'none'`: no `fetch` / `XMLHttpRequest` / `WebSocket`.
+/// - `font-src 'none'`: no web-font fetches (we use system fonts only).
+/// - `object-src 'none'`: no embeds / plugins.
+/// - `base-uri 'self'`: prevents `<base>` tag tampering by injection.
+/// - `form-action 'none'`: no form submissions (we have no forms).
+///
+/// The combined effect is that opening a report in a browser, even one
+/// served from a corporate HTTP proxy, performs zero outbound requests
+/// to anything other than the report's own directory.
+const CSP_POLICY: &str = "default-src 'self'; connect-src 'none'; \
+font-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'";
+
 /// Render a complete HTML coverage report into `output_dir`.
 ///
 /// `coverage_map` may carry `inputSourceMap` entries; they are remapped
@@ -66,6 +91,7 @@ pub fn write(coverage_map: &CoverageMap, root_dir: &Path, output_dir: &Path) -> 
 
     fs::create_dir_all(output_dir)?;
     fs::write(output_dir.join("base.css"), BASE_CSS)?;
+    fs::write(output_dir.join("base.js"), BASE_JS)?;
 
     let ctx = RenderContext { root_dir };
     render_node(&root, &ctx, output_dir, 0)?;
@@ -301,11 +327,19 @@ fn render_source_unavailable(line_hits: &BTreeMap<u32, u32>) -> String {
 
 fn render_page(title: &str, depth: usize, body: &str) -> String {
     let css_href = relative_to_root(depth, "base.css");
+    let js_href = relative_to_root(depth, "base.js");
     let mut out = String::with_capacity(body.len() + 1024);
     out.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
     out.push_str("  <meta charset=\"utf-8\">\n");
+    out.push_str("  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+    let _ = writeln!(
+        out,
+        "  <meta http-equiv=\"Content-Security-Policy\" content=\"{}\">",
+        html_attr_escape(CSP_POLICY),
+    );
     let _ = writeln!(out, "  <title>Coverage: {}</title>", html_text_escape(title));
     let _ = writeln!(out, "  <link rel=\"stylesheet\" href=\"{}\">", html_attr_escape(&css_href));
+    let _ = writeln!(out, "  <script src=\"{}\" defer></script>", html_attr_escape(&js_href));
     out.push_str("</head>\n<body>\n");
     out.push_str(body);
     out.push_str("</body>\n</html>\n");
@@ -357,7 +391,7 @@ fn render_breadcrumb(node: &ReportNode, depth: usize) -> String {
         } else {
             // Build a relative href that climbs up to that ancestor's index.
             depth_remaining = depth_remaining.saturating_sub(1);
-            let href = relative_to_root_with_extra(depth_remaining, INDEX_FILE);
+            let href = relative_to_root(depth_remaining, INDEX_FILE);
             let _ = write!(
                 out,
                 " / <a href=\"{}\">{}</a>",
@@ -380,10 +414,6 @@ fn relative_to_root(depth: usize, file: &str) -> String {
     }
     out.push_str(file);
     out
-}
-
-fn relative_to_root_with_extra(depth: usize, file: &str) -> String {
-    relative_to_root(depth, file)
 }
 
 // -- Per-file analysis helpers ---------------------------------------------
@@ -557,40 +587,127 @@ mod tests {
 
     #[test]
     fn html_special_chars_are_escaped_in_titles_and_breadcrumbs() {
-        let json = r#"{"<scary>.js":{"path":"<scary>.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        // Use '&' as the HTML-special character: it exercises the escaping
+        // path (`&` -> `&amp;`) AND is a valid filename on every platform,
+        // unlike `<` or `>` which Windows path APIs reject.
+        let json = r#"{"a&b.js":{"path":"a&b.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
         let dir = write_to_temp(json);
-        let detail = fs::read_to_string(dir.path().join("<scary>.js.html")).unwrap();
-        assert!(detail.contains("&lt;scary&gt;.js"), "got:\n{detail}");
+        let detail = fs::read_to_string(dir.path().join("a&b.js.html")).unwrap();
+        assert!(detail.contains("a&amp;b.js"), "got:\n{detail}");
     }
 
     #[test]
     fn detail_row_class_marks_misses() {
         // statementMap with one statement on line 1, hit count 0 -> "miss" class
-        // on the source row.
+        // on the source row. The coverage key uses a relative path resolved
+        // against `root_dir` so the same JSON works on every platform; an
+        // absolute Windows path (`C:\\...`) would round-trip through the
+        // report tree as a non-relative folder component, which Windows path
+        // APIs reject.
         let dir = tempfile::TempDir::new().unwrap();
-        let src_path = dir.path().join("a.js");
-        fs::write(&src_path, "const x = 1;\n").unwrap();
-        let json = format!(
-            r#"{{"{path}":{{"path":"{path}","statementMap":{{"0":{{"start":{{"line":1,"column":0}},"end":{{"line":1,"column":12}}}}}},"fnMap":{{}},"branchMap":{{}},"s":{{"0":0}},"f":{{}},"b":{{}}}}}}"#,
-            path = src_path.to_string_lossy().replace('\\', "\\\\"),
-        );
-        let map = parse_coverage_map(&json).unwrap();
+        fs::write(dir.path().join("a.js"), "const x = 1;\n").unwrap();
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":12}}},"fnMap":{},"branchMap":{},"s":{"0":0},"f":{},"b":{}}}"#;
+        let map = parse_coverage_map(json).unwrap();
         let out_dir = dir.path().join("html");
-        write(&map, Path::new(""), &out_dir).unwrap();
-        let file_name = src_path.file_name().unwrap().to_string_lossy().to_string();
-        let detail =
-            fs::read_to_string(out_dir.join(format!("{file_name}.html"))).unwrap_or_else(|_| {
-                // The escape may produce nested paths; fall back to scanning.
-                let mut found = None;
-                for entry in walkdir(&out_dir) {
-                    if entry.ends_with(format!("{file_name}.html")) {
-                        found = Some(fs::read_to_string(entry).unwrap());
-                        break;
-                    }
-                }
-                found.expect("detail file present")
-            });
+        write(&map, dir.path(), &out_dir).unwrap();
+        let detail = fs::read_to_string(out_dir.join("a.js.html")).unwrap();
         assert!(detail.contains("line miss"), "expected miss class; got:\n{detail}");
+    }
+
+    #[test]
+    fn writes_base_js_alongside_base_css() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let dir = write_to_temp(json);
+        let js = fs::read_to_string(dir.path().join("base.js")).unwrap();
+        // Sanity-check the three feature blocks are present in the emitted JS.
+        assert!(js.contains("Theme toggle"), "base.js missing theme toggle section");
+        assert!(js.contains("Sortable tables"), "base.js missing sortable tables section");
+        assert!(js.contains("Source prettify"), "base.js missing prettify section");
+        // The three feature areas must be wired into the boot path.
+        assert!(js.contains("buildThemeToggle"), "base.js missing theme toggle invocation");
+        assert!(js.contains("initSortable"), "base.js missing sortable init invocation");
+        assert!(js.contains("initPrettify"), "base.js missing prettify init invocation");
+    }
+
+    #[test]
+    fn every_page_carries_csp_and_script_tag() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"src/foo.js":{"path":"src/foo.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let dir = write_to_temp(json);
+        for html_path in walkdir(dir.path())
+            .into_iter()
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("html"))
+        {
+            let html = fs::read_to_string(&html_path).unwrap();
+            assert!(html.contains("Content-Security-Policy"), "missing CSP meta in {html_path:?}");
+            assert!(
+                html.contains("connect-src &#39;none&#39;"),
+                "CSP lacks connect-src 'none' in {html_path:?}"
+            );
+            assert!(
+                html.contains("font-src &#39;none&#39;"),
+                "CSP lacks font-src 'none' in {html_path:?}"
+            );
+            assert!(html.contains("<script src="), "missing <script> in {html_path:?}");
+            assert!(html.contains("base.js"), "page does not reference base.js in {html_path:?}");
+            assert!(
+                html.contains(" defer></script>"),
+                "<script> not marked defer in {html_path:?}"
+            );
+            assert!(html.contains("viewport"), "missing viewport meta in {html_path:?}");
+        }
+    }
+
+    #[test]
+    fn nested_pages_use_relative_script_href() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"src/foo.js":{"path":"src/foo.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let dir = write_to_temp(json);
+        let nested = fs::read_to_string(dir.path().join("src").join("foo.js.html")).unwrap();
+        assert!(nested.contains("src=\"../base.js\""), "nested script href wrong: {nested}");
+        let root = fs::read_to_string(dir.path().join("a.js.html")).unwrap();
+        assert!(root.contains("src=\"base.js\""), "root script href wrong: {root}");
+    }
+
+    #[test]
+    fn emitted_assets_have_no_external_urls() {
+        // Corporate-proxy hardening: the report must not contain any
+        // absolute external URLs in HTML, CSS, or JS. Any future change
+        // that pulls in a CDN dependency must be a deliberate one and
+        // will fail this test.
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"src/foo.js":{"path":"src/foo.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let dir = write_to_temp(json);
+        let banned = [
+            "http://",
+            "https://",
+            "ws://",
+            "wss://",
+            "//cdn.",
+            "fonts.googleapis",
+            "fonts.gstatic",
+        ];
+        for path in walkdir(dir.path()) {
+            let Ok(text) = fs::read_to_string(&path) else { continue };
+            for needle in banned {
+                assert!(
+                    !text.contains(needle),
+                    "{path:?} contains external reference {needle:?}:\n{text}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn base_css_exposes_theme_override_and_token_classes() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let dir = write_to_temp(json);
+        let css = fs::read_to_string(dir.path().join("base.css")).unwrap();
+        assert!(css.contains(":root[data-theme=\"dark\"]"), "missing dark override");
+        assert!(css.contains(":root:not([data-theme=\"light\"])"), "missing light escape hatch");
+        assert!(css.contains(".sortable"), "missing .sortable selector");
+        assert!(css.contains("aria-sort=\"ascending\""), "missing aria-sort hook");
+        for cls in [".tok-k", ".tok-s", ".tok-c", ".tok-n", ".tok-b", ".tok-p"] {
+            assert!(css.contains(cls), "missing token class {cls}");
+        }
+        assert!(css.contains(".theme-toggle__btn"), "missing theme-toggle button class");
     }
 
     fn walkdir(dir: &Path) -> Vec<PathBuf> {

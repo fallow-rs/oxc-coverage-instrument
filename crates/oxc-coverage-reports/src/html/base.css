@@ -1,12 +1,22 @@
 /* oxc-coverage-instrument HTML reporter base stylesheet.
  *
- * Hand-rolled, single-file, no external font / JS dependencies. Adapts to
- * the system color scheme via prefers-color-scheme. The PR G2 polish layer
- * will add: sortable index table JS, a dark-mode toggle, prettify syntax
- * highlighting, and an explicit high-contrast theme.
+ * Hand-rolled, single-file, no external font / JS dependencies.
+ *
+ * Theme:
+ *   - Default palette is light; `prefers-color-scheme: dark` switches the
+ *     palette automatically.
+ *   - The `data-theme="dark"` / `data-theme="light"` attribute on <html>
+ *     (set by base.js when the user clicks the toggle) overrides the
+ *     media query, so the user choice always wins.
+ *
+ * Syntax highlighting: classes `.tok-k`, `.tok-s`, `.tok-c`, `.tok-n`,
+ * `.tok-b`, `.tok-p` are applied to source spans by base.js. Without JS,
+ * the source still renders in plain monospace text.
  */
 
 :root {
+  color-scheme: light dark;
+
   --bg: #ffffff;
   --text: #1d2129;
   --muted: #66707a;
@@ -24,10 +34,23 @@
   --link: #0366d6;
   --gutter-bg: #f6f8fa;
   --code-bg: #fdfdfd;
+  --focus-ring: #0366d6;
+  --btn-bg: #ffffff;
+  --btn-bg-active: #0366d6;
+  --btn-fg-active: #ffffff;
+
+  --tok-keyword: #cf222e;
+  --tok-string: #0a3069;
+  --tok-comment: #6e7781;
+  --tok-number: #0550ae;
+  --tok-builtin: #8250df;
+  --tok-punct: #57606a;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
     --bg: #14171c;
     --text: #e6e9ef;
     --muted: #9aa2ad;
@@ -45,7 +68,51 @@
     --link: #58a6ff;
     --gutter-bg: #1a1e25;
     --code-bg: #0d1117;
+    --focus-ring: #58a6ff;
+    --btn-bg: #1c2027;
+    --btn-bg-active: #1f6feb;
+    --btn-fg-active: #ffffff;
+
+    --tok-keyword: #ff7b72;
+    --tok-string: #a5d6ff;
+    --tok-comment: #8b949e;
+    --tok-number: #79c0ff;
+    --tok-builtin: #d2a8ff;
+    --tok-punct: #8b949e;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #14171c;
+  --text: #e6e9ef;
+  --muted: #9aa2ad;
+  --border: #2a2f37;
+  --header-bg: #1c2027;
+  --hit-bg: #173527;
+  --miss-bg: #3d1a1f;
+  --partial-bg: #3a3220;
+  --pct-high: #6ee787;
+  --pct-medium: #f0b429;
+  --pct-low: #ff7b72;
+  --row-high: #1b2a23;
+  --row-medium: #2b2620;
+  --row-low: #2a1b1f;
+  --link: #58a6ff;
+  --gutter-bg: #1a1e25;
+  --code-bg: #0d1117;
+  --focus-ring: #58a6ff;
+  --btn-bg: #1c2027;
+  --btn-bg-active: #1f6feb;
+  --btn-fg-active: #ffffff;
+
+  --tok-keyword: #ff7b72;
+  --tok-string: #a5d6ff;
+  --tok-comment: #8b949e;
+  --tok-number: #79c0ff;
+  --tok-builtin: #d2a8ff;
+  --tok-punct: #8b949e;
 }
 
 * { box-sizing: border-box; }
@@ -59,11 +126,13 @@ body {
 }
 a { color: var(--link); text-decoration: none; }
 a:hover, a:focus { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
 
 header.summary {
   background: var(--header-bg);
   border-bottom: 1px solid var(--border);
   padding: 16px 24px;
+  position: relative;
 }
 header.summary h1 {
   margin: 0 0 8px 0;
@@ -103,6 +172,35 @@ ul.metrics {
 .metric.medium .pct { color: var(--pct-medium); }
 .metric.low .pct { color: var(--pct-low); }
 
+/* Theme toggle (inserted by base.js into header.summary) */
+.theme-toggle {
+  position: absolute;
+  top: 16px;
+  right: 24px;
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--btn-bg);
+}
+.theme-toggle__btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+}
+.theme-toggle__btn:last-child { border-right: 0; }
+.theme-toggle__btn:hover { color: var(--text); }
+.theme-toggle__btn[aria-pressed="true"] {
+  background: var(--btn-bg-active);
+  color: var(--btn-fg-active);
+}
+
 .pad1 { padding: 16px 24px; }
 
 table.coverage-summary {
@@ -125,6 +223,31 @@ table.coverage-summary td.pct.high { color: var(--pct-high); }
 table.coverage-summary td.pct.medium { color: var(--pct-medium); }
 table.coverage-summary td.pct.low { color: var(--pct-low); }
 table.coverage-summary .quiet { color: var(--muted); font-size: 11px; }
+
+/* Sortable column headers (enhanced by base.js; without JS, no .sortable class).
+ * The indicator is an inline ::after sibling glued to the label text so it
+ * stays adjacent regardless of cell alignment. Unicode triangles, no SVGs. */
+table.coverage-summary th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+table.coverage-summary th.sortable:first-child { text-align: left; }
+table.coverage-summary th.sortable::after {
+  content: " \2195"; /* ↕ both-directions, unsorted */
+  margin-left: 4px;
+  font-size: 0.85em;
+  opacity: 0.35;
+  display: inline-block;
+}
+table.coverage-summary th.sortable[aria-sort="ascending"]::after {
+  content: " \25B2"; /* ▲ */
+  opacity: 0.95;
+}
+table.coverage-summary th.sortable[aria-sort="descending"]::after {
+  content: " \25BC"; /* ▼ */
+  opacity: 0.95;
+}
+table.coverage-summary th.sortable:hover { color: var(--text); }
 
 table.source {
   width: 100%;
@@ -176,3 +299,11 @@ table.source .branch-note {
   font-size: 11px;
   color: var(--muted);
 }
+
+/* Syntax highlighting (applied by base.js prettify pass) */
+.tok-k { color: var(--tok-keyword); font-weight: 600; }
+.tok-s { color: var(--tok-string); }
+.tok-c { color: var(--tok-comment); font-style: italic; }
+.tok-n { color: var(--tok-number); }
+.tok-b { color: var(--tok-builtin); }
+.tok-p { color: var(--tok-punct); }
