@@ -12,6 +12,10 @@ workspace = true
 [[bin]]
 name = "oxc-coverage-instrument"
 path = "src/main.rs"
+# Skip rustdoc for the bin so cargo doc does not collide with the lib crate
+# `oxc_coverage_instrument` on the dasherized output directory. The bin is a
+# thin `main.rs` wrapper with no public API worth documenting.
+doc = false
 
 [dependencies]
 oxc_coverage_instrument = { path = ".." }
