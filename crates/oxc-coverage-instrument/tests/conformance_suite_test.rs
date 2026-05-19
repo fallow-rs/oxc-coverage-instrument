@@ -1,6 +1,7 @@
 //! Automated conformance test suite comparing against istanbul-lib-instrument.
 //!
-//! Prerequisites: run `node tests/conformance/generate-reference.mjs` to generate
+//! Prerequisites: run
+//! `node crates/oxc-coverage-instrument/tests/conformance/generate-reference.mjs` to generate
 //! reference data from Istanbul. The Rust tests then compare our output against
 //! the canonical Istanbul output for shared fixtures.
 //!
@@ -62,7 +63,7 @@ fn load_reference(name: &str) -> IstanbulReference {
     let path = format!("{}/{name}.json", reference_dir());
     let content = std::fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
-            "Missing reference file {path}: {e}. Run: node tests/conformance/generate-reference.mjs"
+            "Missing reference file {path}: {e}. Run: node crates/oxc-coverage-instrument/tests/conformance/generate-reference.mjs"
         )
     });
     serde_json::from_str(&content).unwrap_or_else(|e| panic!("Invalid reference JSON {path}: {e}"))

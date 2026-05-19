@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Generate Istanbul reference coverage maps for conformance testing.
 //
-// Run: node tests/conformance/generate-reference.mjs
+// Run: node crates/oxc-coverage-instrument/tests/conformance/generate-reference.mjs
 //
 // This instruments each fixture with istanbul-lib-instrument and writes
 // the coverage map to tests/conformance/reference/<fixture>.json.

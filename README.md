@@ -84,6 +84,8 @@ oxc-coverage-instrument src/app.js --coverage-map
 oxc-coverage-instrument src/app.js -o dist/app.js --source-map
 ```
 
+When `-o/--output` is used, the CLI writes the instrumented code to that path and writes the Istanbul coverage map next to it as `<output>.map.json`.
+
 ### Vitest integration
 
 Requires `vitest` and `@vitest/coverage-istanbul` **>= 4.1.5** (`coverage.instrumenter` option).
@@ -293,7 +295,7 @@ instrumented code + coverage map
 
 ## Coverage stack
 
-This crate is the instrumentation stage of a larger Rust-native coverage pipeline maintained alongside [`srcmap`](https://github.com/fallow-rs/srcmap), a companion source map SDK from the same author. Together they cover the hot path of the Istanbul pipeline; the cold path (report formats, merging) stays on existing packages.
+This repository now contains a Rust-native coverage suite: instrumentation, Istanbul data types, source-map remapping, V8-to-Istanbul conversion, report-tree summarization, and report emitters.
 
 ```
    source code (JS/TS)
@@ -314,8 +316,8 @@ This crate is the instrumentation stage of a larger Rust-native coverage pipelin
         |  raw FileCoverage objects
         v
    +-----------------------------+
-   | source map remap            |   istanbul-lib-source-maps today
-   | (-> original source paths)  |   srcmap-symbolicate as Rust path
+   | source map remap            |   oxc_coverage_source_maps
+   | (-> original source paths)  |
    +-----------------------------+
         |
         |  remapped FileCoverage
@@ -323,7 +325,8 @@ This crate is the instrumentation stage of a larger Rust-native coverage pipelin
    +-----------------------------+
    | report                      |   oxc_coverage_report (tree, summary, visitor)
    | (text, text-summary,        |   oxc_coverage_reports (renderers)
-   |  json-summary)              |
+   |  json-summary, lcov,        |
+   |  cobertura, html)           |
    +-----------------------------+
 ```
 
@@ -349,11 +352,14 @@ oxc-coverage-instrument report --format json-summary coverage-final.json -o cove
 oxc-coverage-instrument report --format lcov         --root . coverage-final.json -o lcov.info
 oxc-coverage-instrument report --format cobertura    --root . coverage-final.json -o cobertura.xml
 oxc-coverage-instrument report --format html         --root . coverage-final.json --output-dir coverage/
+
+# Gate CI on aggregate line coverage after rendering the chosen format
+oxc-coverage-instrument report --format text-summary coverage-final.json --fail-under 80
 ```
 
 The `lcov` and `cobertura` formats use `--root` to relativize source-file paths in the output (defaults to the cwd); repo-relative paths are required by Codecov self-hosted, GitLab MR widget, Jenkins, and Azure DevOps.
 
-The `html` format writes a self-contained directory tree (`--output-dir`, defaults to `coverage/`). Per-file detail pages show the original source with per-line hit / miss / partial-branch coloring; pages read source from disk via `--root`. Source-map remapping is wired in: files carrying an `inputSourceMap` are remapped through `oxc_coverage_source_maps` so TypeScript / JSX projects show original source rather than the instrumented JS. Dark mode adapts via `prefers-color-scheme`. PR G2 will add sortable table JS, an explicit dark-mode toggle, and prettify syntax highlighting.
+The `html` format writes a self-contained directory tree (`--output-dir`, defaults to `coverage/`). Per-file detail pages show the original source with per-line hit / miss / partial-branch coloring; pages read source from disk via `--root`. Source-map remapping is wired in: files carrying an `inputSourceMap` are remapped through `oxc_coverage_source_maps` so TypeScript / JSX projects show original source rather than the instrumented JS. The reporter includes sortable tables, a filter box, explicit auto/light/dark theme toggle, server-side syntax highlighting, strict offline CSP, copyable line anchors, and a "Next uncovered" jump button.
 
 ## Related projects
 

@@ -67,7 +67,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
 ## Napi bindings (Node.js)
 
 ```bash
-cd napi
+cd crates/oxc-coverage-instrument-napi
 npm install
 npx napi build --platform
 node test.mjs
@@ -78,9 +78,18 @@ node test.mjs
 The conformance tests compare our output against `istanbul-lib-instrument`. To regenerate reference data:
 
 ```bash
-npm install  # in repo root (installs istanbul-lib-instrument)
-node tests/conformance/generate-reference.mjs
+npm install  # in repo root (installs istanbul-lib-instrument for scripts/)
+node crates/oxc-coverage-instrument/tests/conformance/generate-reference.mjs
 ```
+
+## Helper scripts
+
+- `scripts/istanbul-diff.mjs`: byte-for-byte conformance diff against `istanbul-lib-instrument` on the shared fixture corpus.
+- `scripts/istanbul-upstream-specs.mjs`: runtime compatibility checks copied from upstream Istanbul specs.
+- `scripts/benchmark-comparison.sh`: performance comparison against Istanbul, Babel, and SWC coverage instrumenters.
+- `scripts/real-world-parity.mjs`: count-level parity check over the benchmark corpus populated by `benchmark-comparison.sh`.
+- `scripts/compare-istanbul.mjs`: ad hoc reference-output dumper used when investigating Istanbul shape differences.
+- `scripts/sync-npm-versions.sh`: syncs the N-API package and platform package versions during release prep.
 
 ## Code conventions
 
@@ -90,6 +99,13 @@ node tests/conformance/generate-reference.mjs
 - Doc comments on all public types and functions
 - Tests for new coverage constructs (statement types, branch types, function types)
 - `#[expect(..., reason = "...")]` instead of `#[allow]`
+
+## Version policy
+
+- `oxc_coverage_instrument` and the published npm package move together and currently share the public package version.
+- Companion Rust crates (`oxc_coverage_types`, `oxc_coverage_source_maps`, `oxc_coverage_v8`, `oxc_coverage_report`, `oxc_coverage_reports`) may stay on lower 0.x versions until their APIs mature.
+- Internal adapter crates with `publish = false` (`oxc-coverage-instrument-cli`, `oxc_coverage_instrument_napi`) are implementation packages; their Cargo versions do not define the public release version.
+- The root `package.json` is a private helper manifest for repository scripts. The published npm manifest is `crates/oxc-coverage-instrument-napi/package.json`.
 
 ## Submitting changes
 
