@@ -233,6 +233,8 @@ impl PragmaCollect {
 #[cfg(test)]
 mod tests {
     use super::{IgnoreType, PragmaMap, PragmaResult};
+    use oxc_ast::ast::Comment;
+    use oxc_span::Span;
 
     fn classify(text: &str) -> Option<PragmaResult> {
         PragmaMap::parse_pragma(text)
@@ -279,5 +281,37 @@ mod tests {
     #[test]
     fn rejects_non_pragma_legal_comment() {
         assert!(classify("! Copyright (c) 2026").is_none());
+    }
+
+    #[test]
+    fn word_at_extracts_keyword() {
+        assert_eq!(PragmaMap::word_at("else if (x)", 0), Some("else"));
+        assert_eq!(PragmaMap::word_at("if (x)", 0), Some("if"));
+        assert_eq!(PragmaMap::word_at("123abc", 0), None);
+        assert_eq!(PragmaMap::word_at("", 0), None);
+    }
+
+    #[test]
+    fn pragma_target_start_hops_past_else_to_chained_if() {
+        let source = "if (a) {} /* istanbul ignore else */ else if (b) {}";
+        let comment_start = source.find("/*").unwrap() as u32;
+        let comment_end = (source.find("*/").unwrap() + 2) as u32;
+        let comment =
+            Comment { span: Span::new(comment_start, comment_end), ..Default::default() };
+        let target = PragmaMap::pragma_target_start(source, &comment).unwrap();
+        let if_offset = source[comment_end as usize..].find("if ").unwrap() as u32 + comment_end;
+        assert_eq!(target, if_offset, "pragma must anchor on the chained `if`");
+    }
+
+    #[test]
+    fn pragma_target_start_keeps_else_when_followed_by_block() {
+        let source = "if (a) {} /* istanbul ignore else */ else { x }";
+        let comment_start = source.find("/*").unwrap() as u32;
+        let comment_end = (source.find("*/").unwrap() + 2) as u32;
+        let comment =
+            Comment { span: Span::new(comment_start, comment_end), ..Default::default() };
+        let target = PragmaMap::pragma_target_start(source, &comment).unwrap();
+        let else_offset = source[comment_end as usize..].find("else").unwrap() as u32 + comment_end;
+        assert_eq!(target, else_offset, "pragma stays on `else` when no chained `if` follows");
     }
 }
