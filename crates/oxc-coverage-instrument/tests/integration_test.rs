@@ -132,11 +132,30 @@ fn branch_if_without_else() {
     assert!(result.code.contains(".b[0][1]"));
 
     let json = serde_json::to_value(&result.coverage_map).unwrap();
-    assert_eq!(
-        json["branchMap"]["0"]["locations"][1],
-        serde_json::json!({ "start": {}, "end": {} }),
-        "synthetic no-else branch location should match Istanbul's unknown location"
+    // The synthetic else arm anchors as a zero-width location at the
+    // consequent's end. Both `start` and `end` carry real line/column
+    // fields so downstream consumers (`istanbul-reports`, dashboards) do
+    // not trip over `start.line` access on an empty placeholder.
+    let synthetic = &json["branchMap"]["0"]["locations"][1];
+    assert!(
+        synthetic["start"].get("line").is_some(),
+        "synthetic else arm must have a real start line: {synthetic}"
     );
+    assert_eq!(synthetic["start"], synthetic["end"], "synthetic arm is zero-width");
+}
+
+#[test]
+fn pragma_ignore_if_on_no_else_branch_anchors_surviving_arm() {
+    // `/* istanbul ignore if */` on a no-else if drops the consequent arm.
+    // The single surviving slot must still carry a real `Location`; an
+    // empty `{ start: {}, end: {} }` here crashes downstream reporters.
+    let result = instrument_js("function f(x) { /* istanbul ignore if */ if (x) { return 1; } }");
+    assert_eq!(result.coverage_map.branch_map.len(), 1);
+    let entry = result.coverage_map.branch_map.values().next().unwrap();
+    assert_eq!(entry.locations.len(), 1);
+    let json = serde_json::to_value(&result.coverage_map).unwrap();
+    let arm = &json["branchMap"]["0"]["locations"][0];
+    assert!(arm["start"].get("line").is_some(), "ignored-if surviving arm must have a real start line: {arm}");
 }
 
 // ---------------------------------------------------------------------------

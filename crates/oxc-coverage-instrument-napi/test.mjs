@@ -135,10 +135,15 @@ function runInstrumented(result, filename, callExpression) {
     "eval('f')({ roles: ['a'] }); eval('f')({});",
   );
   assert.deepEqual(noElseCoverage.b['0'], [1, 1], 'if without else should hit both branch counters');
+  const noElseSynthetic = JSON.parse(noElse.coverageMap).branchMap['0'].locations[1];
+  assert.ok(
+    Number.isInteger(noElseSynthetic.start.line),
+    'synthetic else arm must carry a real start line, not an empty placeholder',
+  );
   assert.deepEqual(
-    JSON.parse(noElse.coverageMap).branchMap['0'].locations[1],
-    { start: {}, end: {} },
-    'if without else should use Istanbul-style unknown alternate location',
+    noElseSynthetic.start,
+    noElseSynthetic.end,
+    'synthetic else arm is anchored as a zero-width location',
   );
 
   const objectMethod = instrument(

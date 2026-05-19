@@ -261,17 +261,6 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         self.add_branch_path_location(branch_id, location, (body_span.start, body_span.end))
     }
 
-    fn add_branch_path_unknown(&mut self, branch_id: usize) -> usize {
-        self.add_branch_path_location(
-            branch_id,
-            Location {
-                start: Position { line: 0, column: 0 },
-                end: Position { line: 0, column: 0 },
-            },
-            (0, 0),
-        )
-    }
-
     // Track which arm spans of an `if` are pragma-ignored so nested statements
     // inside the ignored arm do not register their own statement counters.
     fn record_ignored_if_arm(&mut self, stmt: &IfStatement<'arena>, pragma: Option<IgnoreType>) {
@@ -290,10 +279,18 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
 
     // Synthesize a missing else-arm block when needed and inject its branch
     // counter, mirroring istanbul-lib-instrument's coverIfBranches behavior.
+    //
+    // `synthetic_anchor` is the source offset to use as the synthetic else
+    // arm's reported location when the original `IfStatement` has no
+    // `else` clause. Anchoring on the consequent's end keeps the slot in
+    // `branchMap[N].locations[1]` as a real `Location` so downstream
+    // consumers (`istanbul-reports` and similar) do not trip over
+    // `start.line` access on an empty placeholder.
     fn inject_else_branch_counter(
         &mut self,
         stmt: &mut IfStatement<'arena>,
         branch_id: usize,
+        synthetic_anchor: u32,
         ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         if stmt.alternate.is_none() {
@@ -304,7 +301,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         }
         if let Some(alt) = &mut stmt.alternate {
             let path_idx = if alt.span().start == 0 && alt.span().end == 0 {
-                self.add_branch_path_unknown(branch_id)
+                self.add_branch_path(branch_id, Span::new(synthetic_anchor, synthetic_anchor))
             } else {
                 self.add_branch_path(branch_id, alt.span())
             };
@@ -1349,7 +1346,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             );
         }
         if pragma != Some(IgnoreType::Else) {
-            self.inject_else_branch_counter(stmt, branch_id, ctx);
+            self.inject_else_branch_counter(stmt, branch_id, consequent_body_span.end, ctx);
         }
     }
 
