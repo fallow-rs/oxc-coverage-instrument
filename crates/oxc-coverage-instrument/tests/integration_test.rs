@@ -219,6 +219,7 @@ fn fn_name_inference_matrix_outside_class_methods() {
         ("function f(cb = () => 1) {}", "cb"),
         ("export default function () {}", "default"),
         ("export default () => 1;", "default"),
+        ("export default class { ctor() {} }", "ctor"),
         ("class C { 0() {} }", "0"),
         ("class C { 'foo bar'() {} }", "foo bar"),
     ];

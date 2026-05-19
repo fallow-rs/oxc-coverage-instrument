@@ -101,6 +101,10 @@ pub struct CoverageTransform<'src, 'arena> {
     /// `${cov_fn_name}_bt` helper name, also pre-interned. Only set when
     /// `report_logic` is enabled.
     cov_fn_bt_name: Option<&'arena str>,
+    /// `${cov_fn_name}_oc` optional-chain link observer, pre-interned. Used
+    /// every time we wrap a `?.` link; one allocation per file rather than
+    /// one per link.
+    cov_fn_oc_name: &'arena str,
     /// When true, adds truthy-value tracking (`bT`) for logical expression operands.
     report_logic: bool,
     /// Class method names to exclude from coverage instrumentation.
@@ -182,6 +186,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             skip_current_var_decl: false,
             cov_fn_name,
             cov_fn_bt_name: report_logic.then(|| allocator.alloc_str(&format!("{cov_fn_name}_bt"))),
+            cov_fn_oc_name: allocator.alloc_str(&format!("{cov_fn_name}_oc")),
             report_logic,
             ignore_class_methods,
             logical_branch_ids: Vec::new(),
@@ -420,8 +425,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         // Build `cov_fn_oc(<original>, <branch_id>)`. The helper observes
         // the value, increments b[id][0] or b[id][1] based on nullishness,
         // and returns the value unchanged so native `?.` semantics fire.
-        let oc_name = alloc_str(&format!("{}_oc", self.cov_fn_name), ctx);
-        let callee = ctx.ast.expression_identifier(SPAN, oc_name);
+        let callee = ctx.ast.expression_identifier(SPAN, self.cov_fn_oc_name);
         let original = mem::replace(object, dummy_expr(ctx));
         let mut args = ctx.ast.vec();
         args.push(Argument::from(original));
@@ -804,21 +808,6 @@ fn collect_logical_leaves_inner(expr: &Expression, pragmas: &PragmaMap, spans: &
     } else {
         spans.push(expr.span());
     }
-}
-
-/// Total leaf count for a logical chain, including pragma-ignored operands.
-/// Used to decide whether the chain qualifies as a branch at all: a real
-/// `a && b` always has >= 2 leaves before pragma filtering, so the branch
-/// entry must survive even when one arm carries `/* istanbul ignore next */`.
-fn count_logical_leaves(expr: &LogicalExpression) -> usize {
-    fn walk(e: &Expression) -> usize {
-        match e {
-            Expression::ParenthesizedExpression(p) => walk(&p.expression),
-            Expression::LogicalExpression(l) => walk(&l.left) + walk(&l.right),
-            _ => 1,
-        }
-    }
-    walk(&expr.left) + walk(&expr.right)
 }
 
 fn is_ignored_case(case: &SwitchCase, pragmas: &PragmaMap) -> bool {
@@ -1212,13 +1201,15 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         if self.in_ignored_subtree() {
             return;
         }
-        // Per istanbul convention, an anonymous `export default <fn|class>`
-        // surfaces in `fnMap` as `"default"` so reporters do not render it
-        // as `(anonymous_N)`. Named exports (`export default function foo`)
-        // keep their declared identifier.
+        // Per istanbul convention, an anonymous `export default function ()`
+        // or `export default () =>` surfaces in `fnMap` as `"default"`.
+        // Named function exports (`export default function foo`) keep their
+        // declared identifier. Class exports do not need handling here
+        // because their constructor (if any) receives its name via
+        // `enter_method_definition`, and a class without a constructor
+        // produces no `fnMap` entry at all.
         let anonymous = match &decl.declaration {
             ExportDefaultDeclarationKind::FunctionDeclaration(func) => func.id.is_none(),
-            ExportDefaultDeclarationKind::ClassDeclaration(cls) => cls.id.is_none(),
             ExportDefaultDeclarationKind::ArrowFunctionExpression(_) => true,
             _ => false,
         };
@@ -1760,13 +1751,13 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                     return;
                 }
 
-                // The branch must reflect the original chain's arity. A
-                // `/* istanbul ignore next */` on one operand only drops that
-                // arm from the branch map; the surviving operand still
-                // contributes a single-arm branch entry.
-                if count_logical_leaves(expr) < 2 {
-                    return;
-                }
+                // A `/* istanbul ignore next */` on one operand only drops
+                // that arm from the branch map; the surviving operand still
+                // contributes a single-arm branch entry. A real
+                // `LogicalExpression` always has at least one surviving
+                // leaf because dropping both arms would require pragmas on
+                // every leaf in the chain (handled by the empty-list bail
+                // below).
                 let leaf_spans = collect_logical_leaf_spans(expr, &ctx.state.pragmas);
                 if leaf_spans.is_empty() {
                     return;

@@ -132,7 +132,10 @@ impl PragmaMap {
         // `/* istanbul ignore <kind> */` placed between `else` and a chained
         // `else if` anchors to the inner `if`, not to the `else` keyword
         // itself. `IfStatement::span.start` is the `if` keyword; without
-        // this hop the pragma never reaches the visitor.
+        // this hop the pragma never reaches the visitor. `word_at` matches
+        // ASCII letters only, so `Some("else")` guarantees that the four
+        // bytes starting at `token_start` are `b'e'`, `b'l'`, `b's'`, `b'e'`
+        // and `token_start + 4` is a valid UTF-8 boundary.
         if Self::word_at(source, token_start) == Some("else")
             && let Some(after_else) = Self::next_token_start(source, token_start + 4)
             && Self::word_at(source, after_else) == Some("if")
@@ -300,6 +303,20 @@ mod tests {
         let target = PragmaMap::pragma_target_start(source, &comment).unwrap();
         let if_offset = source[comment_end as usize..].find("if ").unwrap() as u32 + comment_end;
         assert_eq!(target, if_offset, "pragma must anchor on the chained `if`");
+    }
+
+    #[test]
+    fn pragma_target_start_hops_past_else_through_inline_comment() {
+        // The `next_token_start` helper already skips inline comments and
+        // whitespace, so `else /*comment*/ if` should hop to `if` exactly
+        // like `else if`.
+        let source = "if (a) {} /* istanbul ignore else */ else /*c*/ if (b) {}";
+        let comment_start = source.find("/* istanbul").unwrap() as u32;
+        let comment_end = (source.find("*/").unwrap() + 2) as u32;
+        let comment = Comment { span: Span::new(comment_start, comment_end), ..Default::default() };
+        let target = PragmaMap::pragma_target_start(source, &comment).unwrap();
+        let if_offset = source.find("if (b)").unwrap() as u32;
+        assert_eq!(target, if_offset, "pragma must hop past `else` and the inline comment to `if`");
     }
 
     #[test]
