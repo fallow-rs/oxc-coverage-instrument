@@ -59,6 +59,26 @@ fn missing_file_exits_failure_with_readable_error() {
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("cannot read"), "should report read failure, got: {stderr}");
+    // A path-shaped argument should not nudge the user toward subcommands.
+    assert!(
+        !stderr.contains("not a known subcommand"),
+        "path-shaped misses must not show the typo hint, got: {stderr}"
+    );
+}
+
+#[test]
+fn bare_word_typo_hints_at_subcommands() {
+    // `totally-unknown` has no path separator and no extension, so it is
+    // most likely a mistyped subcommand. The read-failure should include
+    // the typo hint to nudge the user toward `instrument` / `report`.
+    let out = cli().arg("totally-unknown").output().unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("cannot read"));
+    assert!(
+        stderr.contains("not a known subcommand"),
+        "bare-word typo should show the subcommand hint, got: {stderr}"
+    );
 }
 
 #[test]
@@ -68,6 +88,20 @@ fn unknown_option_exits_failure() {
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("unknown option"), "should reject unknown option, got: {stderr}");
+}
+
+#[test]
+fn leading_flag_shaped_token_is_rejected_as_unknown_option() {
+    for args in [vec!["--bogus"], vec!["instrument", "--bogus"]] {
+        let out = cli().args(args).output().unwrap();
+        assert!(!out.status.success());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("unknown option: --bogus"), "got: {stderr}");
+        assert!(
+            !stderr.contains("cannot read"),
+            "flag typo should not become a filename: {stderr}"
+        );
+    }
 }
 
 #[test]
@@ -108,6 +142,18 @@ fn output_file_writes_code_and_map_alongside() {
     let map = std::fs::read_to_string(&map_path).expect("coverage map file");
     let value: serde_json::Value = serde_json::from_str(&map).expect("map JSON should parse");
     assert!(value["statementMap"].is_object());
+}
+
+#[test]
+fn help_documents_output_sidecar_coverage_map() {
+    let out = cli().arg("--help").output().unwrap();
+    assert!(out.status.success());
+    let combined =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(
+        combined.contains("Also writes <file>.map.json"),
+        "help should document the sidecar coverage map, got:\n{combined}"
+    );
 }
 
 #[test]
@@ -249,7 +295,55 @@ fn report_invalid_json_exits_failure() {
     let out = cli().arg("report").arg("--format").arg("text").arg(&bad).output().unwrap();
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("failed to parse coverage map"), "got:\n{stderr}");
+    assert!(stderr.contains("is not a valid coverage-final.json"), "got:\n{stderr}");
+    assert!(stderr.contains(&bad.display().to_string()), "path missing from error:\n{stderr}");
+}
+
+#[test]
+fn report_empty_coverage_map_exits_distinct_code() {
+    let cov = write_temp("report_empty_cov.json", "{}");
+    let out = cli().arg("report").arg("--format").arg("text").arg(&cov).output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("contains no files"), "got:\n{stderr}");
+    assert!(
+        String::from_utf8_lossy(&out.stdout).is_empty(),
+        "empty maps should not render misleading 100% totals"
+    );
+}
+
+#[test]
+fn report_fail_under_renders_then_exits_two_when_lines_are_low() {
+    let cov = write_temp("report_fail_under_cov.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("text-summary")
+        .arg("--fail-under")
+        .arg("90")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stdout.contains("Lines"), "report should still render before gating:\n{stdout}");
+    assert!(stderr.contains("coverage 50.00% is below --fail-under 90.00%"), "got: {stderr}");
+}
+
+#[test]
+fn report_fail_under_passes_when_lines_meet_floor() {
+    let cov = write_temp("report_fail_under_pass_cov.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("text-summary")
+        .arg("--fail-under")
+        .arg("50")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
 }
 
 #[test]
@@ -483,6 +577,26 @@ fn report_help_flag_prints_usage_and_exits_success() {
         assert!(
             stderr.contains("--threshold"),
             "report-specific help must mention --threshold, got: {stderr}",
+        );
+        assert!(
+            stderr.contains("--fail-under"),
+            "report-specific help must mention --fail-under, got: {stderr}",
+        );
+    }
+}
+
+#[test]
+fn instrument_help_flag_prints_subcommand_specific_usage() {
+    for arg in ["--help", "-h"] {
+        let out = cli().arg("instrument").arg(arg).output().unwrap();
+        assert!(out.status.success(), "`instrument {arg}` should exit 0");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("oxc-coverage-instrument instrument"), "got: {stderr}");
+        assert!(stderr.contains("--coverage-variable"), "got: {stderr}");
+        assert!(!stderr.contains("--threshold"), "instrument help should not include report flags");
+        assert!(
+            !stderr.contains("--fail-under"),
+            "instrument help should not include report flags"
         );
     }
 }

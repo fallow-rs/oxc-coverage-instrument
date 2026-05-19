@@ -52,6 +52,10 @@ struct ReportArgs {
     /// index page. Defaults to 80 if not supplied. Validated to be in
     /// `[0, 100]` at parse time.
     html_threshold: f64,
+    /// Aggregate line-coverage floor. When supplied, reports still render,
+    /// then the process exits with code 2 if total line coverage is below
+    /// the configured percentage.
+    fail_under: Option<f64>,
 }
 
 struct ReportArgsDraft {
@@ -62,6 +66,7 @@ struct ReportArgsDraft {
     root_dir: Option<PathBuf>,
     html_threshold: f64,
     threshold_was_set: bool,
+    fail_under: Option<f64>,
 }
 
 impl ReportArgsDraft {
@@ -74,6 +79,7 @@ impl ReportArgsDraft {
             root_dir: None,
             html_threshold: 80.0,
             threshold_was_set: false,
+            fail_under: None,
         }
     }
 
@@ -111,6 +117,12 @@ impl ReportArgsDraft {
         Ok(())
     }
 
+    fn set_fail_under(&mut self, value: &str) -> Result<(), ExitCode> {
+        let parsed = parse_percentage(value, "--fail-under")?;
+        self.fail_under = Some(parsed);
+        Ok(())
+    }
+
     fn finish(self) -> Result<ReportArgs, ExitCode> {
         let format = self.format.unwrap_or(Format::Text);
         self.validate_output_options(format)?;
@@ -143,6 +155,7 @@ impl ReportArgsDraft {
             format,
             root_dir,
             html_threshold: self.html_threshold,
+            fail_under: self.fail_under,
         })
     }
 
@@ -198,6 +211,11 @@ fn dispatch(args: &[String]) -> Result<ExitCode, ExitCode> {
     match args[1].as_str() {
         "report" => parse_report_args(&args[2..]).map(|a| run_report(&a)),
         "instrument" => parse_instrument_args(&args[2..]).map(|a| run_instrument(&a)),
+        other if other.starts_with('-') => {
+            eprintln!("error: unknown option: {other}");
+            print_usage();
+            Err(ExitCode::FAILURE)
+        }
         _ => parse_instrument_args(&args[1..]).map(|a| run_instrument(&a)),
     }
 }
@@ -205,17 +223,22 @@ fn dispatch(args: &[String]) -> Result<ExitCode, ExitCode> {
 fn parse_instrument_args(args: &[String]) -> Result<InstrumentArgs, ExitCode> {
     if args.is_empty() {
         eprintln!("error: instrument requires a file argument");
-        print_usage();
+        print_instrument_usage();
         return Err(ExitCode::FAILURE);
     }
 
     if args[0] == "--help" || args[0] == "-h" {
-        print_usage();
+        print_instrument_usage();
         return Err(ExitCode::SUCCESS);
     }
     if args[0] == "--version" || args[0] == "-V" {
         print_version();
         return Err(ExitCode::SUCCESS);
+    }
+    if args[0].starts_with('-') {
+        eprintln!("error: unknown option: {}", args[0]);
+        print_instrument_usage();
+        return Err(ExitCode::FAILURE);
     }
 
     let mut cli = InstrumentArgs {
@@ -240,7 +263,7 @@ fn parse_instrument_args(args: &[String]) -> Result<InstrumentArgs, ExitCode> {
                 return Err(ExitCode::SUCCESS);
             }
             "--help" | "-h" => {
-                print_usage();
+                print_instrument_usage();
                 return Err(ExitCode::SUCCESS);
             }
             other => {
@@ -273,6 +296,10 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
             "--threshold" => {
                 let value = take_value(args, &mut i, "--threshold")?;
                 report.set_threshold(&value)?;
+            }
+            "--fail-under" => {
+                let value = take_value(args, &mut i, "--fail-under")?;
+                report.set_fail_under(&value)?;
             }
             "--help" | "-h" => {
                 print_report_usage();
@@ -318,11 +345,46 @@ fn take_value(args: &[String], i: &mut usize, flag: &str) -> Result<String, Exit
     }
 }
 
+// Heuristic: does this token look like a filesystem path the user typed on
+// purpose, or like a bare word that is more likely a misspelled subcommand?
+// A path has a separator, a leading `~`, or a file extension. A token without
+// any of those (`totally-unknown`, `inst`, `repot`) is usually a typo.
+fn looks_like_path(s: &str) -> bool {
+    s.contains('/')
+        || s.contains('\\')
+        || s.starts_with('~')
+        || std::path::Path::new(s).extension().is_some()
+}
+
+fn parse_percentage(value: &str, flag: &str) -> Result<f64, ExitCode> {
+    let parsed = value.parse::<f64>().map_err(|_| {
+        eprintln!("error: {flag} must be a number between 0 and 100, got '{value}'");
+        ExitCode::FAILURE
+    })?;
+    if !parsed.is_finite() {
+        eprintln!("error: {flag} must be a finite number between 0 and 100, got '{value}'");
+        return Err(ExitCode::FAILURE);
+    }
+    if !(0.0..=100.0).contains(&parsed) {
+        eprintln!("error: {flag} {parsed} is outside [0, 100]; pick a percentage in that range");
+        return Err(ExitCode::FAILURE);
+    }
+    Ok(parsed)
+}
+
 fn run_instrument(cli: &InstrumentArgs) -> ExitCode {
     let source = match std::fs::read_to_string(&cli.filename) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("error: cannot read {}: {e}", cli.filename);
+            // A bare token like `totally-unknown` lands here when the user
+            // mistyped a subcommand. Hint at the real subcommands so they
+            // do not chase a phantom file path.
+            if e.kind() == std::io::ErrorKind::NotFound && !looks_like_path(&cli.filename) {
+                eprintln!(
+                    "       (not a known subcommand either; expected `instrument`, `report`, or a file path)"
+                );
+            }
             return ExitCode::FAILURE;
         }
     };
@@ -358,29 +420,36 @@ fn run_report(args: &ReportArgs) -> ExitCode {
     let map = match parse_coverage_map(&json) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("error: failed to parse coverage map: {e}");
+            eprintln!("error: {} is not a valid coverage-final.json ({e})", args.coverage_file);
             return ExitCode::FAILURE;
         }
     };
+    if map.is_empty() {
+        eprintln!("error: {} contains no files", args.coverage_file);
+        return ExitCode::from(2);
+    }
+
+    let root = summarize(&map);
 
     if args.format.is_multi_file() {
         let Some(output_dir) = &args.output_dir else {
             eprintln!("error: --format html requires --output-dir <dir>");
             return ExitCode::FAILURE;
         };
-        let html_opts =
-            oxc_coverage_reports::html::HtmlOptions { high_threshold: args.html_threshold };
-        if let Err(e) =
-            args.format.write_to_dir_with_options(&map, &args.root_dir, output_dir, &html_opts)
-        {
+        let html_opts = match oxc_coverage_reports::html::HtmlOptions::new(args.html_threshold) {
+            Ok(opts) => opts,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+        if let Err(e) = args.format.write_to_dir(&map, &args.root_dir, output_dir, &html_opts) {
             eprintln!("error: failed to render report: {e}");
             return ExitCode::FAILURE;
         }
         eprintln!("HTML report written to {}", output_dir.display());
-        return ExitCode::SUCCESS;
+        return apply_fail_under(&root, args.fail_under);
     }
-
-    let root = summarize(&map);
 
     match &args.output_file {
         Some(path) => {
@@ -403,6 +472,17 @@ fn run_report(args: &ReportArgs) -> ExitCode {
                 eprintln!("error: failed to render report: {e}");
                 return ExitCode::FAILURE;
             }
+        }
+    }
+    apply_fail_under(&root, args.fail_under)
+}
+
+fn apply_fail_under(root: &oxc_coverage_report::ReportNode, fail_under: Option<f64>) -> ExitCode {
+    if let Some(floor) = fail_under {
+        let actual = root.summary.lines.pct;
+        if actual < floor {
+            eprintln!("coverage {actual:.2}% is below --fail-under {floor:.2}%");
+            return ExitCode::from(2);
         }
     }
     ExitCode::SUCCESS
@@ -493,6 +573,7 @@ USAGE:
 
 INSTRUMENT OPTIONS:
     -o, --output <file>          Write instrumented code to file (default: stdout)
+                                 Also writes <file>.map.json with the coverage map.
     --coverage-map               Print only the coverage map JSON
     --source-map                 Generate source map
     --coverage-variable <name>   Coverage variable name (default: __coverage__)
@@ -506,11 +587,32 @@ REPORT OPTIONS:
                                  (0-100, default: 80). Cells below this go amber down to 50%
                                  and red below 50%. Affects display only; does not gate the
                                  process exit code. Rejected on non-html formats.
+    --fail-under <pct>           Render the report, then exit 2 if aggregate line coverage
+                                 falls below this percentage. Works with every format.
 
 GLOBAL OPTIONS:
     -V, --version                Print version
     -h, --help                   Print help",
         env!("CARGO_PKG_VERSION")
+    );
+}
+
+fn print_instrument_usage() {
+    eprintln!(
+        "oxc-coverage-instrument instrument
+
+USAGE:
+    oxc-coverage-instrument <file> [options]
+    oxc-coverage-instrument instrument <file> [options]
+
+OPTIONS:
+    -o, --output <file>          Write instrumented code to file (default: stdout)
+                                 Also writes <file>.map.json with the coverage map.
+    --coverage-map               Print only the coverage map JSON
+    --source-map                 Generate source map
+    --coverage-variable <name>   Coverage variable name (default: __coverage__)
+    -V, --version                Print version
+    -h, --help                   Print this help"
     );
 }
 
@@ -530,6 +632,8 @@ OPTIONS:
                                  (0-100, default: 80). Cells below this go amber down to 50%
                                  and red below 50%. Affects display only; does not gate the
                                  process exit code. Rejected on non-html formats.
+    --fail-under <pct>           Render the report, then exit 2 if aggregate line coverage
+                                 falls below this percentage. Works with every format.
     -h, --help                   Print this help"
     );
 }
