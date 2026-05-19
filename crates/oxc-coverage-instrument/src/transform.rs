@@ -394,6 +394,47 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         *body = ctx.ast.statement_block_with_scope_id(SPAN, stmts, scope_id);
     }
 
+    /// Wrap an optional-chain link's `object`/`callee` with the
+    /// `cov_fn_oc(...)` helper so each `?.` site records whether the
+    /// observed value was nullish (arm 0) or continued (arm 1). The
+    /// branch entry is typed `optional-chain` with two locations: a
+    /// zero-width slot anchored at the link's start, plus the link's
+    /// full span. Both run at the same source position; the convention
+    /// keeps the JSON-shape consistent with two-arm branch types and
+    /// lets reporters render either arm without divergent special cases.
+    #[expect(
+        clippy::needless_pass_by_ref_mut,
+        reason = "ctx is conventionally &mut throughout traverse hooks; matching the contract"
+    )]
+    fn wrap_optional_chain_link(
+        &mut self,
+        object: &mut Expression<'arena>,
+        link_span: Span,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
+    ) {
+        let branch_id = self.add_branch("optional-chain", link_span);
+        let anchor = Span::new(link_span.start, link_span.start);
+        self.add_branch_path(branch_id, anchor);
+        self.add_branch_path(branch_id, link_span);
+
+        // Build `cov_fn_oc(<original>, <branch_id>)`. The helper observes
+        // the value, increments b[id][0] or b[id][1] based on nullishness,
+        // and returns the value unchanged so native `?.` semantics fire.
+        let oc_name = alloc_str(&format!("{}_oc", self.cov_fn_name), ctx);
+        let callee = ctx.ast.expression_identifier(SPAN, oc_name);
+        let original = mem::replace(object, dummy_expr(ctx));
+        let mut args = ctx.ast.vec();
+        args.push(Argument::from(original));
+        args.push(Argument::from(numeric_literal(ctx, branch_id as f64)));
+        *object = ctx.ast.expression_call(
+            SPAN,
+            callee,
+            None::<TSTypeParameterInstantiation>,
+            args,
+            false,
+        );
+    }
+
     fn resolve_function_name(&mut self, func: &Function) -> String {
         if let Some(name) = self.pending_name.take() {
             return name;
@@ -573,6 +614,9 @@ pub fn generate_preamble_source(inputs: &PreambleInputs<'_>) -> String {
     if report_logic {
         append_logic_helper(&mut buf, cov_fn_name);
     }
+    if coverage.branch_map.values().any(|entry| entry.branch_type == "optional-chain") {
+        append_optional_chain_helper(&mut buf, cov_fn_name);
+    }
     buf
 }
 
@@ -584,6 +628,17 @@ fn append_logic_helper(buf: &mut String, cov_fn_name: &str) {
     let _ = writeln!(
         buf,
         "function {cov_fn_name}_bt(val, id, idx) {{ {cov_fn_name}_temp = val; if ({cov_fn_name}_temp && (!Array.isArray({cov_fn_name}_temp) || {cov_fn_name}_temp.length) && (Object.getPrototypeOf({cov_fn_name}_temp) !== Object.prototype || Object.values({cov_fn_name}_temp).length)) {{ ++{cov_fn_name}.bT[id][idx]; }} return {cov_fn_name}_temp; }}"
+    );
+}
+
+// Optional-chain link observer (`cov_fn_oc`). Bumps arm 0 when the
+// observed value is `null`/`undefined` (the link will short-circuit) and
+// arm 1 otherwise (the link will continue). Returns the input unchanged
+// so native `?.` semantics are preserved.
+fn append_optional_chain_helper(buf: &mut String, cov_fn_name: &str) {
+    let _ = writeln!(
+        buf,
+        "function {cov_fn_name}_oc(val, id) {{ ++{cov_fn_name}.b[id][val == null ? 0 : 1]; return val; }}"
     );
 }
 
@@ -677,11 +732,9 @@ fn property_key_to_name(key: &PropertyKey<'_>, _source: &str) -> Option<String> 
         PropertyKey::NumericLiteral(n) => {
             Some(n.raw.map_or_else(|| n.value.to_string(), |raw| raw.to_string()))
         }
-        PropertyKey::TemplateLiteral(t) if t.expressions.is_empty() => t
-            .quasis
-            .first()
-            .and_then(|quasi| quasi.value.cooked.as_ref())
-            .map(ToString::to_string),
+        PropertyKey::TemplateLiteral(t) if t.expressions.is_empty() => {
+            t.quasis.first().and_then(|quasi| quasi.value.cooked.as_ref()).map(ToString::to_string)
+        }
         _ => None,
     }
 }
@@ -1278,11 +1331,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             let target_start = prop.span.start;
             let is_static = prop.r#static;
             if let Some(top) = self.pending_class_field_hoists.last_mut() {
-                top.push(ClassFieldHoist {
-                    target_start,
-                    counter_id: stmt_id,
-                    is_static,
-                });
+                top.push(ClassFieldHoist { target_start, counter_id: stmt_id, is_static });
             }
             return;
         }
@@ -1324,17 +1373,11 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             if let ClassElement::PropertyDefinition(prop) = &element
                 && let Some(hoist) = by_target.get(&prop.span.start)
             {
-                let counter = build_counter_expr(
-                    CounterKind::stmt(cov_fn, hoist.counter_id),
-                    ctx,
-                );
-                let key_name = alloc_str(
-                    &format!("__cov_{}_init_{}", cov_fn, hoist.counter_id),
-                    ctx,
-                );
-                let key = PropertyKey::StaticIdentifier(
-                    ctx.ast.alloc_identifier_name(SPAN, key_name),
-                );
+                let counter = build_counter_expr(CounterKind::stmt(cov_fn, hoist.counter_id), ctx);
+                let key_name =
+                    alloc_str(&format!("__cov_{}_init_{}", cov_fn, hoist.counter_id), ctx);
+                let key =
+                    PropertyKey::StaticIdentifier(ctx.ast.alloc_identifier_name(SPAN, key_name));
                 let synthetic = ctx.ast.class_element_property_definition(
                     SPAN,
                     PropertyDefinitionType::PropertyDefinition,
@@ -1393,9 +1436,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // accessors (`get prop` / `set prop`), and value-function shapes.
         if !has_ignore_next && !self.in_ignored_subtree() {
             let inherits_name = is_method_like || is_function_valued;
-            if inherits_name
-                && let Some(base) = property_key_to_name(&prop.key, self.source)
-            {
+            if inherits_name && let Some(base) = property_key_to_name(&prop.key, self.source) {
                 let label = match prop.kind {
                     PropertyKind::Get => format!("get {base}"),
                     PropertyKind::Set => format!("set {base}"),
@@ -1847,6 +1888,36 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             self.add_branch_path(branch_id, init_span);
             let state = LogicalWrapState::new(self.cov_fn_name, None, branch_id, false);
             wrap_expression_with_branch_counter(init, &state, ctx);
+        }
+    }
+
+    fn enter_static_member_expression(
+        &mut self,
+        member: &mut StaticMemberExpression<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        if member.optional && !self.in_ignored_subtree() {
+            self.wrap_optional_chain_link(&mut member.object, member.span, ctx);
+        }
+    }
+
+    fn enter_computed_member_expression(
+        &mut self,
+        member: &mut ComputedMemberExpression<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        if member.optional && !self.in_ignored_subtree() {
+            self.wrap_optional_chain_link(&mut member.object, member.span, ctx);
+        }
+    }
+
+    fn enter_call_expression(
+        &mut self,
+        call: &mut CallExpression<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        if call.optional && !self.in_ignored_subtree() {
+            self.wrap_optional_chain_link(&mut call.callee, call.span, ctx);
         }
     }
 

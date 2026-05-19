@@ -145,6 +145,37 @@ fn branch_if_without_else() {
 }
 
 #[test]
+fn optional_chain_link_tracked_as_branch() {
+    // Each `?.` link surfaces as an `optional-chain` branch with two arms:
+    // arm 0 fires when the observed value is nullish (the link short-circuits),
+    // arm 1 fires when the link continues.
+    let r = instrument_js("function f(e) { return e?.stderr?.replace(/x/, 'y'); }");
+    let oc_entries: Vec<_> =
+        r.coverage_map.branch_map.values().filter(|e| e.branch_type == "optional-chain").collect();
+    assert_eq!(oc_entries.len(), 2, "two `?.` links should produce two optional-chain branches");
+    for entry in oc_entries {
+        assert_eq!(entry.locations.len(), 2, "each optional-chain branch has two arms");
+    }
+    // The runtime helper must appear in the preamble when at least one
+    // optional-chain branch is recorded.
+    assert!(
+        r.code.contains("_oc(val, id)"),
+        "optional-chain helper missing from preamble:\n{}",
+        r.code
+    );
+}
+
+#[test]
+fn optional_call_tracked_as_branch() {
+    // `cb?.()` is also an optional-chain link (on the callee).
+    let r = instrument_js("function f(cb) { return cb?.(1); }");
+    let entries: Vec<_> =
+        r.coverage_map.branch_map.values().filter(|e| e.branch_type == "optional-chain").collect();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].locations.len(), 2);
+}
+
+#[test]
 fn class_field_initializer_keeps_function_name() {
     // `field = function () {}` previously wrapped the value as
     // `(++cov.s[N], function () {})`, which broke NamedEvaluation and
@@ -157,7 +188,11 @@ fn class_field_initializer_keeps_function_name() {
     // The synthetic counter field should appear in the instrumented output
     // for each hoisted initializer.
     let counter_fields = result.code.matches("__cov_").count();
-    assert!(counter_fields >= 3, "expected synthetic counter fields for each hoisted initializer:\n{}", result.code);
+    assert!(
+        counter_fields >= 3,
+        "expected synthetic counter fields for each hoisted initializer:\n{}",
+        result.code
+    );
     // The original initializers must remain bare expressions, not wrapped
     // in sequence operators that would defeat NamedEvaluation.
     assert!(
@@ -189,8 +224,12 @@ fn fn_name_inference_matrix_outside_class_methods() {
     ];
     for (source, expected) in cases {
         let result = instrument_js(source);
-        let names: Vec<&str> = result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
-        assert!(names.contains(expected), "{source}: expected fnMap to include {expected:?}, got {names:?}");
+        let names: Vec<&str> =
+            result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
+        assert!(
+            names.contains(expected),
+            "{source}: expected fnMap to include {expected:?}, got {names:?}"
+        );
     }
 }
 
@@ -230,7 +269,10 @@ fn pragma_ignore_if_on_no_else_branch_anchors_surviving_arm() {
     assert_eq!(entry.locations.len(), 1);
     let json = serde_json::to_value(&result.coverage_map).unwrap();
     let arm = &json["branchMap"]["0"]["locations"][0];
-    assert!(arm["start"].get("line").is_some(), "ignored-if surviving arm must have a real start line: {arm}");
+    assert!(
+        arm["start"].get("line").is_some(),
+        "ignored-if surviving arm must have a real start line: {arm}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1968,17 +2010,17 @@ fn pragma_ignore_next_skips_nested_object_spread_ternary_arm() {
 fn pragma_ignore_next_skips_default_arg_on_destructure_property() {
     // Shorthand object property with a default value.
     let r = instrument_js("function f({ /* istanbul ignore next */ y = 1 }) {}");
-    assert!(r.coverage_map.branch_map.is_empty(), "inner default-arg should be suppressed: {:?}", r.coverage_map.branch_map);
+    assert!(
+        r.coverage_map.branch_map.is_empty(),
+        "inner default-arg should be suppressed: {:?}",
+        r.coverage_map.branch_map
+    );
     assert!(r.unhandled_pragmas.is_empty());
 
     // Named property (non-shorthand): pragma anchors on the BindingProperty's
     // start, the inner AssignmentPattern starts on the value name.
     let r = instrument_js("function f({ /* istanbul ignore next */ key: y = 1 } = {}) {}");
-    assert_eq!(
-        r.coverage_map.branch_map.len(),
-        1,
-        "only the outer object default should remain"
-    );
+    assert_eq!(r.coverage_map.branch_map.len(), 1, "only the outer object default should remain");
 
     // Array element.
     let r = instrument_js("function f([/* istanbul ignore next */ a = 1] = []) {}");

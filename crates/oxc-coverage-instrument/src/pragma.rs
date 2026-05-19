@@ -296,8 +296,7 @@ mod tests {
         let source = "if (a) {} /* istanbul ignore else */ else if (b) {}";
         let comment_start = source.find("/*").unwrap() as u32;
         let comment_end = (source.find("*/").unwrap() + 2) as u32;
-        let comment =
-            Comment { span: Span::new(comment_start, comment_end), ..Default::default() };
+        let comment = Comment { span: Span::new(comment_start, comment_end), ..Default::default() };
         let target = PragmaMap::pragma_target_start(source, &comment).unwrap();
         let if_offset = source[comment_end as usize..].find("if ").unwrap() as u32 + comment_end;
         assert_eq!(target, if_offset, "pragma must anchor on the chained `if`");
@@ -308,8 +307,7 @@ mod tests {
         let source = "if (a) {} /* istanbul ignore else */ else { x }";
         let comment_start = source.find("/*").unwrap() as u32;
         let comment_end = (source.find("*/").unwrap() + 2) as u32;
-        let comment =
-            Comment { span: Span::new(comment_start, comment_end), ..Default::default() };
+        let comment = Comment { span: Span::new(comment_start, comment_end), ..Default::default() };
         let target = PragmaMap::pragma_target_start(source, &comment).unwrap();
         let else_offset = source[comment_end as usize..].find("else").unwrap() as u32 + comment_end;
         assert_eq!(target, else_offset, "pragma stays on `else` when no chained `if` follows");
