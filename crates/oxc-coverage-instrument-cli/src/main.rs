@@ -209,6 +209,15 @@ fn parse_instrument_args(args: &[String]) -> Result<InstrumentArgs, ExitCode> {
         return Err(ExitCode::FAILURE);
     }
 
+    if args[0] == "--help" || args[0] == "-h" {
+        print_usage();
+        return Err(ExitCode::SUCCESS);
+    }
+    if args[0] == "--version" || args[0] == "-V" {
+        print_version();
+        return Err(ExitCode::SUCCESS);
+    }
+
     let mut cli = InstrumentArgs {
         filename: args[0].clone(),
         output_file: None,
@@ -228,6 +237,10 @@ fn parse_instrument_args(args: &[String]) -> Result<InstrumentArgs, ExitCode> {
             }
             "--version" | "-V" => {
                 print_version();
+                return Err(ExitCode::SUCCESS);
+            }
+            "--help" | "-h" => {
+                print_usage();
                 return Err(ExitCode::SUCCESS);
             }
             other => {

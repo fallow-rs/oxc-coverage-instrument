@@ -608,6 +608,31 @@ fn instrument_version_flag_mid_args_short_circuits() {
 }
 
 #[test]
+fn instrument_help_flag_prints_usage_and_exits_success() {
+    // `instrument --help` / `instrument -h` / `<file> --help` must all show
+    // usage and exit 0, mirroring the top-level dispatch and the report
+    // subcommand. Regression coverage for the parse_instrument_args handler
+    // that used to treat `--help` as a filename.
+    for args in [vec!["instrument", "--help"], vec!["instrument", "-h"]] {
+        let out = cli().args(&args).output().unwrap();
+        assert!(out.status.success(), "`{args:?}` should exit 0");
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(combined.contains("USAGE"), "`{args:?}` should print USAGE, got:\n{combined}");
+    }
+
+    let src = write_temp("help_mid_args.js", "const x = 1;");
+    let out = cli().arg(&src).arg("--help").output().unwrap();
+    assert!(out.status.success(), "mid-args --help should exit 0");
+    let combined =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(combined.contains("USAGE"), "mid-args --help should print USAGE, got:\n{combined}");
+}
+
+#[test]
 fn report_unknown_long_option_exits_failure() {
     // Hits the report parser's catch-all for unknown `--flag` arguments,
     // distinct from the report_text path tested via the format dispatcher.
