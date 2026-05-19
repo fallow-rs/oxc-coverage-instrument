@@ -129,7 +129,23 @@ impl PragmaMap {
         {
             return Some(after_close);
         }
+        // `/* istanbul ignore <kind> */` placed between `else` and a chained
+        // `else if` anchors to the inner `if`, not to the `else` keyword
+        // itself. `IfStatement::span.start` is the `if` keyword; without
+        // this hop the pragma never reaches the visitor.
+        if Self::word_at(source, token_start) == Some("else")
+            && let Some(after_else) = Self::next_token_start(source, token_start + 4)
+            && Self::word_at(source, after_else) == Some("if")
+        {
+            return Some(after_else);
+        }
         Some(token_start)
+    }
+
+    fn word_at(source: &str, offset: u32) -> Option<&str> {
+        let rest = source.get(offset as usize..)?;
+        let end = rest.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(rest.len());
+        if end == 0 { None } else { Some(&rest[..end]) }
     }
 
     fn previous_non_whitespace(source: &str, offset: u32) -> Option<char> {

@@ -145,6 +145,31 @@ fn branch_if_without_else() {
 }
 
 #[test]
+fn pragma_ignore_else_on_chained_else_if_binds_to_inner_if() {
+    // /* istanbul ignore else */ placed between `else` and the chained `if`
+    // anchors on the inner `if`. The inner if's alternate arm drops; the
+    // outer if is unaffected.
+    let r = instrument_js(
+        "function f(a) {\n  if (a === 1) { return 1; }\n  /* istanbul ignore else */\n  else if (a === 2) { return 2; }\n  else { return 3; }\n}",
+    );
+    let entries: Vec<(usize, String)> = r
+        .coverage_map
+        .branch_map
+        .values()
+        .map(|e| (e.locations.len(), e.branch_type.clone()))
+        .collect();
+    assert!(
+        entries.iter().any(|(n, t)| *n == 2 && t == "if"),
+        "outer if should keep both arms: {entries:?}"
+    );
+    assert!(
+        entries.iter().any(|(n, t)| *n == 1 && t == "if"),
+        "inner if's alternate arm should be dropped: {entries:?}"
+    );
+    assert!(r.unhandled_pragmas.is_empty());
+}
+
+#[test]
 fn pragma_ignore_if_on_no_else_branch_anchors_surviving_arm() {
     // `/* istanbul ignore if */` on a no-else if drops the consequent arm.
     // The single surviving slot must still carry a real `Location`; an
