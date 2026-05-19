@@ -1890,6 +1890,41 @@ fn pragma_ignore_next_skips_nested_object_spread_ternary_arm() {
 }
 
 #[test]
+fn pragma_ignore_next_skips_default_arg_on_destructure_property() {
+    // Shorthand object property with a default value.
+    let r = instrument_js("function f({ /* istanbul ignore next */ y = 1 }) {}");
+    assert!(r.coverage_map.branch_map.is_empty(), "inner default-arg should be suppressed: {:?}", r.coverage_map.branch_map);
+    assert!(r.unhandled_pragmas.is_empty());
+
+    // Named property (non-shorthand): pragma anchors on the BindingProperty's
+    // start, the inner AssignmentPattern starts on the value name.
+    let r = instrument_js("function f({ /* istanbul ignore next */ key: y = 1 } = {}) {}");
+    assert_eq!(
+        r.coverage_map.branch_map.len(),
+        1,
+        "only the outer object default should remain"
+    );
+
+    // Array element.
+    let r = instrument_js("function f([/* istanbul ignore next */ a = 1] = []) {}");
+    assert_eq!(r.coverage_map.branch_map.len(), 1, "only the outer array default should remain");
+
+    // Plain formal parameter.
+    let r = instrument_js("function f(/* istanbul ignore next */ z = 1) {}");
+    assert!(r.coverage_map.branch_map.is_empty());
+
+    // Sibling default-arg branches are unaffected.
+    let r = instrument_js("function f({ x = 1, /* istanbul ignore next */ y = 2 } = {}) {}");
+    let labels: Vec<&str> =
+        r.coverage_map.branch_map.values().map(|e| e.branch_type.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec!["default-arg", "default-arg"],
+        "outer object default and sibling `x = 1` survive"
+    );
+}
+
+#[test]
 fn pragma_ignore_next_prunes_empty_ternary_branch() {
     let source =
         "function f(x) {\n  return x ? /* v8 ignore next */ 1 : /* v8 ignore next */ 2;\n}";

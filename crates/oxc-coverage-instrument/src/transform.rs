@@ -651,6 +651,28 @@ fn enclosing_var_decl_hoist_target(ctx: &TraverseCtx<'_, CoverageState>) -> Opti
     }
 }
 
+/// Walk to the enclosing `BindingProperty` of an `AssignmentPattern` and
+/// return true if it carries an `ignore next` pragma at its start. Handles
+/// the common shape `function f({ /* istanbul ignore next */ key: x = 1 })`,
+/// where the pragma anchors on the property's key, not on the
+/// AssignmentPattern itself.
+fn enclosing_destructure_property_pragma(ctx: &TraverseCtx<'_, CoverageState>) -> bool {
+    use oxc_traverse::Ancestor;
+    for a in ctx.ancestors() {
+        match a {
+            Ancestor::AssignmentPatternLeft(_) | Ancestor::AssignmentPatternRight(_) => continue,
+            Ancestor::BindingPropertyValue(prop) => {
+                return ctx.state.pragmas.get(prop.span().start) == Some(IgnoreType::Next);
+            }
+            Ancestor::BindingPropertyKey(prop) => {
+                return ctx.state.pragmas.get(prop.span().start) == Some(IgnoreType::Next);
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
 /// Check if the nearest non-parenthesized ancestor is a logical expression.
 /// Oxc preserves `ParenthesizedExpression` nodes (Babel strips them), so to
 /// match istanbul-lib-instrument's chain flattening we must look through
@@ -1627,6 +1649,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         if self.in_ignored_subtree() {
             return;
         }
+        if ctx.state.pragmas.get(param.span.start) == Some(IgnoreType::Next) {
+            return;
+        }
         // Default parameter values: function f(x = 1) { }
         // Istanbul creates a 'default-arg' branch with 1 location for the default expression.
         if let Some(init) = &mut param.initializer {
@@ -1644,6 +1669,15 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         if self.in_ignored_subtree() {
+            return;
+        }
+        // `/* istanbul ignore next */` can sit at the pattern itself (shorthand
+        // object property, array element) or one level up at the enclosing
+        // `BindingProperty`. Either binding suppresses the `default-arg`
+        // branch on this default value.
+        if ctx.state.pragmas.get(pattern.span.start) == Some(IgnoreType::Next)
+            || enclosing_destructure_property_pragma(ctx)
+        {
             return;
         }
         // Destructuring defaults: const { x = 1 } = obj;
