@@ -651,6 +651,28 @@ fn enclosing_var_decl_hoist_target(ctx: &TraverseCtx<'_, CoverageState>) -> Opti
     }
 }
 
+/// Derive a human-readable name for a `PropertyKey` whose value is a
+/// literal identifier, string, number, or no-substitution template. Truly
+/// computed keys (e.g. `[Symbol.iterator]`, `['m'+1]`) return `None` so
+/// the function falls back to the `(anonymous_N)` placeholder, matching
+/// istanbul-lib-instrument's behavior for non-static keys.
+fn property_key_to_name(key: &PropertyKey<'_>, _source: &str) -> Option<String> {
+    match key {
+        PropertyKey::StaticIdentifier(id) => Some(id.name.to_string()),
+        PropertyKey::PrivateIdentifier(id) => Some(format!("#{}", id.name)),
+        PropertyKey::StringLiteral(s) => Some(s.value.to_string()),
+        PropertyKey::NumericLiteral(n) => {
+            Some(n.raw.map_or_else(|| n.value.to_string(), |raw| raw.to_string()))
+        }
+        PropertyKey::TemplateLiteral(t) if t.expressions.is_empty() => t
+            .quasis
+            .first()
+            .and_then(|quasi| quasi.value.cooked.as_ref())
+            .map(ToString::to_string),
+        _ => None,
+    }
+}
+
 /// Walk to the enclosing `BindingProperty` of an `AssignmentPattern` and
 /// return true if it carries an `ignore next` pragma at its start. Handles
 /// the common shape `function f({ /* istanbul ignore next */ key: x = 1 })`,
@@ -660,7 +682,7 @@ fn enclosing_destructure_property_pragma(ctx: &TraverseCtx<'_, CoverageState>) -
     use oxc_traverse::Ancestor;
     for a in ctx.ancestors() {
         match a {
-            Ancestor::AssignmentPatternLeft(_) | Ancestor::AssignmentPatternRight(_) => continue,
+            Ancestor::AssignmentPatternLeft(_) | Ancestor::AssignmentPatternRight(_) => {}
             Ancestor::BindingPropertyValue(prop) => {
                 return ctx.state.pragmas.get(prop.span().start) == Some(IgnoreType::Next);
             }
@@ -1116,6 +1138,29 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         self.pending_name = None;
     }
 
+    fn enter_export_default_declaration(
+        &mut self,
+        decl: &mut ExportDefaultDeclaration<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        if self.in_ignored_subtree() {
+            return;
+        }
+        // Per istanbul convention, an anonymous `export default <fn|class>`
+        // surfaces in `fnMap` as `"default"` so reporters do not render it
+        // as `(anonymous_N)`. Named exports (`export default function foo`)
+        // keep their declared identifier.
+        let anonymous = match &decl.declaration {
+            ExportDefaultDeclarationKind::FunctionDeclaration(func) => func.id.is_none(),
+            ExportDefaultDeclarationKind::ClassDeclaration(cls) => cls.id.is_none(),
+            ExportDefaultDeclarationKind::ArrowFunctionExpression(_) => true,
+            _ => false,
+        };
+        if anonymous {
+            self.pending_name = Some("default".to_string());
+        }
+    }
+
     fn enter_method_definition(
         &mut self,
         method: &mut MethodDefinition<'a>,
@@ -1137,24 +1182,27 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         if parent_ignored {
             return;
         }
-        let (name, key_span) = match &method.key {
-            PropertyKey::StaticIdentifier(id) => (id.name.to_string(), id.span),
-            PropertyKey::StringLiteral(s) => (s.value.to_string(), s.span),
-            PropertyKey::PrivateIdentifier(_) => {
-                // Istanbul instruments private method bodies, but does not add
-                // function counters for the private method itself.
-                self.skip_fn_counter_only = true;
-                return;
-            }
-            _ => return,
-        };
+        let key_span = method.key.span();
+        if matches!(method.key, PropertyKey::PrivateIdentifier(_)) {
+            // Istanbul instruments private method bodies for statement
+            // coverage but does not surface them in `fnMap`. Mirror that so
+            // function counts stay in sync with the upstream reference.
+            self.skip_fn_counter_only = true;
+            return;
+        }
+        let Some(name) = property_key_to_name(&method.key, self.source) else { return };
         if self.ignore_class_methods.contains(&name) {
             if let Some(ignored) = self.ignored_prop_stack.last_mut() {
                 *ignored = true;
             }
             return;
         }
-        self.pending_name = Some(name);
+        let label = match method.kind {
+            MethodDefinitionKind::Get => format!("get {name}"),
+            MethodDefinitionKind::Set => format!("set {name}"),
+            MethodDefinitionKind::Method | MethodDefinitionKind::Constructor => name,
+        };
+        self.pending_name = Some(label);
         // `decl` for a method is the method key's span (e.g. `bar` in
         // `class C { bar(x) {} }`). Matches the rule we apply for named
         // function declarations — see `fn_decl_span_matches_istanbul`.
@@ -1230,6 +1278,24 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         if has_ignore_next {
             self.skip_next = false;
         }
+
+        // Carry the property's key name into the inner Function/Arrow so
+        // `fnMap[N].name` reflects the user's source intent rather than
+        // a generated `(anonymous_N)` placeholder. Covers shorthand methods,
+        // accessors (`get prop` / `set prop`), and value-function shapes.
+        if !has_ignore_next && !self.in_ignored_subtree() {
+            let inherits_name = is_method_like || is_function_valued;
+            if inherits_name
+                && let Some(base) = property_key_to_name(&prop.key, self.source)
+            {
+                let label = match prop.kind {
+                    PropertyKind::Get => format!("get {base}"),
+                    PropertyKind::Set => format!("set {base}"),
+                    PropertyKind::Init => base,
+                };
+                self.pending_name = Some(label);
+            }
+        }
     }
 
     fn exit_object_property(
@@ -1238,6 +1304,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         _ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         self.ignored_prop_stack.pop();
+        self.pending_name = None;
     }
 
     fn enter_statement(
@@ -1655,6 +1722,18 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // Default parameter values: function f(x = 1) { }
         // Istanbul creates a 'default-arg' branch with 1 location for the default expression.
         if let Some(init) = &mut param.initializer {
+            // `function f(cb = () => 1)` -> `fnMap[N].name = "cb"`. The
+            // inner arrow/function is the direct initializer of the
+            // parameter binding, so it inherits the parameter's name.
+            if matches!(
+                **init,
+                Expression::FunctionExpression(_)
+                    | Expression::ArrowFunctionExpression(_)
+                    | Expression::ClassExpression(_)
+            ) && let Some(id) = param.pattern.get_binding_identifier()
+            {
+                self.pending_name = Some(id.name.to_string());
+            }
             let init_span = init.span();
             let branch_id = self.add_branch("default-arg", param.span);
             self.add_branch_path(branch_id, init_span);
@@ -1680,6 +1759,18 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         {
             return;
         }
+        // Carry the binding name into any inner Function/Arrow on the right
+        // side of the default so `function f(cb = () => 1)` and similar
+        // patterns surface as `fnMap[N].name = "cb"`.
+        if matches!(
+            pattern.right,
+            Expression::FunctionExpression(_)
+                | Expression::ArrowFunctionExpression(_)
+                | Expression::ClassExpression(_)
+        ) && let Some(id) = pattern.left.get_binding_identifier()
+        {
+            self.pending_name = Some(id.name.to_string());
+        }
         // Destructuring defaults: const { x = 1 } = obj;
         // Istanbul also creates 'default-arg' for these.
         let right_span = pattern.right.span();
@@ -1698,6 +1789,31 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             return;
         }
         use oxc_syntax::operator::AssignmentOperator;
+
+        // `o.foo = function(){}` / `o['bar'] = () => {}`: carry the property
+        // name into the inner Function/Arrow so `fnMap` entries pick up the
+        // assignment target instead of `(anonymous_N)`. Plain identifier
+        // targets (`x = function(){}`) reuse the existing `VariableDeclarator`
+        // hoist that already preserves Function.name via NamedEvaluation.
+        if matches!(expr.operator, AssignmentOperator::Assign)
+            && matches!(
+                expr.right,
+                Expression::FunctionExpression(_)
+                    | Expression::ArrowFunctionExpression(_)
+                    | Expression::ClassExpression(_)
+            )
+        {
+            self.pending_name = match &expr.left {
+                AssignmentTarget::StaticMemberExpression(member) => {
+                    Some(member.property.name.to_string())
+                }
+                AssignmentTarget::ComputedMemberExpression(member) => match &member.expression {
+                    Expression::StringLiteral(lit) => Some(lit.value.to_string()),
+                    _ => None,
+                },
+                _ => None,
+            };
+        }
 
         // Logical assignment operators: x ??= y, x ||= y, x &&= y
         // These short-circuit and only assign if the condition holds.

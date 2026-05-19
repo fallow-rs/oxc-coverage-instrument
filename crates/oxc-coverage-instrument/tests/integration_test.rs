@@ -145,6 +145,33 @@ fn branch_if_without_else() {
 }
 
 #[test]
+fn fn_name_inference_matrix_outside_class_methods() {
+    // Each row asserts the user-visible `fnMap[N].name` matches the
+    // source-derived name for a category of named function/arrow/class
+    // expression that previously surfaced as `(anonymous_N)`.
+    let cases: &[(&str, &str)] = &[
+        ("const o = { fn() {} };", "fn"),
+        ("const o = { get prop() {} };", "get prop"),
+        ("const o = { set prop(v) {} };", "set prop"),
+        ("const o = { foo: function () {} };", "foo"),
+        ("const o = { foo: () => 1 };", "foo"),
+        ("var o = {}; o.bar = function () {};", "bar"),
+        ("var o = {}; o['baz'] = function () {};", "baz"),
+        ("function f({ y = function () {} } = {}) {}", "y"),
+        ("function f(cb = () => 1) {}", "cb"),
+        ("export default function () {}", "default"),
+        ("export default () => 1;", "default"),
+        ("class C { 0() {} }", "0"),
+        ("class C { 'foo bar'() {} }", "foo bar"),
+    ];
+    for (source, expected) in cases {
+        let result = instrument_js(source);
+        let names: Vec<&str> = result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
+        assert!(names.contains(expected), "{source}: expected fnMap to include {expected:?}, got {names:?}");
+    }
+}
+
+#[test]
 fn pragma_ignore_else_on_chained_else_if_binds_to_inner_if() {
     // /* istanbul ignore else */ placed between `else` and the chained `if`
     // anchors on the inner `if`. The inner if's alternate arm drops; the
