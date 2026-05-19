@@ -633,6 +633,27 @@ fn is_container_statement(stmt: &Statement<'_>) -> bool {
     )
 }
 
+/// Return the start offset of the enclosing `VariableDeclaration` if it
+/// occupies a statement slot from which the per-declarator statement
+/// counter can be hoisted out as a preceding sibling. Returns `None` when
+/// the declaration is in a position with no sibling slot (`for (var x = ..;)`,
+/// `for (var x of ..)`, `for (var x in ..)`), in which case callers must
+/// keep the sequence-expression wrap.
+fn enclosing_var_decl_hoist_target(ctx: &TraverseCtx<'_, CoverageState>) -> Option<u32> {
+    use oxc_traverse::Ancestor;
+    let mut iter = ctx.ancestors();
+    let var_decl_span = match iter.next()? {
+        Ancestor::VariableDeclarationDeclarations(a) => *a.span(),
+        _ => return None,
+    };
+    match iter.next()? {
+        Ancestor::ForStatementInit(_)
+        | Ancestor::ForInStatementLeft(_)
+        | Ancestor::ForOfStatementLeft(_) => None,
+        _ => Some(var_decl_span.start),
+    }
+}
+
 /// Check if the nearest non-parenthesized ancestor is a logical expression.
 /// Oxc preserves `ParenthesizedExpression` nodes (Babel strips them), so to
 /// match istanbul-lib-instrument's chain flattening we must look through
@@ -676,6 +697,21 @@ fn collect_logical_leaves_inner(expr: &Expression, pragmas: &PragmaMap, spans: &
     } else {
         spans.push(expr.span());
     }
+}
+
+/// Total leaf count for a logical chain, including pragma-ignored operands.
+/// Used to decide whether the chain qualifies as a branch at all: a real
+/// `a && b` always has >= 2 leaves before pragma filtering, so the branch
+/// entry must survive even when one arm carries `/* istanbul ignore next */`.
+fn count_logical_leaves(expr: &LogicalExpression) -> usize {
+    fn walk(e: &Expression) -> usize {
+        match e {
+            Expression::ParenthesizedExpression(p) => walk(&p.expression),
+            Expression::LogicalExpression(l) => walk(&l.left) + walk(&l.right),
+            _ => 1,
+        }
+    }
+    walk(&expr.left) + walk(&expr.right)
 }
 
 fn is_ignored_case(case: &SwitchCase, pragmas: &PragmaMap) -> bool {
@@ -1021,6 +1057,34 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         if init_span.start == 0 && init_span.end == 0 {
             return;
         }
+
+        // When init is a function/arrow/class expression, the canonical
+        // sequence-expression wrap `(++s, fn)` breaks the assignment's
+        // Function.name inference (`const foo = function(){}` produces an
+        // unnamed function). Hoist the counter to a sibling statement
+        // before the enclosing VariableDeclaration instead, so the RHS
+        // remains the direct init of the declarator. Only safe when the
+        // declaration is a block-level statement; in `for (var x = fn;;)`
+        // or for-in/for-of heads there is no sibling slot, so fall back
+        // to the wrap.
+        let is_named_initializer = matches!(
+            init,
+            Expression::FunctionExpression(_)
+                | Expression::ArrowFunctionExpression(_)
+                | Expression::ClassExpression(_)
+        );
+        if is_named_initializer
+            && let Some(hoist_target_start) = enclosing_var_decl_hoist_target(ctx)
+        {
+            let stmt_id = self.add_statement(init_span);
+            self.pending_stmts.push(PendingInsertion {
+                target_start: hoist_target_start,
+                counter_id: stmt_id,
+                counter_type: CounterType::Statement,
+            });
+            return;
+        }
+
         let stmt_id = self.add_statement(init_span);
         prepend_counter(init, CounterKind::stmt(self.cov_fn_name, stmt_id), ctx);
     }
@@ -1315,27 +1379,32 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             ctx.state.pragmas.get(expr.consequent.span().start) == Some(IgnoreType::Next);
         let ignore_alternate =
             ctx.state.pragmas.get(expr.alternate.span().start) == Some(IgnoreType::Next);
-        if ignore_consequent || ignore_alternate {
+        if ignore_consequent && ignore_alternate {
             return;
         }
 
         let branch_id = self.add_branch("cond-expr", expr.span);
 
-        // Wrap consequent: (cov.b[id][path]++, originalExpr)
-        let path_idx = self.add_branch_path(branch_id, expr.consequent.span());
-        prepend_counter(
-            &mut expr.consequent,
-            CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
-            ctx,
-        );
-
-        // Wrap alternate: (cov.b[id][path]++, originalExpr)
-        let path_idx = self.add_branch_path(branch_id, expr.alternate.span());
-        prepend_counter(
-            &mut expr.alternate,
-            CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
-            ctx,
-        );
+        // Per istanbul, `/* istanbul ignore next */` before a single ternary
+        // arm drops just that location from the branch map (the other arm
+        // still tracks coverage), so the branch entry survives with one
+        // remaining location.
+        if !ignore_consequent {
+            let path_idx = self.add_branch_path(branch_id, expr.consequent.span());
+            prepend_counter(
+                &mut expr.consequent,
+                CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
+                ctx,
+            );
+        }
+        if !ignore_alternate {
+            let path_idx = self.add_branch_path(branch_id, expr.alternate.span());
+            prepend_counter(
+                &mut expr.alternate,
+                CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
+                ctx,
+            );
+        }
     }
 
     fn enter_switch_statement(
@@ -1456,8 +1525,15 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                     return;
                 }
 
+                // The branch must reflect the original chain's arity. A
+                // `/* istanbul ignore next */` on one operand only drops that
+                // arm from the branch map; the surviving operand still
+                // contributes a single-arm branch entry.
+                if count_logical_leaves(expr) < 2 {
+                    return;
+                }
                 let leaf_spans = collect_logical_leaf_spans(expr, &ctx.state.pragmas);
-                if leaf_spans.len() < 2 {
+                if leaf_spans.is_empty() {
                     return;
                 }
 

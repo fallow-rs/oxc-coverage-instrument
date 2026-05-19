@@ -1845,13 +1845,14 @@ fn pragma_ignore_next_skips_ternary_branch_counter() {
     let source = "function f(x) {\n  return x.set ? { a: 1 } : /* v8 ignore next */ {};\n}";
     let result = instrument_js(source);
     assert!(result.unhandled_pragmas.is_empty());
-    assert_eq!(
-        result.coverage_map.branch_map.len(),
-        0,
-        "ternary branches with only one tracked path should be pruned"
-    );
-    assert_eq!(result.coverage_map.b.len(), 0);
-    assert!(!result.code.contains(".b[0][0]"));
+    // Per istanbul, an ignored ternary arm collapses that arm out of the
+    // branch map but the surviving arm continues to be tracked, so the
+    // entry stays in `branchMap` with one location and one counter.
+    assert_eq!(result.coverage_map.branch_map.len(), 1);
+    let entry = result.coverage_map.branch_map.values().next().unwrap();
+    assert_eq!(entry.locations.len(), 1);
+    assert_eq!(result.coverage_map.b.get("0").map(Vec::len), Some(1));
+    assert!(result.code.contains(".b[0][0]"));
     assert!(!result.code.contains(".b[0][1]"));
 }
 
@@ -1861,13 +1862,11 @@ fn pragma_ignore_next_skips_nested_object_spread_ternary_arm() {
     let result = instrument_js(source);
     assert!(result.unhandled_pragmas.is_empty());
     assert_eq!(result.coverage_map.fn_map.len(), 1, "the enclosing function should still count");
-    assert_eq!(
-        result.coverage_map.branch_map.len(),
-        0,
-        "one-path ternary branches should be removed from the public map"
-    );
-    assert_eq!(result.coverage_map.b.len(), 0);
-    assert!(!result.code.contains(".b[0][0]"));
+    assert_eq!(result.coverage_map.branch_map.len(), 1);
+    let entry = result.coverage_map.branch_map.values().next().unwrap();
+    assert_eq!(entry.locations.len(), 1);
+    assert_eq!(result.coverage_map.b.get("0").map(Vec::len), Some(1));
+    assert!(result.code.contains(".b[0][0]"));
     assert!(!result.code.contains(".b[0][1]"));
 }
 
@@ -1890,18 +1889,19 @@ fn pragma_ignore_next_skips_logical_expression_leaf() {
     let source = "function f(a, b) {\n  return a && /* v8 ignore next */ b;\n}";
     let result = instrument_js(source);
     assert!(result.unhandled_pragmas.is_empty());
-    assert_eq!(
-        result.coverage_map.branch_map.len(),
-        0,
-        "logical branches with only one tracked leaf should be pruned"
-    );
-    assert_eq!(result.coverage_map.b.len(), 0);
-    assert!(!result.code.contains(".b[0][0]"));
+    // Istanbul preserves the binary-expression branch entry, dropping just
+    // the ignored leaf from the locations array so the surviving leaf is
+    // still counted.
+    assert_eq!(result.coverage_map.branch_map.len(), 1);
+    let entry = result.coverage_map.branch_map.values().next().unwrap();
+    assert_eq!(entry.locations.len(), 1);
+    assert_eq!(result.coverage_map.b.get("0").map(Vec::len), Some(1));
+    assert!(result.code.contains(".b[0][0]"));
     assert!(!result.code.contains(".b[0][1]"));
 }
 
 #[test]
-fn pragma_ignore_next_prunes_binary_and_conditional_rhs_stub_branches() {
+fn pragma_ignore_next_keeps_branch_entry_when_one_arm_is_ignored() {
     let cases = [
         "function f(x) { return x ?? /* v8 ignore next -- @preserve */ [] }",
         "function f(x) { return x || /* v8 ignore next -- @preserve */ true }",
@@ -1914,13 +1914,23 @@ fn pragma_ignore_next_prunes_binary_and_conditional_rhs_stub_branches() {
         assert!(result.unhandled_pragmas.is_empty());
         assert_eq!(
             result.coverage_map.branch_map.len(),
-            0,
-            "ignored rhs must not leave a one-location branch stub:\n{source}"
+            1,
+            "the surviving arm of an ignore-next branch must stay tracked:\n{source}"
         );
-        assert_eq!(result.coverage_map.b.len(), 0, "hit arrays should match branchMap:\n{source}");
+        let entry = result.coverage_map.branch_map.values().next().unwrap();
+        assert_eq!(entry.locations.len(), 1, "ignored arm must be dropped:\n{source}");
+        assert_eq!(
+            result.coverage_map.b.get("0").map(Vec::len),
+            Some(1),
+            "hit array must match branchMap:\n{source}"
+        );
         assert!(
-            !result.code.contains(".b[0][0]"),
-            "branch counter should not be emitted:\n{source}"
+            result.code.contains(".b[0][0]"),
+            "surviving arm counter must be emitted:\n{source}"
+        );
+        assert!(
+            !result.code.contains(".b[0][1]"),
+            "ignored arm counter must not be emitted:\n{source}"
         );
     }
 }

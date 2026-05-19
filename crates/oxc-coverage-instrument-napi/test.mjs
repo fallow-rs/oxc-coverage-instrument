@@ -171,8 +171,11 @@ function runInstrumented(result, filename, callExpression) {
   );
   const ternaryMap = JSON.parse(ternary.coverageMap);
   assert.equal(Object.keys(ternaryMap.fnMap).length, 1, 'enclosing function should still be tracked');
-  assert.equal(Object.keys(ternaryMap.branchMap).length, 0, 'one-path ternary branch stubs should be pruned');
-  assert.equal(Object.keys(ternaryMap.b).length, 0, 'branch hit arrays should match pruned branchMap');
+  // Istanbul keeps the branch entry when only one arm is ignored: the
+  // surviving arm still gets a location and a counter.
+  assert.equal(Object.keys(ternaryMap.branchMap).length, 1, 'surviving arm should keep its branch entry');
+  assert.equal(ternaryMap.branchMap['0'].locations.length, 1, 'ignored arm must be dropped from locations');
+  assert.equal(ternaryMap.b['0'].length, 1, 'branch hit array must match locations length');
 
   const fullyIgnoredTernary = instrument(
     'function f(x) { return x ? /* v8 ignore next */ 1 : /* v8 ignore next */ 2; }',
@@ -184,17 +187,23 @@ function runInstrumented(result, filename, callExpression) {
     'function f(a, b) { return a && /* v8 ignore next */ b; }',
     'logical-leaf.js',
   );
+  const logicalMap = JSON.parse(logicalLeaf.coverageMap);
   assert.equal(
-    Object.keys(JSON.parse(logicalLeaf.coverageMap).branchMap).length,
-    0,
-    'one-path logical branch stubs should be pruned',
+    Object.keys(logicalMap.branchMap).length,
+    1,
+    'logical branch entry must survive when one operand is ignored',
   );
+  assert.equal(logicalMap.branchMap['0'].locations.length, 1, 'ignored leaf must be dropped from locations');
+  assert.equal(logicalMap.b['0'].length, 1, 'branch hit array must match locations length');
 
-  for (const [label, source, path] of [
-    ['nullish rhs', 'function f(x) { return x ?? /* v8 ignore next -- @preserve */ [] }', 'issue-27-nullish.js'],
-    ['or rhs', 'function f(x) { return x || /* v8 ignore next -- @preserve */ true }', 'issue-27-or.js'],
-    ['and rhs', 'function f(x) { return x && /* v8 ignore next -- @preserve */ true }', 'issue-27-and.js'],
-    ['conditional rhs', 'function f(x) { return x ? 1 : /* v8 ignore next -- @preserve */ 2 }', 'issue-27-cond.js'],
+  // Pragma scoped to a single arm: the branch entry survives with one
+  // remaining arm. Pragma attached to a JSX attribute or child wraps the
+  // whole subtree and the branch is dropped entirely.
+  for (const [label, source, path, expectedBranches, expectedArms] of [
+    ['nullish rhs', 'function f(x) { return x ?? /* v8 ignore next -- @preserve */ [] }', 'issue-27-nullish.js', 1, 1],
+    ['or rhs', 'function f(x) { return x || /* v8 ignore next -- @preserve */ true }', 'issue-27-or.js', 1, 1],
+    ['and rhs', 'function f(x) { return x && /* v8 ignore next -- @preserve */ true }', 'issue-27-and.js', 1, 1],
+    ['conditional rhs', 'function f(x) { return x ? 1 : /* v8 ignore next -- @preserve */ 2 }', 'issue-27-cond.js', 1, 1],
     [
       'jsx attribute',
       `function f(pass) {
@@ -204,6 +213,8 @@ function runInstrumented(result, filename, callExpression) {
         />
       }`,
       'issue-28.tsx',
+      0,
+      0,
     ],
     [
       'jsx child',
@@ -214,10 +225,23 @@ function runInstrumented(result, filename, callExpression) {
         </div>
       }`,
       'issue-29.tsx',
+      0,
+      0,
     ],
   ]) {
     const map = JSON.parse(instrument(source, path).coverageMap);
-    assert.equal(Object.keys(map.branchMap).length, 0, `${label} should not leave branch entries`);
+    assert.equal(
+      Object.keys(map.branchMap).length,
+      expectedBranches,
+      `${label}: unexpected branch entry count`,
+    );
+    if (expectedBranches > 0) {
+      assert.equal(
+        map.branchMap['0'].locations.length,
+        expectedArms,
+        `${label}: surviving arm count mismatch`,
+      );
+    }
   }
 
   const cachedSetup = instrument('function f() { return 1; }\nf();', 'issue-34.js');

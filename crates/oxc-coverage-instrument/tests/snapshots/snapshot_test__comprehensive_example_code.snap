@@ -1,5 +1,5 @@
 ---
-source: tests/snapshot_test.rs
+source: crates/oxc-coverage-instrument/tests/snapshot_test.rs
 expression: code_without_preamble(&result.code)
 ---
 function greet(name) {
@@ -15,11 +15,12 @@ function greet(name) {
 		return "Hello, stranger";
 	}
 }
-const double = (++cov_18ab365425.s[3], (x) => {
+++cov_18ab365425.s[3];
+const double = (x) => {
 	++cov_18ab365425.f[1];
 	++cov_18ab365425.s[4];
 	return x * 2;
-});
+};
 class Calculator {
 	divide(a, b) {
 		++cov_18ab365425.f[2];
