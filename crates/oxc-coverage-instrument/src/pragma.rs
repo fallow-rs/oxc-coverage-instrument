@@ -141,9 +141,15 @@ impl PragmaMap {
     /// Matches `<tool> ignore <kind>` where `<tool>` is one of `istanbul`, `v8`, `c8`,
     /// and `<kind>` is one of `next`, `if`, `else`, `file`, `start`, or `stop`. Any ASCII whitespace run
     /// (spaces, tabs, newlines) between tokens is accepted, matching Istanbul's behavior.
+    ///
+    /// A single leading `!` (the legal-comment marker preserved by esbuild,
+    /// terser, swc, and most other minifiers) is skipped before parsing so
+    /// `/*! istanbul ignore next */` and `//! istanbul ignore next` are
+    /// honored identically to their plain forms.
     fn parse_pragma(text: &str) -> Option<PragmaResult> {
         let trimmed = text.trim();
-        let mut tokens = trimmed.split_whitespace();
+        let after_legal_marker = trimmed.strip_prefix('!').unwrap_or(trimmed);
+        let mut tokens = after_legal_marker.split_whitespace();
         let tool = tokens.next()?;
         if !matches!(tool, "istanbul" | "v8" | "c8") {
             return None;
@@ -205,5 +211,57 @@ impl PragmaCollect {
                 self.unhandled.push(UnhandledPragma { comment: comment_text, line, column });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{IgnoreType, PragmaMap, PragmaResult};
+
+    fn classify(text: &str) -> Option<PragmaResult> {
+        PragmaMap::parse_pragma(text)
+    }
+
+    #[test]
+    fn parses_plain_block_pragma() {
+        assert!(matches!(
+            classify(" istanbul ignore next "),
+            Some(PragmaResult::Ignore(IgnoreType::Next))
+        ));
+    }
+
+    #[test]
+    fn parses_legal_block_pragma() {
+        assert!(matches!(
+            classify("! istanbul ignore next "),
+            Some(PragmaResult::Ignore(IgnoreType::Next))
+        ));
+        assert!(matches!(
+            classify("!istanbul ignore next"),
+            Some(PragmaResult::Ignore(IgnoreType::Next))
+        ));
+    }
+
+    #[test]
+    fn parses_legal_line_pragma() {
+        assert!(matches!(
+            classify("! v8 ignore next"),
+            Some(PragmaResult::Ignore(IgnoreType::Next))
+        ));
+        assert!(matches!(
+            classify("! istanbul ignore else"),
+            Some(PragmaResult::Ignore(IgnoreType::Else))
+        ));
+    }
+
+    #[test]
+    fn rejects_bang_only() {
+        assert!(classify("!").is_none());
+        assert!(classify("!!!").is_none());
+    }
+
+    #[test]
+    fn rejects_non_pragma_legal_comment() {
+        assert!(classify("! Copyright (c) 2026").is_none());
     }
 }
