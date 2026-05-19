@@ -247,6 +247,16 @@ For class and object methods, `oxc-coverage-instrument` records the whole method
 
 The byte-diff check still pins the method declaration start, line, body `loc`, and all non-method function declaration spans.
 
+### 4. Real Location coordinates for synthetic `else` arms
+
+For an `if` with no `else` clause, `istanbul-lib-instrument` records the synthetic alternate slot as `{ start: {}, end: {} }` (an empty placeholder). `oxc-coverage-instrument` anchors the slot as a real zero-width `Location` at the consequent's end. Reporters that pull `loc.start.line` on every arm crash on the empty form; the real coordinates make the slot safe to walk without special-casing.
+
+The same applies to the surviving arm when `/* istanbul ignore if */` drops the consequent of a no-else `if`.
+
+### 5. Optional-chain `?.` short-circuits tracked as branches
+
+Each `?.` link surfaces in `branchMap` as an `optional-chain` entry with two arms: arm 0 when the observed value is `null`/`undefined` (the link short-circuits), arm 1 when the link continues. `istanbul-lib-instrument` does not track these. Reporters that walk `branchMap` by type-agnostic shape pick up the new entries automatically; reporters that hard-code the istanbul type names need to learn the new label.
+
 **Migration from `@vitest/coverage-istanbul`:** a codebase that uses `??=`/`||=`/`&&=` heavily will see a higher branch-coverage denominator (and so a slightly lower branch %) after switching providers. To rebaseline CI thresholds after the swap:
 
 ```bash

@@ -101,6 +101,39 @@ const normalizeFn = (fn, source) => ({
   loc: fn.loc,
 });
 
+// The synthetic else arm of an `if` with no `else` clause anchors as a
+// zero-width Location in oxc (the consequent's end), while istanbul emits
+// an empty `{ start: {}, end: {} }` placeholder. The empty form crashes
+// downstream `istanbul-reports` (`Cannot read properties of undefined`),
+// so oxc intentionally diverges here. Collapse both shapes to a single
+// sentinel before diffing so this divergence does not flood the report.
+const isSyntheticBranchLocation = (loc) => {
+  if (!loc || typeof loc !== 'object') return false;
+  const start = loc.start;
+  const end = loc.end;
+  if (!start || !end) return false;
+  // istanbul-lib-instrument records its placeholder as a Position object
+  // whose `line`/`column` keys exist but are `undefined`. oxc anchors the
+  // same slot as a real zero-width Location at the consequent's end.
+  const istanbulEmpty =
+    typeof start.line !== 'number' && typeof end.line !== 'number';
+  const oxcZeroWidth =
+    typeof start.line === 'number' &&
+    typeof end.line === 'number' &&
+    start.line === end.line &&
+    start.column === end.column;
+  return istanbulEmpty || oxcZeroWidth;
+};
+
+const normalizeBranch = (br) => ({
+  type: br.type,
+  line: br.line,
+  loc: br.loc,
+  locations: br.locations.map((loc) =>
+    isSyntheticBranchLocation(loc) ? '<synthetic-arm-location-filtered>' : loc
+  ),
+});
+
 const normalize = (cov, source) => ({
   statementMap: cov.statementMap,
   fnMap: Object.fromEntries(
@@ -111,10 +144,7 @@ const normalize = (cov, source) => ({
     ])
   ),
   branchMap: Object.fromEntries(
-    Object.entries(cov.branchMap).map(([id, br]) => [
-      id,
-      { type: br.type, line: br.line, loc: br.loc, locations: br.locations },
-    ])
+    Object.entries(cov.branchMap).map(([id, br]) => [id, normalizeBranch(br)])
   ),
   s: cov.s,
   f: cov.f,
