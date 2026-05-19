@@ -63,7 +63,7 @@ fn write_to_dir_rejects_single_file_formats() {
         [Format::Text, Format::TextSummary, Format::JsonSummary, Format::Lcov, Format::Cobertura]
     {
         let err = fmt
-            .write_to_dir(&map, Path::new(""), dir.path())
+            .write_to_dir(&map, Path::new(""), dir.path(), &HtmlOptions::default())
             .expect_err("single-file formats must reject write_to_dir");
         assert_eq!(
             err.kind(),
@@ -78,7 +78,7 @@ fn write_to_dir_rejects_single_file_formats() {
 fn write_to_dir_routes_html_through_emitter() {
     let map = parse_coverage_map(EMPTY_MAP).unwrap();
     let dir = tempfile::TempDir::new().unwrap();
-    Format::Html.write_to_dir(&map, Path::new(""), dir.path()).unwrap();
+    Format::Html.write_to_dir(&map, Path::new(""), dir.path(), &HtmlOptions::default()).unwrap();
     assert!(
         dir.path().join("index.html").exists(),
         "html dispatch must materialise the root index page",
@@ -87,29 +87,21 @@ fn write_to_dir_routes_html_through_emitter() {
 
 #[cfg(feature = "html")]
 #[test]
-fn write_to_dir_with_options_rejects_single_file_formats() {
-    let map = parse_coverage_map(EMPTY_MAP).unwrap();
-    let dir = tempfile::TempDir::new().unwrap();
-    let opts = HtmlOptions::default();
-    for fmt in
-        [Format::Text, Format::TextSummary, Format::JsonSummary, Format::Lcov, Format::Cobertura]
-    {
-        let err = fmt
-            .write_to_dir_with_options(&map, Path::new(""), dir.path(), &opts)
-            .expect_err("single-file formats must reject write_to_dir_with_options");
-        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
-    }
-}
-
-#[cfg(feature = "html")]
-#[test]
-fn write_to_dir_with_options_threads_options_into_html() {
+fn write_to_dir_threads_options_into_html() {
     let map = parse_coverage_map(EMPTY_MAP).unwrap();
     let dir = tempfile::TempDir::new().unwrap();
     // A non-default threshold lands in the index sentence; if `Format::Html`
     // dropped the override and used the default 80% we would not see "55%".
-    let opts = HtmlOptions { high_threshold: 55.0 };
-    Format::Html.write_to_dir_with_options(&map, Path::new(""), dir.path(), &opts).unwrap();
+    let opts = HtmlOptions::new(55.0).unwrap();
+    Format::Html.write_to_dir(&map, Path::new(""), dir.path(), &opts).unwrap();
     let index = std::fs::read_to_string(dir.path().join("index.html")).unwrap();
-    assert!(index.contains("55%"), "custom HtmlOptions.high_threshold must reach the renderer");
+    assert!(index.contains("55%"), "custom HtmlOptions threshold must reach the renderer");
+}
+
+#[cfg(feature = "html")]
+#[test]
+fn html_options_rejects_invalid_thresholds() {
+    for value in [f64::NAN, f64::INFINITY, -1.0, 101.0] {
+        assert!(HtmlOptions::new(value).is_err(), "should reject {value}");
+    }
 }

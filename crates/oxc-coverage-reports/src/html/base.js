@@ -192,13 +192,15 @@
 
   // ---------- File filter (index pages) ---------------------------------
   // Hooks: <input id="cov-filter"> + <div id="cov-filter-count"> +
-  // <table id="cov-file-table">. Each tbody row carries data-file="..."
+  // <p id="cov-threshold-summary"> + <table id="cov-file-table">.
+  // Each tbody row carries data-file="..." and data-lines-pct="..."
   // populated by the Rust render. Without JS the input is inert and the
-  // count region stays empty; the table is fully usable.
+  // count/threshold regions keep their render-time text.
   function initFilter() {
     var input = document.getElementById('cov-filter');
     var table = document.getElementById('cov-file-table');
     var count = document.getElementById('cov-filter-count');
+    var thresholdSummary = document.getElementById('cov-threshold-summary');
     if (!input || !table) { return; }
     var tbody = table.tBodies[0];
     if (!tbody) { return; }
@@ -226,6 +228,7 @@
           count.textContent = shown + ' of ' + total + ' files match';
         }
       }
+      updateThresholdSummary(thresholdSummary, rows, shown, q === '');
     }
     input.addEventListener('input', function () {
       if (debounceHandle) { clearTimeout(debounceHandle); }
@@ -259,6 +262,46 @@
     });
   }
 
+  function updateThresholdSummary(summary, rows, shown, unfiltered) {
+    if (!summary) { return; }
+    var threshold = parseFloat(summary.getAttribute('data-threshold-pct') || '80');
+    if (isNaN(threshold)) { threshold = 80; }
+    if (unfiltered) {
+      var total = parseInt(summary.getAttribute('data-total-files') || String(rows.length), 10);
+      var below = parseInt(summary.getAttribute('data-below-files') || '0', 10);
+      summary.textContent = thresholdSentence(total, below, threshold, false);
+      return;
+    }
+
+    var belowVisible = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (r.style.display === 'none') { continue; }
+      var pct = parseFloat(r.getAttribute('data-lines-pct') || '100');
+      if (!isNaN(pct) && pct < threshold) { belowVisible++; }
+    }
+    summary.textContent = thresholdSentence(shown, belowVisible, threshold, true);
+  }
+
+  function thresholdSentence(total, below, threshold, visible) {
+    var scope = visible ? ' visible' : '';
+    var pct = formatThreshold(threshold);
+    if (total === 0) {
+      return visible ? 'No visible files match the filter.' : '';
+    }
+    if (below === 0) {
+      return 'All ' + total + scope + ' files meet the ' + pct + '% coverage threshold.';
+    }
+    if (below === total) {
+      return 'All ' + total + scope + ' files fall below the ' + pct + '% coverage threshold.';
+    }
+    return below + ' of ' + total + scope + ' files fall below the ' + pct + '% coverage threshold.';
+  }
+
+  function formatThreshold(value) {
+    return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '');
+  }
+
   // ---------- Line anchors (detail pages) -------------------------------
   // Hooks: <button class="line-anchor" data-line="42"> inside td.line-num,
   // + <div id="cov-copy-toast" role="status">. (role="status" implies
@@ -266,8 +309,8 @@
   // Clicking the button: scrolls to the row via hash, copies the
   // canonical link to the clipboard, flashes a toast.
   function initLineAnchors() {
-    var anchors = document.querySelectorAll('button.line-anchor[data-line]');
-    if (anchors.length === 0) { return; }
+    var table = document.querySelector('table.source');
+    if (!table) { return; }
     var toast = document.getElementById('cov-copy-toast');
     var toastTimer = 0;
 
@@ -307,11 +350,13 @@
       }
     }
 
-    anchors.forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var line = btn.getAttribute('data-line');
-        if (line) { copyAndAnchor(line); }
-      });
+    table.addEventListener('click', function (event) {
+      var target = event.target;
+      if (!target || !target.closest) { return; }
+      var btn = target.closest('button.line-anchor[data-line]');
+      if (!btn || !table.contains(btn)) { return; }
+      var line = btn.getAttribute('data-line');
+      if (line) { copyAndAnchor(line); }
     });
   }
 

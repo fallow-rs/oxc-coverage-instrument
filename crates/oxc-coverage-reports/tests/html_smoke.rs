@@ -47,7 +47,7 @@ fn renders_actual_source_with_coverage_classes() {
 
     let map = parse_coverage_map(coverage).unwrap();
     let out_dir = dir.path().join("html");
-    html::write(&map, dir.path(), &out_dir).unwrap();
+    html::write(&map, dir.path(), &out_dir, &html::HtmlOptions::default()).unwrap();
 
     let detail_file = walk_for_filename(&out_dir, "module.js.html").expect("detail page exists");
     let detail = fs::read_to_string(&detail_file).unwrap();

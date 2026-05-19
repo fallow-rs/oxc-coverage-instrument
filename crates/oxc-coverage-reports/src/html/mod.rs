@@ -38,8 +38,8 @@
 //!   200 LOC per file emit takes under two seconds on a typical laptop.
 //! - **Graceful missing-source**: if a file's source cannot be read from
 //!   disk (CI runs without the original tree, remapped path that does
-//!   not exist locally), the detail page shows the coverage statistics
-//!   alongside a `(source unavailable)` placeholder rather than failing.
+//!   not exist locally), the detail page shows a notice with the attempted
+//!   path and search root rather than silently rendering blank source.
 //!
 //! [syntect]: https://docs.rs/syntect
 //! [two_face]: https://docs.rs/two-face
@@ -119,18 +119,9 @@ font-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'";
 /// to a new location without `coverage-tokens.css` leaves the report
 /// visually broken (the token cascade resolves to the browser default).
 ///
-/// Uses [`HtmlOptions::default()`] (80% high-coverage threshold matching
-/// Istanbul's convention). Call [`write_with_options`] to override.
-pub fn write(coverage_map: &CoverageMap, root_dir: &Path, output_dir: &Path) -> io::Result<()> {
-    write_with_options(coverage_map, root_dir, output_dir, &HtmlOptions::default())
-}
-
-/// Render a complete HTML coverage report with explicit [`HtmlOptions`].
-///
-/// Same semantics as [`write()`], but the caller controls the threshold
-/// that drives the high/medium/low colour bucketing and the index
-/// page's threshold-summary sentence.
-pub fn write_with_options(
+/// The caller supplies [`HtmlOptions`] so the public API has a single
+/// configured path instead of parallel default-vs-custom entry points.
+pub fn write(
     coverage_map: &CoverageMap,
     root_dir: &Path,
     output_dir: &Path,
@@ -151,24 +142,49 @@ pub fn write_with_options(
 
 /// Tunable knobs for the HTML reporter.
 ///
-/// Stable across breaking changes; new fields are added at the end with
-/// defaults supplied by [`HtmlOptions::default`]. Construct via
-/// `HtmlOptions { high_threshold: 75.0, ..Default::default() }` so
-/// future fields don't require updating every call site.
+/// Construct with [`HtmlOptions::new`] so invalid thresholds cannot bypass
+/// CLI-side validation when the library is used directly.
 #[derive(Debug, Clone)]
 pub struct HtmlOptions {
     /// Percentage cutoff that separates "high" coverage (green) from
     /// "medium" (amber) on per-metric colouring, and powers the index
     /// page's "N of M files fall below the X% coverage threshold"
     /// sentence. The medium-to-low boundary stays fixed at 50%.
-    /// Must be in `[0.0, 100.0]`; the CLI clamps user input.
+    /// Must be in `[0.0, 100.0]`.
     /// Default: `80.0` (Istanbul's traditional value).
-    pub high_threshold: f64,
+    green_threshold: f64,
+}
+
+/// Invalid HTML reporter options.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HtmlOptionsError {
+    value: f64,
+}
+
+impl std::fmt::Display for HtmlOptionsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "html green threshold must be a finite number in [0, 100], got {}", self.value)
+    }
+}
+
+impl std::error::Error for HtmlOptionsError {}
+
+impl HtmlOptions {
+    pub fn new(green_threshold: f64) -> Result<Self, HtmlOptionsError> {
+        if !green_threshold.is_finite() || !(0.0..=100.0).contains(&green_threshold) {
+            return Err(HtmlOptionsError { value: green_threshold });
+        }
+        Ok(Self { green_threshold })
+    }
+
+    pub fn green_threshold(&self) -> f64 {
+        self.green_threshold
+    }
 }
 
 impl Default for HtmlOptions {
     fn default() -> Self {
-        Self { high_threshold: 80.0 }
+        Self { green_threshold: 80.0 }
     }
 }
 
@@ -246,7 +262,7 @@ fn render_folder_index(
     } else {
         node.relative_path.clone()
     };
-    let threshold = ctx.options.high_threshold;
+    let threshold = ctx.options.green_threshold();
     let mut body = String::new();
     body.push_str(&render_summary_header(&title, &node.summary, depth, node, threshold));
     body.push_str("    <div class=\"pad1\">\n");
@@ -280,13 +296,16 @@ fn render_threshold_summary(children: &[ReportNode], threshold: f64) -> String {
         return String::new();
     }
     let below = children.iter().filter(|c| c.summary.lines.pct < threshold).count();
+    let attrs = format!(
+        "id=\"cov-threshold-summary\" aria-live=\"polite\" data-threshold-pct=\"{threshold:.2}\" data-total-files=\"{total}\" data-below-files=\"{below}\""
+    );
     if below == 0 {
         return format!(
-            "      <p class=\"threshold-summary\"><strong>All {total} files</strong> meet the {threshold:.0}% coverage threshold.</p>\n",
+            "      <p class=\"threshold-summary\" {attrs}><strong>All {total} files</strong> meet the {threshold:.0}% coverage threshold.</p>\n",
         );
     }
     format!(
-        "      <p class=\"threshold-summary\"><strong>{below}</strong> of {total} files fall below the {threshold:.0}% coverage threshold.</p>\n",
+        "      <p class=\"threshold-summary\" {attrs}><strong>{below}</strong> of {total} files fall below the {threshold:.0}% coverage threshold.</p>\n",
     )
 }
 
@@ -322,8 +341,9 @@ fn render_summary_row(child: &ReportNode, threshold: f64) -> String {
     let display = html_text(&child.name);
     let row_class = pct_class(child.summary.lines.pct, threshold);
     let mut out = format!(
-        "          <tr class=\"row-{row_class}\" data-file=\"{file}\">\n",
+        "          <tr class=\"row-{row_class}\" data-file=\"{file}\" data-lines-pct=\"{lines:.2}\">\n",
         file = html_attr(&child.name),
+        lines = child.summary.lines.pct,
     );
     let _ = writeln!(out, "            <td class=\"file\"><a href=\"{href}\">{display}</a></td>");
     let metrics = [
@@ -375,29 +395,34 @@ fn render_detail(
         &node.summary,
         depth,
         node,
-        ctx.options.high_threshold,
+        ctx.options.green_threshold(),
     ));
     body.push_str("    <div class=\"pad1\">\n");
     body.push_str(
         "      <div class=\"detail-actions\">\n        <button type=\"button\" class=\"btn-ghost\" id=\"cov-next-uncovered\" aria-label=\"Jump to next uncovered line\" disabled>Next uncovered</button>\n      </div>\n",
     );
-    body.push_str("      <table class=\"source\">\n");
     match source {
-        Some(text) => {
+        Ok(text) => {
             // Highlight up front so the per-line table render gets
             // pre-escaped, span-wrapped HTML; this also keeps scope
             // state consistent across multi-line strings/comments.
             let highlighted = highlight::highlight_lines(&text, Path::new(&coverage.path));
+            body.push_str("      <table class=\"source\">\n");
             body.push_str(&render_source_table(
                 &highlighted,
                 &line_hits,
                 &branched_lines,
                 &fn_lines,
             ));
+            body.push_str("      </table>\n");
         }
-        None => body.push_str(&render_source_unavailable(&line_hits)),
+        Err(missing) => {
+            body.push_str(&render_source_unavailable_notice(&missing));
+            body.push_str("      <table class=\"source\">\n");
+            body.push_str(&render_source_unavailable(&line_hits));
+            body.push_str("      </table>\n");
+        }
     }
-    body.push_str("      </table>\n");
     body.push_str("    </div>\n");
     body.push_str(
         "    <div class=\"copy-toast\" id=\"cov-copy-toast\" role=\"status\" aria-atomic=\"true\"></div>\n",
@@ -448,13 +473,23 @@ fn render_source_row(row: SourceRow<'_>) -> String {
         (Some(h), _) | (None, Some(h)) => format!("{h}x"),
         _ => String::new(),
     };
+    let fn_note = if matches!(fn_hits, Some(0)) && stmt_hits.is_some_and(|h| h > 0) {
+        "<span class=\"fn-note\" aria-hidden=\"true\">fn 0x</span>"
+    } else {
+        ""
+    };
     let glyph = severity_glyph(class);
-    let aria = row_aria_label(line_no, class);
+    let aria = row_aria_label(line_no, class, branch, fn_hits);
     let branch_note = branch.map_or(String::new(), |b| {
         if b.total == 0 {
             String::new()
+        } else if let Some(detail) = b.detail_html() {
+            format!(" <span class=\"branch-note\" aria-hidden=\"true\">{detail}</span>")
         } else {
-            format!(" <span class=\"branch-note\">branches {}/{}</span>", b.covered, b.total)
+            format!(
+                " <span class=\"branch-note\" aria-hidden=\"true\">branches {}/{}</span>",
+                b.covered, b.total
+            )
         }
     });
     format!(
@@ -462,7 +497,7 @@ fn render_source_row(row: SourceRow<'_>) -> String {
 <td class=\"line-num\">\
 <button type=\"button\" class=\"line-anchor\" data-line=\"{line_no}\" aria-label=\"Copy link to line {line_no}\">{line_no}</button>\
 </td>\
-<td class=\"hits\">{glyph}{hits_text}</td>\
+<td class=\"hits\">{glyph}{hits_text}{fn_note}</td>\
 <td class=\"src\"><pre>{src_html}</pre>{branch_note}</td>\
 </tr>\n",
     )
@@ -484,20 +519,38 @@ fn severity_glyph(class: &str) -> &'static str {
 /// raw class tokens (`miss` etc.) that would otherwise leak into AT
 /// output. Returned values are safe to drop into an HTML attribute
 /// because they are bounded to known phrases.
-fn row_aria_label(line_no: u32, class: &str) -> String {
+fn row_aria_label(
+    line_no: u32,
+    class: &str,
+    branch: Option<&BranchSummary>,
+    fn_hits: Option<u32>,
+) -> String {
     let phrase = match class {
         "hit" => "covered",
         "miss" => "not covered",
         "partial" => "partially covered",
         _ => "no statement",
     };
-    format!("Line {line_no}, {phrase}")
+    let mut out = format!("Line {line_no}, {phrase}");
+    if let Some(details) = branch.and_then(BranchSummary::detail_aria) {
+        out.push_str(": ");
+        out.push_str(&details);
+    }
+    if matches!(fn_hits, Some(0)) {
+        if branch.and_then(BranchSummary::detail_aria).is_some() {
+            out.push_str("; ");
+        } else {
+            out.push_str(": ");
+        }
+        out.push_str("function not called");
+    }
+    out
 }
 
 fn source_row_class(
     stmt_hits: Option<u32>,
     branch: Option<&BranchSummary>,
-    fn_hits: Option<u32>,
+    _fn_hits: Option<u32>,
 ) -> &'static str {
     if let Some(hits) = stmt_hits {
         if hits == 0 {
@@ -509,15 +562,18 @@ fn source_row_class(
         {
             return "partial";
         }
-        if let Some(fh) = fn_hits
-            && fh == 0
-        {
-            return "miss";
-        }
         "hit"
     } else {
         "no-stmt"
     }
+}
+
+fn render_source_unavailable_notice(missing: &MissingSource) -> String {
+    format!(
+        "      <p class=\"source-unavailable\">Source file unavailable at <code>{}</code> (search root: <code>{}</code>).</p>\n",
+        html_text(&missing.display_path),
+        html_text(&missing.search_root),
+    )
 }
 
 fn render_source_unavailable(line_hits: &BTreeMap<u32, u32>) -> String {
@@ -527,7 +583,7 @@ fn render_source_unavailable(line_hits: &BTreeMap<u32, u32>) -> String {
     for (line, hits) in line_hits {
         let class = if *hits == 0 { "miss" } else { "hit" };
         let glyph = severity_glyph(class);
-        let aria = row_aria_label(*line, class);
+        let aria = row_aria_label(*line, class, None, None);
         let _ = writeln!(
             out,
             "          <tr class=\"line {class}\" id=\"L{line}\" aria-label=\"{aria}\">\
@@ -652,6 +708,44 @@ fn relative_to_root(depth: usize, file: &str) -> String {
 struct BranchSummary {
     total: u32,
     covered: u32,
+    arms: Vec<BranchArm>,
+}
+
+struct BranchArm {
+    label: String,
+    hits: u32,
+}
+
+impl BranchSummary {
+    fn detail_html(&self) -> Option<String> {
+        if self.arms.is_empty() || self.arms.len() > 4 {
+            return None;
+        }
+        let mut out = String::from("branches:");
+        for arm in &self.arms {
+            let mark = if arm.hits > 0 { "hit" } else { "miss" };
+            let symbol = if arm.hits > 0 { "&#10003;" } else { "&#10007;" };
+            let _ = write!(
+                out,
+                " <span class=\"branch-arm branch-arm--{mark}\">{symbol} {}={}</span>",
+                html_text(&arm.label),
+                arm.hits
+            );
+        }
+        Some(out)
+    }
+
+    fn detail_aria(&self) -> Option<String> {
+        if self.arms.is_empty() || self.arms.len() > 4 {
+            return None;
+        }
+        let mut parts = Vec::with_capacity(self.arms.len());
+        for arm in &self.arms {
+            let state = if arm.hits > 0 { "hit" } else { "missed" };
+            parts.push(format!("{} arm {state} {} times", arm.label, arm.hits));
+        }
+        Some(parts.join(", "))
+    }
 }
 
 fn compute_line_hits(file: &FileCoverage) -> BTreeMap<u32, u32> {
@@ -677,14 +771,42 @@ fn compute_branched_lines(file: &FileCoverage) -> BTreeMap<u32, BranchSummary> {
         let arms = file.b.get(id).cloned().unwrap_or_default();
         let total = arms.len() as u32;
         let covered = arms.iter().filter(|&&v| v > 0).count() as u32;
+        let labeled_arms = branch_arms(entry, &arms);
         out.entry(line)
             .and_modify(|s| {
                 s.total += total;
                 s.covered += covered;
+                s.arms.extend(branch_arms(entry, &arms));
             })
-            .or_insert(BranchSummary { total, covered });
+            .or_insert(BranchSummary { total, covered, arms: labeled_arms });
     }
     out
+}
+
+fn branch_arms(entry: &BranchEntry, hits: &[u32]) -> Vec<BranchArm> {
+    hits.iter()
+        .enumerate()
+        .map(|(idx, &hits)| BranchArm { label: branch_arm_label(entry, idx), hits })
+        .collect()
+}
+
+fn branch_arm_label(entry: &BranchEntry, idx: usize) -> String {
+    match entry.branch_type.as_str() {
+        "if" => match idx {
+            0 => "true".to_owned(),
+            1 => "false".to_owned(),
+            _ => format!("arm {}", idx + 1),
+        },
+        "cond-expr" => match idx {
+            0 => "consequent".to_owned(),
+            1 => "alternate".to_owned(),
+            _ => format!("arm {}", idx + 1),
+        },
+        "switch" => format!("case {}", idx + 1),
+        "binary-expr" => format!("operand {}", idx + 1),
+        "default-arg" => "default".to_owned(),
+        _ => format!("arm {}", idx + 1),
+    }
 }
 
 fn compute_fn_lines(file: &FileCoverage) -> BTreeMap<u32, u32> {
@@ -712,26 +834,37 @@ fn fn_line(entry: &FnEntry) -> u32 {
     if entry.line > 0 { entry.line } else { entry.decl.start.line }
 }
 
-fn read_source(file: &FileCoverage, root_dir: &Path) -> Option<String> {
+struct MissingSource {
+    display_path: String,
+    search_root: String,
+}
+
+fn read_source(file: &FileCoverage, root_dir: &Path) -> Result<String, MissingSource> {
     if file.path.is_empty() {
-        return None;
+        return Err(MissingSource {
+            display_path: "(empty coverage path)".to_owned(),
+            search_root: root_dir.display().to_string(),
+        });
     }
     let path = Path::new(&file.path);
     let absolute: PathBuf =
         if path.is_absolute() { path.to_path_buf() } else { root_dir.join(path) };
-    fs::read_to_string(&absolute).ok()
+    fs::read_to_string(&absolute).map_err(|_| MissingSource {
+        display_path: absolute.display().to_string(),
+        search_root: root_dir.display().to_string(),
+    })
 }
 
 // -- Class assignment ------------------------------------------------------
 
 /// Map a percentage to one of `"high"`/`"medium"`/`"low"`, used as the
 /// `kpi-cell--*`, `row-*`, `pct *`, and `cov-meter--*` modifier
-/// suffixes. `high_threshold` separates high from medium; the medium /
+/// suffixes. `green_threshold` separates high from medium; the medium /
 /// low boundary is fixed at 50% (a hardcoded medium threshold below
-/// `high_threshold` keeps the three-bucket UX legible while still
+/// `green_threshold` keeps the three-bucket UX legible while still
 /// honouring caller preferences for the green/amber line).
-fn pct_class(pct: f64, high_threshold: f64) -> &'static str {
-    if pct >= high_threshold {
+fn pct_class(pct: f64, green_threshold: f64) -> &'static str {
+    if pct >= green_threshold {
         "high"
     } else if pct >= 50.0 {
         "medium"
@@ -748,7 +881,7 @@ mod tests {
     fn write_to_temp(json: &str) -> tempfile::TempDir {
         let dir = tempfile::TempDir::new().unwrap();
         let map = parse_coverage_map(json).unwrap();
-        write(&map, Path::new(""), dir.path()).unwrap();
+        write(&map, Path::new(""), dir.path(), &HtmlOptions::default()).unwrap();
         dir
     }
 
@@ -820,7 +953,7 @@ mod tests {
         let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":12}}},"fnMap":{},"branchMap":{},"s":{"0":0},"f":{},"b":{}}}"#;
         let map = parse_coverage_map(json).unwrap();
         let out_dir = dir.path().join("html");
-        write(&map, dir.path(), &out_dir).unwrap();
+        write(&map, dir.path(), &out_dir, &HtmlOptions::default()).unwrap();
         let detail = fs::read_to_string(out_dir.join("a.js.html")).unwrap();
         assert!(detail.contains("line miss"), "expected miss class; got:\n{detail}");
     }
@@ -837,6 +970,18 @@ mod tests {
         assert!(js.contains("Sortable tables"), "base.js missing sortable tables section");
         assert!(js.contains("buildThemeToggle"), "base.js missing theme toggle invocation");
         assert!(js.contains("initSortable"), "base.js missing sortable init invocation");
+        assert!(
+            js.contains("updateThresholdSummary"),
+            "base.js should update the threshold summary when filtering",
+        );
+        assert!(
+            js.contains("table.addEventListener('click'"),
+            "line anchors should use a delegated table click handler",
+        );
+        assert!(
+            !js.contains("anchors.forEach"),
+            "line anchors should not attach one listener per row",
+        );
         // No client-side tokenizer: the source view is pre-rendered by
         // syntect on the Rust side.
         assert!(!js.contains("initPrettify"), "client prettify must not be re-added");
@@ -974,6 +1119,18 @@ mod tests {
             root_index.contains("threshold-summary"),
             "index missing threshold summary sentence",
         );
+        assert!(
+            root_index.contains("id=\"cov-threshold-summary\""),
+            "threshold summary should expose a stable id",
+        );
+        assert!(
+            root_index.contains("data-threshold-pct=\"80.00\""),
+            "threshold summary should expose its threshold for JS updates",
+        );
+        assert!(
+            root_index.contains("data-lines-pct=\"100.00\""),
+            "summary rows should expose line pct for filter-reactive threshold counts",
+        );
         assert!(root_index.contains("id=\"cov-filter\""), "filter input missing");
         assert!(
             root_index.contains("<label class=\"filter-group__label\" for=\"cov-filter\""),
@@ -1017,7 +1174,7 @@ mod tests {
         let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":12}}},"fnMap":{},"branchMap":{},"s":{"0":0},"f":{},"b":{}}}"#;
         let map = parse_coverage_map(json).unwrap();
         let out_dir = dir.path().join("html");
-        write(&map, dir.path(), &out_dir).unwrap();
+        write(&map, dir.path(), &out_dir, &HtmlOptions::default()).unwrap();
         let detail = fs::read_to_string(out_dir.join("a.js.html")).unwrap();
         assert!(detail.contains("id=\"L1\""), "missed line should have id=\"L1\" anchor target");
         assert!(
@@ -1035,6 +1192,61 @@ mod tests {
         assert!(
             detail.contains("aria-label=\"Line 1, not covered\""),
             "missed row should carry a human-readable aria-label",
+        );
+    }
+
+    #[test]
+    fn partial_branch_rows_show_per_arm_counts() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::write(dir.path().join("a.js"), "if (x) y;\n").unwrap();
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":9}}},"fnMap":{},"branchMap":{"0":{"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":9}},"line":1,"type":"if","locations":[{"start":{"line":1,"column":4},"end":{"line":1,"column":5}},{"start":{"line":1,"column":6},"end":{"line":1,"column":9}}]}},"s":{"0":1},"f":{},"b":{"0":[12,0]}}}"#;
+        let map = parse_coverage_map(json).unwrap();
+        let out_dir = dir.path().join("html");
+        write(&map, dir.path(), &out_dir, &HtmlOptions::default()).unwrap();
+        let detail = fs::read_to_string(out_dir.join("a.js.html")).unwrap();
+        assert!(detail.contains("branch-arm--hit"), "hit arm marker missing:\n{detail}");
+        assert!(detail.contains("true=12"), "true-arm count missing:\n{detail}");
+        assert!(detail.contains("branch-arm--miss"), "miss arm marker missing:\n{detail}");
+        assert!(detail.contains("false=0"), "false-arm count missing:\n{detail}");
+        assert!(
+            detail.contains("true arm hit 12 times, false arm missed 0 times"),
+            "aria label should expose branch-arm detail:\n{detail}",
+        );
+    }
+
+    #[test]
+    fn covered_function_declaration_line_gets_fn_zero_cue_not_miss_class() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::write(dir.path().join("a.js"), "function f() {}\n").unwrap();
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":15}}},"fnMap":{"0":{"name":"f","line":1,"decl":{"start":{"line":1,"column":0},"end":{"line":1,"column":10}},"loc":{"start":{"line":1,"column":13},"end":{"line":1,"column":15}}}},"branchMap":{},"s":{"0":1},"f":{"0":0},"b":{}}}"#;
+        let map = parse_coverage_map(json).unwrap();
+        let out_dir = dir.path().join("html");
+        write(&map, dir.path(), &out_dir, &HtmlOptions::default()).unwrap();
+        let detail = fs::read_to_string(out_dir.join("a.js.html")).unwrap();
+        assert!(detail.contains("class=\"line hit\""), "decl line should stay hit:\n{detail}");
+        assert!(detail.contains("fn 0x"), "function-uncalled cue missing:\n{detail}");
+        assert!(
+            detail.contains("Line 1, covered: function not called"),
+            "aria label should expose uncalled function:\n{detail}",
+        );
+    }
+
+    #[test]
+    fn missing_source_detail_shows_path_and_search_root_notice() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let json = r#"{"missing.js":{"path":"missing.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":12}}},"fnMap":{},"branchMap":{},"s":{"0":0},"f":{},"b":{}}}"#;
+        let map = parse_coverage_map(json).unwrap();
+        let out_dir = dir.path().join("html");
+        write(&map, dir.path(), &out_dir, &HtmlOptions::default()).unwrap();
+        let detail = fs::read_to_string(out_dir.join("missing.js.html")).unwrap();
+        assert!(
+            detail.contains("Source file unavailable at"),
+            "missing source notice absent:\n{detail}",
+        );
+        assert!(detail.contains("missing.js"), "attempted path missing:\n{detail}");
+        assert!(
+            detail.contains(&html_text(&dir.path().display().to_string())),
+            "search root missing from notice:\n{detail}",
         );
     }
 
@@ -1069,7 +1281,7 @@ mod tests {
         // 70% > 50%, so it's "medium"; threshold-summary should say
         // "1 of 2 files fall below the 80% coverage threshold".
         let dir_default = tempfile::TempDir::new().unwrap();
-        write(&map, Path::new(""), dir_default.path()).unwrap();
+        write(&map, Path::new(""), dir_default.path(), &HtmlOptions::default()).unwrap();
         let default_root = fs::read_to_string(dir_default.path().join("index.html")).unwrap();
         assert!(
             default_root.contains("1</strong> of 2 files fall below the 80%"),
@@ -1082,13 +1294,8 @@ mod tests {
 
         // Custom 60%: both files are above; sentence should report all met.
         let dir_loose = tempfile::TempDir::new().unwrap();
-        write_with_options(
-            &map,
-            Path::new(""),
-            dir_loose.path(),
-            &HtmlOptions { high_threshold: 60.0 },
-        )
-        .unwrap();
+        let opts = HtmlOptions::new(60.0).unwrap();
+        write(&map, Path::new(""), dir_loose.path(), &opts).unwrap();
         let loose_root = fs::read_to_string(dir_loose.path().join("index.html")).unwrap();
         assert!(
             loose_root.contains("All 2 files</strong> meet the 60% coverage threshold"),
