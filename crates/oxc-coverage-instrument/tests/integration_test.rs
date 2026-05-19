@@ -145,6 +145,29 @@ fn branch_if_without_else() {
 }
 
 #[test]
+fn class_field_initializer_keeps_function_name() {
+    // `field = function () {}` previously wrapped the value as
+    // `(++cov.s[N], function () {})`, which broke NamedEvaluation and
+    // produced an unnamed function at runtime. The counter now lives on
+    // a synthetic sibling field, so the original value remains a bare
+    // function/class and `Function.name` resolves as before instrumentation.
+    let result = instrument_js(
+        "class Foo { field1 = function () {}; static field2 = class {}; arrow = () => 1; }",
+    );
+    // The synthetic counter field should appear in the instrumented output
+    // for each hoisted initializer.
+    let counter_fields = result.code.matches("__cov_").count();
+    assert!(counter_fields >= 3, "expected synthetic counter fields for each hoisted initializer:\n{}", result.code);
+    // The original initializers must remain bare expressions, not wrapped
+    // in sequence operators that would defeat NamedEvaluation.
+    assert!(
+        !result.code.contains(", function ()") && !result.code.contains(", () =>"),
+        "initializer must not be wrapped in a sequence expression:\n{}",
+        result.code
+    );
+}
+
+#[test]
 fn fn_name_inference_matrix_outside_class_methods() {
     // Each row asserts the user-visible `fnMap[N].name` matches the
     // source-derived name for a category of named function/arrow/class

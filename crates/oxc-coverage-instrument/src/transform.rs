@@ -107,6 +107,18 @@ pub struct CoverageTransform<'src, 'arena> {
     ignore_class_methods: Vec<String>,
     /// Branch IDs of logical expression branches (for building the `bT` map).
     pub logical_branch_ids: Vec<usize>,
+    /// Per-class stack of class-field counters to hoist as synthetic
+    /// sibling fields, so `field = function () {}` keeps Function.name
+    /// inference instead of getting wrapped in a sequence expression.
+    pending_class_field_hoists: Vec<Vec<ClassFieldHoist>>,
+}
+
+struct ClassFieldHoist {
+    /// `span.start` of the original `PropertyDefinition`. Used to locate
+    /// the matching slot in `ClassBody::body` during `exit_class_body`.
+    target_start: u32,
+    counter_id: usize,
+    is_static: bool,
 }
 
 struct PendingInsertion {
@@ -173,6 +185,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             report_logic,
             ignore_class_methods,
             logical_branch_ids: Vec::new(),
+            pending_class_field_hoists: Vec::new(),
         }
     }
 
@@ -1245,8 +1258,103 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         if span.start == 0 && span.end == 0 {
             return;
         }
+
+        let is_named_initializer = matches!(
+            value,
+            Expression::FunctionExpression(_)
+                | Expression::ArrowFunctionExpression(_)
+                | Expression::ClassExpression(_)
+        );
+        if is_named_initializer && !self.pending_class_field_hoists.is_empty() {
+            // `class Foo { field = function () {} }` -> hoist the counter
+            // into a synthetic sibling field so the initializer expression
+            // stays a bare function/class and NamedEvaluation can bind
+            // `Function.name`. Set pending_name so `fnMap[N].name` also
+            // reflects the property's source name.
+            if let Some(name) = property_key_to_name(&prop.key, self.source) {
+                self.pending_name = Some(name);
+            }
+            let stmt_id = self.add_statement(span);
+            let target_start = prop.span.start;
+            let is_static = prop.r#static;
+            if let Some(top) = self.pending_class_field_hoists.last_mut() {
+                top.push(ClassFieldHoist {
+                    target_start,
+                    counter_id: stmt_id,
+                    is_static,
+                });
+            }
+            return;
+        }
+
         let stmt_id = self.add_statement(span);
         prepend_counter(value, CounterKind::stmt(self.cov_fn_name, stmt_id), ctx);
+    }
+
+    fn enter_class_body(
+        &mut self,
+        _body: &mut ClassBody<'a>,
+        _ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        self.pending_class_field_hoists.push(Vec::new());
+    }
+
+    fn exit_class_body(
+        &mut self,
+        body: &mut ClassBody<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        let Some(hoists) = self.pending_class_field_hoists.pop() else { return };
+        if hoists.is_empty() {
+            return;
+        }
+        let cov_fn = self.cov_fn_name;
+        // Walk the original body in order, build a fresh Vec inserting the
+        // synthetic counter field immediately before each tracked
+        // PropertyDefinition. Static counters end up next to static fields,
+        // instance counters next to instance fields, so evaluation order
+        // matches the original at runtime.
+        let mut by_target: std::collections::BTreeMap<u32, &ClassFieldHoist> =
+            std::collections::BTreeMap::new();
+        for hoist in &hoists {
+            by_target.insert(hoist.target_start, hoist);
+        }
+        let original = std::mem::replace(&mut body.body, ctx.ast.vec());
+        for element in original {
+            if let ClassElement::PropertyDefinition(prop) = &element
+                && let Some(hoist) = by_target.get(&prop.span.start)
+            {
+                let counter = build_counter_expr(
+                    CounterKind::stmt(cov_fn, hoist.counter_id),
+                    ctx,
+                );
+                let key_name = alloc_str(
+                    &format!("__cov_{}_init_{}", cov_fn, hoist.counter_id),
+                    ctx,
+                );
+                let key = PropertyKey::StaticIdentifier(
+                    ctx.ast.alloc_identifier_name(SPAN, key_name),
+                );
+                let synthetic = ctx.ast.class_element_property_definition(
+                    SPAN,
+                    PropertyDefinitionType::PropertyDefinition,
+                    ctx.ast.vec(),
+                    key,
+                    None::<TSTypeAnnotation>,
+                    Some(counter),
+                    false,
+                    hoist.is_static,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    None,
+                );
+                body.body.push(synthetic);
+            }
+            body.body.push(element);
+        }
     }
 
     fn exit_property_definition(
