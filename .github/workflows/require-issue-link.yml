@@ -11,7 +11,12 @@ jobs:
   check-closing-keyword:
     name: Check closing keyword
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
+    # Skip drafts (still being authored) and bot-opened PRs (dependabot,
+    # github-actions[bot], etc.) since their bodies are auto-generated and
+    # never reference issues.
+    if: |
+      github.event.pull_request.draft == false &&
+      !endsWith(github.event.pull_request.user.login, '[bot]')
     env:
       PR_BODY: ${{ github.event.pull_request.body }}
     steps:
