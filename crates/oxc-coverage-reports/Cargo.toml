@@ -40,7 +40,7 @@ two-face = { version = "0.5", default-features = false, features = ["syntect-fan
 # Data parallelism for per-file detail-page rendering. Syntect tokenization
 # is CPU-bound; running it across cores keeps emit time linear in
 # wall-clock terms even on large monorepos.
-rayon = { version = "1.10", optional = true }
+rayon = { version = "1.12", optional = true }
 
 [dev-dependencies]
 insta = { version = "1", features = ["json"] }
