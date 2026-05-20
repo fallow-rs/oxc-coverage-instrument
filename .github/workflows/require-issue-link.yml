@@ -1,0 +1,29 @@
+name: Require issue link
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  check-closing-keyword:
+    name: Check closing keyword
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    env:
+      PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - name: Verify Closes/Fixes/Resolves keyword
+        run: |
+          if printf '%s' "$PR_BODY" | grep -qiE '(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]*#[0-9]+'; then
+            echo "::notice::PR body contains a closing keyword."
+            exit 0
+          fi
+          if printf '%s' "$PR_BODY" | grep -qiE '\bN/A\b'; then
+            echo "::notice::PR body explicitly opts out (N/A)."
+            exit 0
+          fi
+          echo "::error::PR body is missing a closing keyword (Closes/Fixes/Resolves #N) or an explicit 'N/A'. Bare '#N' references do not auto-close issues on merge."
+          exit 1
