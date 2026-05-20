@@ -8,7 +8,7 @@ use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_parser::{Parser, ParserReturn};
 use oxc_semantic::{Scoping, SemanticBuilder};
 use oxc_span::SourceType;
-use oxc_transformer::{TransformOptions, Transformer, TypeScriptOptions};
+use oxc_transformer::{JsxOptions, TransformOptions, Transformer, TypeScriptOptions};
 use oxc_traverse::traverse_mut;
 
 use std::collections::BTreeMap;
@@ -208,8 +208,15 @@ fn strip_typescript_pass<'a>(
     program: &mut Program<'a>,
     scoping: Scoping,
 ) -> Result<Scoping, InstrumentError> {
+    // `JsxOptions::default()` calls `JsxOptions::enable()`, which would
+    // rewrite `<div>` to `React.createElement` / `_jsx` on `.tsx` input.
+    // Strip-pass only removes type syntax; JSX must round-trip unchanged
+    // so codegen can emit it verbatim. Pin the JSX pass off explicitly.
+    // `typescript` is also listed explicitly so a future change to
+    // `TransformOptions::default()` cannot silently alter the strip pass.
     let options = TransformOptions {
         typescript: TypeScriptOptions::default(),
+        jsx: JsxOptions::disable(),
         ..TransformOptions::default()
     };
     let transformer = Transformer::new(allocator, Path::new(filename), &options);

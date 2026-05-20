@@ -115,3 +115,28 @@ fn ts_direct_default_off_preserves_existing_behavior() {
         result.code
     );
 }
+
+#[test]
+fn ts_direct_tsx_jsx_is_preserved_in_output() {
+    let src = "const greet = (name: string) => <div>Hello {name}</div>;\nconsole.log(greet(\"world\"));\n";
+    let result = instrument(src, "app.tsx", &ts_opts()).expect("instrument");
+    assert!(
+        result.code.contains("<div>"),
+        "JSX must survive strip_typescript on .tsx, got: {}",
+        result.code
+    );
+    assert!(!result.code.contains(": string"), "TS annotation must be stripped on .tsx");
+    assert!(
+        !result.code.contains("React.createElement"),
+        "JSX must not be transformed to call form, got: {}",
+        result.code
+    );
+}
+
+#[test]
+fn ts_direct_js_file_passes_through_unchanged() {
+    let src = "const x = 1;\nconsole.log(x);\n";
+    let result = instrument(src, "app.js", &ts_opts()).expect("instrument");
+    assert!(result.code.contains("const x ="));
+    assert_eq!(result.coverage_map.statement_map.len(), 2);
+}
