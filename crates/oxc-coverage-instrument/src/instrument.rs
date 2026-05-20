@@ -54,11 +54,20 @@ pub struct InstrumentOptions {
     /// pass raw TypeScript, the output will contain TypeScript syntax and
     /// will not be executable as JavaScript** (no error is returned).
     ///
-    /// Limitations: TC39 Stage 3 decorators are supported via
-    /// `DecoratorOptions::default()`; legacy `experimentalDecorators`
-    /// syntax (`@Injectable()` style) is not currently supported and will
-    /// return `InstrumentError::TransformError`. JSX is preserved verbatim
-    /// on `.tsx` files (the codegen pass emits it unchanged).
+    /// Decorator handling: `oxc_transformer`'s default `DecoratorOptions`
+    /// is used. TC39 Stage 3 decorators are supported. Legacy
+    /// `experimentalDecorators` syntax (`@Injectable()` / `@Controller()`
+    /// style used by NestJS, Angular, class-validator, TypeORM) is
+    /// passed through unchanged: the decorator syntax survives in the
+    /// output and a downstream tool (Babel / tsc / SWC / Node native
+    /// decorator support) must transform them for runtime use.
+    /// Instrumentation does NOT fail on legacy decorator code; coverage
+    /// counters land on the surrounding class bodies and methods as
+    /// expected. Issue #73 tracks deeper transformer support for
+    /// emitDecoratorMetadata semantics.
+    ///
+    /// JSX is preserved verbatim on `.tsx` files (the codegen pass emits
+    /// it unchanged).
     pub strip_typescript: bool,
 }
 
