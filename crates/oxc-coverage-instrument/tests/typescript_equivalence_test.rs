@@ -84,6 +84,48 @@ fn ts_direct_statement_count_matches_js_equivalent() {
 }
 
 #[test]
+fn ts_direct_emits_executable_js_without_type_annotations() {
+    // Regression-strength assertion: the equivalence tests above compare line
+    // sets, which the underlying CoverageTransform would produce identically
+    // whether or not the strip pass ran (Span values survive either way).
+    // This test asserts on the EMITTED CODE STRING: with strip_typescript on,
+    // the output must NOT contain TS-only syntax. Mentally reverting
+    // strip_typescript_pass to a no-op makes this test fail because the
+    // codegen would emit the original TS annotations verbatim.
+    let ts_opts = InstrumentOptions { strip_typescript: true, ..InstrumentOptions::default() };
+    let result = instrument(TS_SOURCE, "app.ts", &ts_opts).expect("instrument TS");
+
+    assert!(
+        !result.code.contains(": string"),
+        "type annotations must be stripped from output code: {}",
+        result.code
+    );
+    assert!(
+        !result.code.contains(": number"),
+        "type annotations must be stripped from output code: {}",
+        result.code
+    );
+    assert!(
+        !result.code.contains("interface "),
+        "interface declarations must be stripped from output code: {}",
+        result.code
+    );
+    assert!(
+        !result.code.contains("type Status"),
+        "type alias declarations must be stripped from output code: {}",
+        result.code
+    );
+
+    let no_strip_opts = InstrumentOptions::default();
+    let no_strip_result = instrument(TS_SOURCE, "app.ts", &no_strip_opts).expect("instrument TS");
+    assert!(
+        no_strip_result.code.contains(": string"),
+        "without strip_typescript the TS annotation must survive in output: {}",
+        no_strip_result.code
+    );
+}
+
+#[test]
 fn transform_error_display_format() {
     use oxc_coverage_instrument::InstrumentError;
     let err = InstrumentError::TransformError(vec![
