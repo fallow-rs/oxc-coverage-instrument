@@ -1,0 +1,16 @@
+{
+  "name": "oxc-coverage-instrument-vitest-typescript-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "coverage": "vitest run --coverage",
+    "verify": "node scripts/verify-coverage.mjs"
+  },
+  "devDependencies": {
+    "@vitest/coverage-istanbul": "^4.1.5",
+    "oxc-coverage-instrument": "file:../../crates/oxc-coverage-instrument-napi",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.5"
+  }
+}
