@@ -27,3 +27,6 @@ crates/oxc-coverage-instrument-napi/index.js
 crates/oxc-coverage-instrument-napi/index.d.ts
 crates/oxc-coverage-instrument-napi/node_modules/
 crates/oxc-coverage-instrument-napi/package-lock.json
+
+# CLI crash handover files
+HANDOVER-CRASH-*.md
