@@ -73,6 +73,7 @@ pub fn instrument(
             input_source_map: o.input_source_map,
             report_logic: o.report_logic.unwrap_or(false),
             ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
+            strip_typescript: false,
         }
     });
 

@@ -1,6 +1,6 @@
 //! Top-level instrumentation API.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::Program;
@@ -8,6 +8,7 @@ use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_parser::{Parser, ParserReturn};
 use oxc_semantic::{Scoping, SemanticBuilder};
 use oxc_span::SourceType;
+use oxc_transformer::{TransformOptions, Transformer, TypeScriptOptions};
 use oxc_traverse::traverse_mut;
 
 use std::collections::BTreeMap;
@@ -39,6 +40,12 @@ pub struct InstrumentOptions {
     /// Matches Istanbul's `ignoreClassMethods` behavior for class methods and
     /// named function expressions with a matching id.
     pub ignore_class_methods: Vec<String>,
+    /// When true, run `oxc_transformer`'s TypeScript-strip pass on the parsed
+    /// AST before coverage instrumentation. Required when the caller passes
+    /// raw TypeScript source that has not been pre-transformed by Babel /
+    /// tsc / esbuild. Defaults to false so existing callers that supply
+    /// pre-transformed JS are unaffected.
+    pub strip_typescript: bool,
 }
 
 impl Default for InstrumentOptions {
@@ -49,6 +56,7 @@ impl Default for InstrumentOptions {
             input_source_map: None,
             report_logic: false,
             ignore_class_methods: Vec::new(),
+            strip_typescript: false,
         }
     }
 }
@@ -132,7 +140,12 @@ pub fn instrument(
         return Ok(empty_coverage_result(filename, source, unhandled_pragmas));
     }
 
-    let scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
+    let mut scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
+
+    if options.strip_typescript {
+        scoping = strip_typescript_pass(&allocator, filename, &mut parsed.program, scoping)?;
+    }
+
     let cov_fn_name = generate_cov_fn_name(filename);
 
     let mut transform = CoverageTransform::new(TransformInit {
@@ -182,6 +195,31 @@ pub fn instrument(
         source_map,
         unhandled_pragmas,
     })
+}
+
+/// Run `oxc_transformer`'s TypeScript-strip pass on the parsed program in
+/// place. Returns the updated `Scoping` produced by the transformer (the
+/// semantic state may change as type-only nodes are removed). Surviving nodes
+/// retain their original `Span` values, so positions still refer to the
+/// original TypeScript source offsets.
+fn strip_typescript_pass<'a>(
+    allocator: &'a Allocator,
+    filename: &str,
+    program: &mut Program<'a>,
+    scoping: Scoping,
+) -> Result<Scoping, InstrumentError> {
+    let options = TransformOptions {
+        typescript: TypeScriptOptions::default(),
+        ..TransformOptions::default()
+    };
+    let transformer = Transformer::new(allocator, Path::new(filename), &options);
+    let ret = transformer.build_with_scoping(scoping, program);
+    if !ret.errors.is_empty() {
+        return Err(InstrumentError::TransformError(
+            ret.errors.iter().map(|e| format!("{e}")).collect::<Vec<_>>().join("; "),
+        ));
+    }
+    Ok(ret.scoping)
 }
 
 fn parse_program<'a>(
@@ -390,6 +428,7 @@ fn finalize_source_map(
 
 /// Error type for instrumentation failures.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum InstrumentError {
     /// The source could not be parsed.
     ParseError(String),
@@ -399,6 +438,9 @@ pub enum InstrumentError {
     /// `FileCoverage` shape only contains types whose serde implementations are
     /// infallible, so `instrument()` does not currently construct this variant.
     SerializationError(String),
+    /// The TypeScript strip pass produced diagnostics. Only emitted when
+    /// `InstrumentOptions::strip_typescript` is enabled.
+    TransformError(String),
 }
 
 impl std::fmt::Display for InstrumentError {
@@ -406,6 +448,7 @@ impl std::fmt::Display for InstrumentError {
         match self {
             Self::ParseError(msg) => write!(f, "parse error: {msg}"),
             Self::SerializationError(msg) => write!(f, "serialization error: {msg}"),
+            Self::TransformError(msg) => write!(f, "transform error: {msg}"),
             Self::InvalidCoverageVariable(name) => {
                 write!(
                     f,
