@@ -140,3 +140,27 @@ fn ts_direct_js_file_passes_through_unchanged() {
     assert!(result.code.contains("const x ="));
     assert_eq!(result.coverage_map.statement_map.len(), 2);
 }
+
+#[test]
+fn ts_direct_enum_counter_spans_original_source() {
+    // TypeScript `enum` declarations are converted to an IIFE by the
+    // transformer. Verify the resulting statement counters point at the
+    // original source byte offsets, not synthetic (0, 0) spans.
+    let src = "enum Color { Red, Green, Blue }\nconst c: Color = Color.Red;\n";
+    let result = instrument(src, "app.ts", &ts_opts()).expect("instrument");
+    assert!(result.coverage_map.statement_map.len() >= 4);
+
+    let enum_stmt = &result.coverage_map.statement_map["0"];
+    assert_eq!(enum_stmt.start.line, 1, "enum statement should anchor at line 1");
+    assert!(
+        enum_stmt.end.column > enum_stmt.start.column,
+        "enum statement span must be non-degenerate: {enum_stmt:?}"
+    );
+
+    let member_lines: Vec<u32> =
+        result.coverage_map.statement_map.values().map(|loc| loc.start.line).collect();
+    assert!(
+        member_lines.iter().all(|&l| l > 0),
+        "no statement counter should land on synthetic line 0: {member_lines:?}"
+    );
+}

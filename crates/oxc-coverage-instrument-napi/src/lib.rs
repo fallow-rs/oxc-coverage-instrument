@@ -29,6 +29,14 @@ pub struct InstrumentOptions {
     pub report_logic: Option<bool>,
     /// Class method names to exclude from coverage instrumentation.
     pub ignore_class_methods: Option<Vec<String>>,
+    /// When true, run the TypeScript-strip pass before instrumentation.
+    /// Set this when passing raw TypeScript source that has not been
+    /// pre-transformed by Babel / tsc / esbuild. Defaults to false, which
+    /// preserves backward compatibility with existing Vitest / nyc callers
+    /// that supply already-transformed JavaScript. If false and you pass
+    /// raw TypeScript, the output will contain TypeScript syntax and will
+    /// not be executable as JavaScript (no error is returned).
+    pub strip_typescript: Option<bool>,
 }
 
 /// A coverage pragma comment that was found but not handled.
@@ -73,7 +81,7 @@ pub fn instrument(
             input_source_map: o.input_source_map,
             report_logic: o.report_logic.unwrap_or(false),
             ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
-            strip_typescript: false,
+            strip_typescript: o.strip_typescript.unwrap_or(false),
         }
     });
 

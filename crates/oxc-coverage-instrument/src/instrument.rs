@@ -41,10 +41,24 @@ pub struct InstrumentOptions {
     /// named function expressions with a matching id.
     pub ignore_class_methods: Vec<String>,
     /// When true, run `oxc_transformer`'s TypeScript-strip pass on the parsed
-    /// AST before coverage instrumentation. Required when the caller passes
-    /// raw TypeScript source that has not been pre-transformed by Babel /
-    /// tsc / esbuild. Defaults to false so existing callers that supply
-    /// pre-transformed JS are unaffected.
+    /// AST before coverage instrumentation. Set this when passing raw
+    /// TypeScript source that has not been pre-transformed by Babel /
+    /// tsc / esbuild.
+    ///
+    /// Output: instrumented JavaScript whose `statementMap` / `branchMap`
+    /// positions reference the original TypeScript byte offsets (surviving
+    /// AST nodes retain their `Span` through the strip pass).
+    ///
+    /// Defaults to false so existing Vitest / nyc callers that supply
+    /// already-transformed JavaScript are unaffected. **If false and you
+    /// pass raw TypeScript, the output will contain TypeScript syntax and
+    /// will not be executable as JavaScript** (no error is returned).
+    ///
+    /// Limitations: TC39 Stage 3 decorators are supported via
+    /// `DecoratorOptions::default()`; legacy `experimentalDecorators`
+    /// syntax (`@Injectable()` style) is not currently supported and will
+    /// return `InstrumentError::TransformError`. JSX is preserved verbatim
+    /// on `.tsx` files (the codegen pass emits it unchanged).
     pub strip_typescript: bool,
 }
 
@@ -223,7 +237,7 @@ fn strip_typescript_pass<'a>(
     let ret = transformer.build_with_scoping(scoping, program);
     if !ret.errors.is_empty() {
         return Err(InstrumentError::TransformError(
-            ret.errors.iter().map(|e| format!("{e}")).collect::<Vec<_>>().join("; "),
+            ret.errors.iter().map(|e| format!("{e}")).collect::<Vec<_>>(),
         ));
     }
     Ok(ret.scoping)
@@ -446,8 +460,11 @@ pub enum InstrumentError {
     /// infallible, so `instrument()` does not currently construct this variant.
     SerializationError(String),
     /// The TypeScript strip pass produced diagnostics. Only emitted when
-    /// `InstrumentOptions::strip_typescript` is enabled.
-    TransformError(String),
+    /// `InstrumentOptions::strip_typescript` is enabled. The vector
+    /// contains one entry per transformer diagnostic so callers can
+    /// surface them individually instead of string-scraping a joined
+    /// message.
+    TransformError(Vec<String>),
 }
 
 impl std::fmt::Display for InstrumentError {
@@ -455,7 +472,7 @@ impl std::fmt::Display for InstrumentError {
         match self {
             Self::ParseError(msg) => write!(f, "parse error: {msg}"),
             Self::SerializationError(msg) => write!(f, "serialization error: {msg}"),
-            Self::TransformError(msg) => write!(f, "transform error: {msg}"),
+            Self::TransformError(msgs) => write!(f, "transform error: {}", msgs.join("; ")),
             Self::InvalidCoverageVariable(name) => {
                 write!(
                     f,
