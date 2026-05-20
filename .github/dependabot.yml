@@ -9,7 +9,17 @@ updates:
     groups:
       oxc:
         patterns: ["oxc_*"]
+      napi:
+        patterns: ["napi", "napi-derive", "napi-build"]
     open-pull-requests-limit: 10
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
 
   - package-ecosystem: npm
     directory: /crates/oxc-coverage-instrument-napi
@@ -17,7 +27,18 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    groups:
+      napi-toolchain:
+        patterns: ["@napi-rs/*"]
     open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /examples/vitest-typescript
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
 
   - package-ecosystem: github-actions
     directory: /

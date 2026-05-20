@@ -18,7 +18,6 @@ doctest = false
 oxc_coverage_instrument = { path = "../oxc-coverage-instrument" }
 napi = { version = "3", features = ["serde-json"] }
 napi-derive = "3"
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [build-dependencies]

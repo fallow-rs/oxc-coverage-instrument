@@ -7,6 +7,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Deny all permissions by default; grant per-job as needed.
 permissions: {}
 
 concurrency:
@@ -28,18 +29,25 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-rust
         with:
           components: clippy, rustfmt
+          cache-key: check-${{ matrix.os }}
+
       - name: Run tests
         run: cargo test --workspace --all-targets
+
       - name: Run doc-tests
         run: cargo test --workspace --doc
+
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
       - name: Format
         run: cargo fmt --all --check
+
       - name: Check for uncommitted changes
         run: git diff --exit-code
 
@@ -50,15 +58,19 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - name: Read MSRV from Cargo.toml
         id: msrv
         run: |
           MSRV=$(grep 'rust-version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
           echo "version=$MSRV" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
+
+      - uses: ./.github/actions/setup-rust
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
+          cache-key: msrv
+
       - name: Check MSRV
         run: cargo check --workspace
 
@@ -69,8 +81,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: doc
+
       - name: Check documentation
         env:
           RUSTDOCFLAGS: "-D warnings"
@@ -83,8 +99,19 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: crate-ci/typos@v1.46.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: crate-ci/typos@5374cbf686e897b15713110e233094e2874de7ef # v1
+
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: taiki-e/install-action@9b29ffac42f36c4efe76140737435c61cfb92383 # cargo-audit
+      - run: cargo audit
 
   deny:
     name: Cargo Deny
@@ -93,8 +120,32 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: EmbarkStudios/cargo-deny-action@v2.0.18
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: EmbarkStudios/cargo-deny-action@6c8f9facfa5047ec02d8485b6bf52b587b7777d1 # v2
+
+  shear:
+    name: Unused Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: taiki-e/install-action@b9da40722b5dc25d162879fdf6a098f2d71926cc # cargo-shear
+      - run: cargo shear
+
+  zizmor:
+    name: Actions Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: false
+      - run: uvx zizmor --config .github/zizmor.yml --min-confidence medium --format plain .github/
 
   napi:
     name: Napi Test
@@ -103,20 +154,28 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: napi
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
+
       - name: Install dependencies
         working-directory: crates/oxc-coverage-instrument-napi
         run: npm ci || npm install
+
       - name: Build napi binding
         working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi build --platform
+
       - name: Run napi tests
         working-directory: crates/oxc-coverage-instrument-napi
         run: node test.mjs
+
       - name: Run upstream Istanbul spec subset
         run: node scripts/istanbul-upstream-specs.mjs
 
@@ -130,22 +189,30 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: istanbul-diff
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
+
       - name: Install napi deps (brings in istanbul-lib-instrument devDep)
         working-directory: crates/oxc-coverage-instrument-napi
         run: npm ci || npm install
+
       - name: Build napi binding
         working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi build --platform
+
       - name: Run istanbul diff
         run: node scripts/istanbul-diff.mjs | tee istanbul-diff.log
+
       - name: Upload diff log
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: istanbul-diff-log
           path: istanbul-diff.log
@@ -163,23 +230,61 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: vitest-typescript
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
+
       - name: Install napi binding deps
         working-directory: crates/oxc-coverage-instrument-napi
         run: npm ci || npm install
+
       - name: Build napi binding
         working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi build --release --platform
+
       - name: Install example deps
         working-directory: examples/vitest-typescript
         run: npm install
+
       - name: Run vitest with coverage
         working-directory: examples/vitest-typescript
         run: npm run coverage
+
       - name: Verify coverage targets .ts source
         working-directory: examples/vitest-typescript
         run: npm run verify
+
+  ci-ok:
+    name: CI
+    if: always()
+    needs:
+      - check
+      - msrv
+      - doc
+      - typos
+      - audit
+      - deny
+      - shear
+      - zizmor
+      - napi
+      - istanbul-diff
+      - vitest-typescript-example
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: All checks passed
+        run: |
+          results='${{ toJSON(needs.*.result) }}'
+          for result in $(echo "$results" | jq -r '.[]'); do
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "::error::Job failed with result: $result"
+              exit 1
+            fi
+          done

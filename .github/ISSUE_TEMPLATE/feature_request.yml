@@ -1,0 +1,28 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve? What's the use case?
+      placeholder: "When instrumenting TypeScript with decorators, the emitted counters land on transformed lines instead of the original .ts source..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How do you think this should work?
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you've thought about (e.g., upstream istanbul-lib-instrument behavior, manual source-map remapping).
+    validations:
+      required: false

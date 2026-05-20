@@ -2,8 +2,6 @@
 .claude/
 .internal/
 node_modules/
-/package.json
-/package-lock.json
 
 # comparison instrumenters (created ad-hoc for analysis)
 /comparison/

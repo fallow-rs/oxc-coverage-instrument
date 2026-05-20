@@ -61,18 +61,19 @@ jobs:
         if: contains(matrix.os, 'windows')
         run: git config --system core.longpaths true
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: |
             ~/.cargo/registry/index/
@@ -83,13 +84,13 @@ jobs:
           restore-keys: |
             ${{ matrix.target }}-cargo-
 
-      - uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         if: contains(matrix.target, 'musl')
         with:
           version: 0.14.1
 
       - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@65851e10cd6c377f11a60e600abc07cb08643468 # v2
         if: contains(matrix.target, 'musl')
         with:
           tool: cargo-zigbuild
@@ -103,7 +104,7 @@ jobs:
         run: ${{ matrix.build }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: bindings-${{ matrix.target }}
           # `napi build` generates the JS/TS wrapper (index.js, index.d.ts) alongside
@@ -123,9 +124,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+        with:
+          toolchain: stable
 
       # Publish in topological order:
       #   oxc_coverage_types          (no internal deps)
@@ -174,9 +177,9 @@ jobs:
     env:
       TAG_REF: ${{ github.ref }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
@@ -189,7 +192,7 @@ jobs:
         run: npm ci || npm install
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: crates/oxc-coverage-instrument-napi/artifacts
 

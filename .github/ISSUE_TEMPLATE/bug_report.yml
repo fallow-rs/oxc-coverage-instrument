@@ -1,0 +1,80 @@
+name: Bug Report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: "Instrumented code emits wrong column for `if (foo) { bar(); }`."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Minimal source snippet, command invocation, or repo link that reproduces the issue.
+      placeholder: |
+        1. `index.ts`:
+           ```ts
+           export const add = (a: number, b: number) => a + b;
+           ```
+        2. Run:
+           ```
+           npx oxc-coverage-instrument index.ts > out.js
+           ```
+        3. `out.js` is missing the branch counter
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen? Reference istanbul-lib-instrument output if relevant.
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: oxc-coverage-instrument version
+      description: Output of `npx oxc-coverage-instrument --version` or the `oxc_coverage_instrument` crate version.
+      placeholder: "0.6.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: usage
+    attributes:
+      label: How are you using it?
+      multiple: true
+      options:
+        - Rust crate (oxc_coverage_instrument)
+        - npm package (oxc-coverage-instrument)
+        - Vitest adapter (createOxcInstrumenter)
+        - CLI (oxc-coverage-instrument-cli)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node.js / Rust version
+      description: Node version (for npm/Vitest usage) or `rustc --version` (for the crate).
+      placeholder: "Node 22.11.0 / rustc 1.92.0"
+    validations:
+      required: false

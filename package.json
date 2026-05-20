@@ -1,0 +1,35 @@
+{
+  "name": "oxc-coverage-instrument",
+  "version": "0.4.1",
+  "private": true,
+  "description": "Development helper manifest for oxc-coverage-instrument scripts; the published npm package lives in crates/oxc-coverage-instrument-napi.",
+  "scripts": {
+    "commitlint": "commitlint",
+    "istanbul:diff": "node scripts/istanbul-diff.mjs",
+    "istanbul:upstream": "node scripts/istanbul-upstream-specs.mjs",
+    "test": "cargo test --workspace --all-targets"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fallow-rs/oxc-coverage-instrument.git"
+  },
+  "keywords": [
+    "oxc",
+    "istanbul",
+    "coverage",
+    "javascript",
+    "typescript"
+  ],
+  "author": "Bart Waardenburg <bart@fallow.tools>",
+  "license": "MIT",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/fallow-rs/oxc-coverage-instrument/issues"
+  },
+  "homepage": "https://github.com/fallow-rs/oxc-coverage-instrument#readme",
+  "devDependencies": {
+    "@commitlint/cli": "21.0.1",
+    "@commitlint/config-conventional": "20.5.3",
+    "istanbul-lib-instrument": "^6.0.3"
+  }
+}

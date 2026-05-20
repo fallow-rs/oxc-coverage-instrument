@@ -14,6 +14,11 @@ categories = ["development-tools::testing", "web-programming"]
 [lints]
 workspace = true
 
+[lib]
+# Inline `#[test]` units live in `tests/`; the lib itself has none, so the
+# default `[lib].test = true` would build a harness binary cargo never runs.
+test = false
+
 [dependencies]
 oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.1.0" }
 serde_json = "1"

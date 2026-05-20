@@ -1,0 +1,106 @@
+name: Binary Size
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/bloat.yml'
+      - '.github/actions/setup-rust/**'
+      - '.github/actions/store-benchmark/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/bloat.yml'
+      - '.github/actions/setup-rust/**'
+      - '.github/actions/store-benchmark/**'
+  workflow_dispatch:
+
+concurrency:
+  group: bloat-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  # Keep debug info so cargo-bloat can resolve function names.
+  CARGO_PROFILE_RELEASE_STRIP: "none"
+  CARGO_PROFILE_RELEASE_DEBUG: "2"
+
+jobs:
+  bloat:
+    name: CLI binary size tracking
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: bloat
+
+      - name: Install cargo-bloat
+        run: cargo install cargo-bloat --locked
+
+      - name: Build CLI in release mode
+        run: cargo build --release -p oxc-coverage-instrument-cli
+
+      - name: Report top functions by size
+        run: |
+          {
+            echo "## Top 20 functions by size"
+            echo '```'
+            cargo bloat --release -p oxc-coverage-instrument-cli -n 20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report top crates by size
+        run: |
+          {
+            echo "## Top 20 crates by size"
+            echo '```'
+            cargo bloat --release -p oxc-coverage-instrument-cli --crates -n 20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Track binary sizes
+        run: |
+          set -euo pipefail
+
+          CLI_SIZE=$(stat -c%s target/release/oxc-coverage-instrument)
+
+          CLI_SIZE="$CLI_SIZE" python3 - <<'PY' > bloat-bench.json
+          import json
+          import os
+
+          data = [
+              {
+                  "name": "Binary Size (oxc-coverage-instrument CLI)",
+                  "unit": "bytes",
+                  "value": int(os.environ["CLI_SIZE"]),
+              },
+          ]
+          print(json.dumps(data, indent=2))
+          PY
+
+      - name: Store binary size metric
+        uses: ./.github/actions/store-benchmark
+        with:
+          name: oxc-coverage-instrument Binary Size
+          tool: customSmallerIsBetter
+          output-file-path: bloat-bench.json
+          data-dir: bloat
+          alert-threshold: '120%'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          continue-on-error: ${{ github.event_name == 'pull_request' }}

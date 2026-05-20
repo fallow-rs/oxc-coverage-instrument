@@ -1,0 +1,73 @@
+name: Cross-Architecture
+
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/cross-arch.yml'
+      - '.github/actions/setup-rust/**'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/cross-arch.yml'
+      - '.github/actions/setup-rust/**'
+  workflow_dispatch:
+
+concurrency:
+  group: cross-arch-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Cross-compile check (compilation only, no test execution).
+  # Tests require the actual target OS, which is handled by ci.yml's matrix.
+  # This job verifies the workspace compiles for additional architectures
+  # beyond what ci.yml covers (e.g., aarch64 Linux for ARM servers/CI).
+  # Windows is tested natively in ci.yml, so it is not cross-compiled here.
+  # The napi crate is excluded because its build script requires the napi-rs
+  # CLI to be invoked; release-npm.yml handles its cross-compilation.
+  cross-compile:
+    name: Compile (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: ${{ matrix.target }}
+          cache-key: cross-${{ matrix.target }}
+
+      - name: Install aarch64 cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Check compilation
+        run: |
+          cargo check \
+            --workspace \
+            --exclude oxc_coverage_instrument_napi \
+            --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc

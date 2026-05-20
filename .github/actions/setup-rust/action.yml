@@ -1,0 +1,48 @@
+name: Setup Rust
+description: Install Rust toolchain and configure build caching
+
+inputs:
+  toolchain:
+    description: 'Rust toolchain to install (stable, nightly, 1.92.0, etc.). When empty, reads rust-toolchain.toml from the repo root, otherwise defaults to stable.'
+    default: ''
+  components:
+    description: 'Comma-separated components (e.g., clippy, rustfmt)'
+    default: ''
+  targets:
+    description: 'Comma-separated compilation targets'
+    default: ''
+  cache-key:
+    description: 'Extra cache key to differentiate cache entries'
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve toolchain
+      id: resolve
+      shell: bash
+      env:
+        INPUT_TOOLCHAIN: ${{ inputs.toolchain }}
+      run: |
+        if [ -n "$INPUT_TOOLCHAIN" ]; then
+          echo "toolchain=$INPUT_TOOLCHAIN" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if [ -f rust-toolchain.toml ]; then
+          channel=$(awk -F '"' '/^[[:space:]]*channel[[:space:]]*=/ {print $2; exit}' rust-toolchain.toml)
+          if [ -n "$channel" ]; then
+            echo "toolchain=$channel" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        fi
+        echo "toolchain=stable" >> "$GITHUB_OUTPUT"
+
+    - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+      with:
+        toolchain: ${{ steps.resolve.outputs.toolchain }}
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}
+
+    - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      with:
+        key: ${{ inputs.cache-key }}

@@ -1,0 +1,42 @@
+rules:
+  # crates.io publishing uses CARGO_REGISTRY_TOKEN. Trusted publishing for
+  # multi-crate workspaces requires per-crate setup that is not yet configured.
+  use-trusted-publishing:
+    ignore:
+      - release-npm.yml
+  # dtolnay/rust-toolchain is the Rust ecosystem standard for CI toolchain
+  # management (used in .github/actions/setup-rust/action.yml composite action).
+  superfluous-actions:
+    ignore:
+      - release-npm.yml
+  # release-npm.yml separates the matrix `build` job (uses actions/cache) from
+  # the privileged `publish` and `publish-crate` jobs, which use neither
+  # actions/cache nor downloaded build cache; `cargo publish` and
+  # `npm publish` operate on freshly-downloaded artifacts only.
+  cache-poisoning:
+    ignore:
+      - release-npm.yml
+  # benchmark-action/github-action-benchmark requires `github-token` in `with:`
+  # (it is not env-mappable). Coverage badge push uses GITHUB_TOKEN via the
+  # default checkout credentials.
+  secrets-outside-env:
+    ignore:
+      - bench.yml
+      - bloat.yml
+      - coverage.yml
+      - release-npm.yml
+  # Dependabot auto-merge uses pull_request_target intentionally; no code
+  # checkout, only a gh pr merge API call. Actor-gated to dependabot[bot].
+  dangerous-triggers:
+    ignore:
+      - dependabot-auto-merge.yml
+  # github.actor == 'dependabot[bot]' is the standard GitHub-documented pattern;
+  # risk is mitigated by --auto (waits for required CI) and no code checkout.
+  bot-conditions:
+    ignore:
+      - dependabot-auto-merge.yml
+  # ci-ok job uses toJSON(needs.*.result), which only contains
+  # success/failure/cancelled/skipped tokens; no untrusted user input.
+  template-injection:
+    ignore:
+      - ci.yml

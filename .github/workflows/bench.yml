@@ -1,0 +1,90 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/bench.yml'
+      - '.github/actions/setup-rust/**'
+      - '.github/actions/store-benchmark/**'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/bench.yml'
+      - '.github/actions/setup-rust/**'
+      - '.github/actions/store-benchmark/**'
+  workflow_dispatch:
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    name: Instrumentation throughput
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: bench
+
+      - name: Run criterion benchmarks
+        run: cargo bench --bench instrument -- --output-format bencher | tee bench-output.txt
+
+      - name: Store benchmark result
+        uses: ./.github/actions/store-benchmark
+        with:
+          name: oxc-coverage-instrument benchmarks
+          tool: cargo
+          output-file-path: bench-output.txt
+          data-dir: bench
+          alert-threshold: '150%'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          continue-on-error: ${{ github.event_name == 'pull_request' }}
+
+      - name: Deploy dashboard
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+
+          # Save the dashboard page before switching branches.
+          cp .github/pages/index.html /tmp/dashboard-index.html
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Fetch latest gh-pages (benchmark-action may have just pushed).
+          git fetch origin gh-pages
+
+          # Use a worktree to avoid clobbering the main checkout.
+          git worktree add /tmp/gh-pages origin/gh-pages
+          cd /tmp/gh-pages
+
+          cp /tmp/dashboard-index.html index.html
+          git add index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update dashboard index.html"
+            git push origin HEAD:gh-pages
+          fi
+
+          cd "$GITHUB_WORKSPACE"
+          git worktree remove /tmp/gh-pages
