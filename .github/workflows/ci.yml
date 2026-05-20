@@ -150,3 +150,36 @@ jobs:
           name: istanbul-diff-log
           path: istanbul-diff.log
           if-no-files-found: warn
+
+  vitest-typescript-example:
+    # End-to-end smoke for the Vitest TypeScript example: builds the napi
+    # binding, runs vitest with the createOxcInstrumenter adapter on a small
+    # TypeScript project with zero pre-transform, then verifies the resulting
+    # coverage-final.json is keyed by the .ts source path and statementMap
+    # entries point at .ts line numbers.
+    name: Vitest TypeScript example
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install napi binding deps
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: npm ci || npm install
+      - name: Build napi binding
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: npx napi build --release --platform
+      - name: Install example deps
+        working-directory: examples/vitest-typescript
+        run: npm install
+      - name: Run vitest with coverage
+        working-directory: examples/vitest-typescript
+        run: npm run coverage
+      - name: Verify coverage targets .ts source
+        working-directory: examples/vitest-typescript
+        run: npm run verify

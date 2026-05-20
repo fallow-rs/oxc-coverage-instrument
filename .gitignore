@@ -20,6 +20,9 @@ node_modules/
 # default --output-dir for `report --format html` runs from the workspace root
 /coverage/
 crates/*/coverage/
+examples/*/coverage/
+examples/*/node_modules/
+examples/*/package-lock.json
 
 # napi build artifacts
 *.node
