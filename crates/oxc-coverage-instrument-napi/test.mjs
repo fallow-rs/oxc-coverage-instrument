@@ -676,4 +676,26 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] v8ToIstanbul resolves if-arm[0] through collected body span');
 }
 
+// Test: stripTypescript option strips TS annotations and produces executable JS
+{
+  const result = instrument(
+    'const x: number = 1;\nconsole.log(x);\n',
+    'app.ts',
+    { stripTypescript: true, sourceMap: true },
+  );
+  assert(!result.code.includes(': number'), 'TS annotation must be stripped');
+  assert(result.code.includes('const x ='), 'output must contain executable JS');
+  const cov = JSON.parse(result.coverageMap);
+  assert(cov.path === 'app.ts', 'coverage map path should be app.ts');
+  assert(Object.keys(cov.statementMap).length >= 2, 'statementMap should be populated');
+  console.log('  [PASS] stripTypescript option strips TS and produces executable JS');
+}
+
+// Test: stripTypescript defaults to false (preserves backward compatibility)
+{
+  const result = instrument('const x: number = 1;\n', 'app.ts');
+  assert(result.code.includes(': number'), 'without stripTypescript the TS annotation must remain');
+  console.log('  [PASS] stripTypescript defaults to false');
+}
+
 console.log('\nAll tests passed!');
