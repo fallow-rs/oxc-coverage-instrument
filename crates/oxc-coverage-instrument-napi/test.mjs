@@ -760,15 +760,75 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] vitest adapter honors explicit stripTypescript: false on .ts');
 }
 
-// Test: explicit stripTypescript: true forces strip on .js (where auto-detect would skip)
+// Test: explicit stripTypescript: true overrides the auto-detect skip on .ts
+// when inputSourceMap is present. Auto-detect would NOT strip (inputSourceMap
+// signals "already transformed upstream"), but explicit true forces the strip
+// pass anyway. Observable via the TS annotation disappearing from the output.
 {
   const { createOxcInstrumenter } = await import('./vitest.js');
   const inst = createOxcInstrumenter({ stripTypescript: true });
-  // .js with TS annotations would be a parse error, so use a TS file with .js
-  // extension to test forced strip. Use bare JS to avoid testing the parser.
-  const code = inst.instrumentSync('const x = 1;\nconsole.log(x);\n', 'forced.js');
-  assert(code.includes('const x ='), 'forced strip on plain JS still yields valid output');
-  console.log('  [PASS] vitest adapter honors explicit stripTypescript: true on .js');
+  const fakeMap = { version: 3, sources: ['orig.ts'], mappings: '', names: [] };
+  const code = inst.instrumentSync('const x: number = 1;\n', 'app.ts', fakeMap);
+  assert(
+    !code.includes(': number'),
+    'explicit stripTypescript: true must force strip even when inputSourceMap is present',
+  );
+  console.log('  [PASS] vitest adapter honors explicit stripTypescript: true override');
+}
+
+// Test: non-boolean stripTypescript throws TypeError instead of silently
+// coercing. Catches the 'auto' string case (a prior tri-state design shape)
+// that Boolean coercion would turn into force-strip.
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  let caught = null;
+  try {
+    createOxcInstrumenter({ stripTypescript: 'auto' });
+  } catch (e) {
+    caught = e;
+  }
+  assert(caught instanceof TypeError, `expected TypeError, got ${caught}`);
+  assert(
+    caught.message.includes('stripTypescript'),
+    `error message must name the offending option, got: ${caught.message}`,
+  );
+  console.log('  [PASS] vitest adapter rejects non-boolean stripTypescript with TypeError');
+}
+
+// Test: TS_EXTENSION_REGEX rejects non-TypeScript extensions that look similar.
+// The narrow form /\.([mc]ts|tsx?)$/i must not match .ts.bak (where .bak is
+// the actual extension) or .mtsx (not a real Node / TS extension).
+// Strategy: feed TS source to a non-matching filename. Auto-detect must skip
+// the strip; the parser then rejects the TS syntax because the filename
+// extension (.bak / .mtsx) means SourceType::from_path falls back to JS.
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter();
+  // .ts.bak: actual extension is .bak; strip must not auto-engage.
+  let caughtBak = null;
+  try {
+    inst.instrumentSync('const x: number = 1;\n', 'app.ts.bak');
+  } catch (e) {
+    caughtBak = e;
+  }
+  assert(
+    caughtBak !== null && /parse error/.test(caughtBak.message),
+    'app.ts.bak must not auto-strip; parser must reject TS syntax',
+  );
+  // .mtsx: not a real extension (only .mts / .cts / .ts / .tsx are valid).
+  let caughtMtsx = null;
+  try {
+    inst.instrumentSync('const x: number = 1;\n', 'app.mtsx');
+  } catch (e) {
+    caughtMtsx = e;
+  }
+  assert(
+    caughtMtsx !== null && /parse error/.test(caughtMtsx.message),
+    'app.mtsx must not auto-strip; .mtsx is not a real TypeScript extension',
+  );
+  console.log(
+    '  [PASS] vitest adapter regex rejects .ts.bak and .mtsx (non-TS extensions)',
+  );
 }
 
 console.log('\nAll tests passed!');

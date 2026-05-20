@@ -14,10 +14,11 @@ export interface OxcInstrumenterOptions {
   /**
    * Run the TypeScript-strip pass before instrumentation. When omitted
    * (default), the adapter auto-detects: it strips when the filename matches
-   * `/\.[mc]?tsx?$/i` AND no `inputSourceMap` was supplied (i.e., the source
-   * has not already been transformed by Vite / Babel / tsc). Set to `false`
-   * to disable auto-detect under toolchains that pre-transform TypeScript
-   * but do not produce an `inputSourceMap`. Set to `true` to force strip.
+   * `/\.([mc]ts|tsx?)$/i` AND no `inputSourceMap` was supplied (i.e., the
+   * source has not already been transformed by Vite / Babel / tsc). Set to
+   * `false` to disable auto-detect under toolchains that pre-transform
+   * TypeScript but do not produce an `inputSourceMap`. Set to `true` to force
+   * strip. Non-boolean values throw `TypeError`.
    */
   stripTypescript?: boolean
 }

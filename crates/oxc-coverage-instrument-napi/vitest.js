@@ -19,10 +19,12 @@
 
 const { instrument } = require('./index.js');
 
-// Filename pattern matching .ts, .tsx, .mts, .mtsx, .cts, .ctsx (the set of
-// extensions where TypeScript syntax may legally appear). Used for auto-detect;
+// Filename pattern matching exactly the TypeScript extensions Node recognises:
+// .ts, .tsx, .mts, .cts. The narrower form `/\.([mc]ts|tsx?)$/i` is preferred
+// over `/\.[mc]?tsx?$/i` because the latter would also match `.mtsx` and
+// `.ctsx`, which are not real TypeScript extensions. Used for auto-detect;
 // explicit user opt-in/out via the `stripTypescript` option always wins.
-const TS_EXTENSION_REGEX = /\.[mc]?tsx?$/i;
+const TS_EXTENSION_REGEX = /\.([mc]ts|tsx?)$/i;
 
 /**
  * Creates an instrumenter that implements the istanbul-lib-instrument
@@ -39,13 +41,17 @@ const TS_EXTENSION_REGEX = /\.[mc]?tsx?$/i;
  * @param {boolean} [options.reportLogic] Enable truthy-value tracking (bT).
  * @param {boolean} [options.stripTypescript] Run the TypeScript-strip pass
  *   before instrumentation. When omitted (default), the adapter auto-detects:
- *   it strips when the filename matches `/\.[mc]?tsx?$/i` AND no
+ *   it strips when the filename matches `/\.([mc]ts|tsx?)$/i` AND no
  *   `inputSourceMap` was supplied (i.e., the source has not already been
  *   transformed by Vite / Babel / tsc). Set to `false` to disable auto-detect
  *   under toolchains that pre-transform TypeScript but do not produce an
  *   `inputSourceMap` (`@vitejs/plugin-react-swc` in some configurations, Bun's
  *   native TS runner, Node 23+ with `--experimental-strip-types`). Set to
  *   `true` to force strip regardless of filename or `inputSourceMap` presence.
+ *   Non-boolean values throw `TypeError`: the `?: boolean` type contract is
+ *   strict because callers passing a string like `'auto'` (a prior design
+ *   discussion shape) would otherwise be silently coerced to `Boolean('auto')`
+ *   which is `true`, force-stripping every file.
  * @returns {{ instrumentSync, lastSourceMap, lastFileCoverage }}
  */
 function createOxcInstrumenter(options) {
@@ -54,6 +60,11 @@ function createOxcInstrumenter(options) {
   const ignoreClassMethods = options.ignoreClassMethods || [];
   const reportLogic = options.reportLogic || false;
   const stripTypescriptOverride = options.stripTypescript;
+  if (stripTypescriptOverride !== undefined && typeof stripTypescriptOverride !== 'boolean') {
+    throw new TypeError(
+      `oxc-coverage-instrument: createOxcInstrumenter({ stripTypescript }) must be a boolean or undefined, got ${typeof stripTypescriptOverride}`,
+    );
+  }
 
   // Raw JSON strings from the last instrument call — parsed lazily on first access.
   let _lastCoverageMapJson = null;
@@ -84,7 +95,7 @@ function createOxcInstrumenter(options) {
       const stripTypescript =
         stripTypescriptOverride === undefined
           ? TS_EXTENSION_REGEX.test(filename) && !inputSourceMap
-          : Boolean(stripTypescriptOverride);
+          : stripTypescriptOverride;
       const result = instrument(code, filename, {
         coverageVariable,
         sourceMap: true,
