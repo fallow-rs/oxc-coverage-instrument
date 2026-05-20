@@ -64,6 +64,47 @@ typos
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
 ```
 
+### Dependency and supply-chain gates
+
+The CI runs `cargo audit`, `cargo deny`, and `cargo shear` on every push. Reproduce locally before touching `Cargo.toml`:
+
+```bash
+# Security advisories (RustSec)
+cargo install cargo-audit
+cargo audit
+
+# License / dependency policy (see deny.toml)
+cargo install cargo-deny
+cargo deny check
+
+# Unused / misplaced dependencies
+cargo install cargo-shear
+cargo shear
+```
+
+### Workflow files (`.github/`)
+
+When editing anything under `.github/workflows/` or `.github/actions/`, the CI runs `actionlint` and `zizmor` against the result. Reproduce locally:
+
+```bash
+brew install actionlint zizmor                 # or `cargo install` / `pip install`
+actionlint .github/workflows/*.yml
+zizmor --config .github/zizmor.yml --min-confidence medium --format plain .github/
+```
+
+Every external action must be SHA-pinned with a version comment (`uses: owner/action@<40-hex> # vX.Y.Z`). Floating `@v6` / `@main` tags are rejected by zizmor's policy.
+
+### Commit messages
+
+CI enforces conventional commits via commitlint. To reproduce locally before pushing:
+
+```bash
+npm ci --ignore-scripts                                  # installs @commitlint/cli
+npm run commitlint -- --from origin/main --to HEAD       # lint your branch's commits
+```
+
+Config lives in `commitlint.config.mjs`. Allowed types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`.
+
 ## Napi bindings (Node.js)
 
 ```bash
@@ -116,7 +157,7 @@ node crates/oxc-coverage-instrument/tests/conformance/generate-reference.mjs
    ```bash
    cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --all-targets && npm --prefix crates/oxc-coverage-instrument-napi run build:debug && node scripts/istanbul-diff.mjs && node crates/oxc-coverage-instrument-napi/test.mjs && typos
    ```
-5. Open a PR with a clear description of what changed and why
+5. Open a PR with a clear description of what changed and why. The PR body must contain a `Closes #N` (or `Fixes #N` / `Resolves #N`) keyword for any issue it closes, or the literal string `N/A` if it does not close an issue. A workflow rejects PRs that omit both; the check is skipped for `[bot]` authors.
 
 ## License
 

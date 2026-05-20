@@ -13,7 +13,7 @@ Working coverage map generation and source-level counter injection.
 - [x] Source-level counter injection
 - [x] `InstrumentOptions` with configurable coverage variable name
 
-## v0.2.x (current)
+## v0.2.x
 
 Correct instrumented output via AST mutation. Istanbul-conformant. Published to npm.
 
@@ -31,7 +31,7 @@ Correct instrumented output via AST mutation. Istanbul-conformant. Published to 
 - [x] **CI**: cross-platform tests, MSRV, cargo-deny, napi test, typos, doc checks, coverage badge
 - [x] **Published to crates.io**: automated publishing via CI on each release
 
-## v0.5.x (in progress)
+## v0.5.x
 
 Coverage suite (umbrella [#45](https://github.com/fallow-rs/oxc-coverage-instrument/issues/45)): port the rest of the istanbuljs stack into Rust-native crates so the entire pipeline lives in one workspace.
 
@@ -77,6 +77,23 @@ Coverage suite (umbrella [#45](https://github.com/fallow-rs/oxc-coverage-instrum
   - "Next uncovered" ghost button (fallow brutalist offset shadow) that cycles `tr.line.miss` / `tr.line.partial` in document order and focuses the inner anchor
   - `[H]` / `[P]` / `[M]` non-color severity glyphs in the gutter + 2px luminance left-borders on coverage rows (WCAG 1.4.1 non-color cue), with `aria-hidden` on the glyph (the row's `aria-label` carries the semantics)
   - `<meta name="generator">` version stamp on every page; sticky table header; `:focus-within` row highlight so keyboard parity with mouse hover; `prefers-reduced-motion` guards on every new transition
+
+## CI / tooling
+
+Reproduce-locally targets for every CI gate live in `CONTRIBUTING.md` under *Development workflow*. Current surface:
+
+- **`ci.yml`**: cross-platform `check` matrix (ubuntu / macos / windows), `msrv` (1.92), `doc` (`RUSTDOCFLAGS=-D warnings`), `typos`, `audit` (cargo-audit / RustSec), `deny` (cargo-deny per `deny.toml`), `shear` (unused / misplaced deps), `zizmor` (workflow security), `napi` (build + `node test.mjs`), `istanbul-diff` (byte parity against `istanbul-lib-instrument` on 27 fixtures), `vitest-typescript-example` (end-to-end Vitest adapter smoke), and a single `ci-ok` aggregator job for branch protection
+- **`coverage.yml`**: `cargo llvm-cov` on every push to `main`, publishes a shields.io-compatible JSON badge to the `badges` branch
+- **`bench.yml`**: criterion run on push / PR with `crates/**` paths, pushes results + dashboard to `gh-pages` via `benchmark-action/github-action-benchmark`
+- **`bloat.yml`**: CLI binary size tracking via cargo-bloat, alert threshold 120%
+- **`cross-arch.yml`**: cross-compile check on `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`
+- **`commitlint.yml`**: conventional-commit lint on every PR title + commit range (config in `commitlint.config.mjs`)
+- **`scorecard.yml`**: OSSF Scorecard scan, weekly + on push to main
+- **`dependabot-auto-merge.yml`**: auto-merges non-major dependabot PRs once required checks pass
+- **`require-issue-link.yml`**: requires `Closes/Fixes/Resolves #N` (or `N/A`) in every non-draft, non-bot PR body
+- **`release-npm.yml`**: tag-triggered multi-platform napi build matrix (7 targets) + crates.io publish in topological order + npm publish with provenance
+
+Every external action is SHA-pinned with a version comment; the `dtolnay/rust-toolchain` pin tracks `stable` HEAD and is re-pinned when dependabot's github-actions scanner reports the SHA orphaned (see `.github/actions/setup-rust/action.yml`). Reusable composites live under `.github/actions/`. The `gh-pages` dashboard is served at `https://fallow-rs.github.io/oxc-coverage-instrument/`.
 
 ## Future
 
