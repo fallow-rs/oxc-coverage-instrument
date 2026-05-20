@@ -831,4 +831,71 @@ function runInstrumented(result, filename, callExpression) {
   );
 }
 
+// Test: experimentalDecorators + emitDecoratorMetadata lowers NestJS-style
+// decorators to _decorate / _decorateMetadata calls importing helpers from
+// @oxc-project/runtime. Mirrors the Rust-side
+// ts_direct_decorator_metadata_emits_helper_imports test.
+{
+  const src =
+    "import { Injectable, Body } from '@nestjs/common';\n" +
+    '@Injectable()\n' +
+    'export class FooService {\n' +
+    '  constructor(private readonly bar: BarRepo) {}\n' +
+    '  method(@Body() dto: CreateDto): string {\n' +
+    '    return dto.name;\n' +
+    '  }\n' +
+    '}\n';
+  const result = instrument(src, 'foo.service.ts', {
+    stripTypescript: true,
+    experimentalDecorators: true,
+    emitDecoratorMetadata: true,
+  });
+  assert(
+    result.code.includes('import _decorate from "@oxc-project/runtime/helpers/decorate"'),
+    'expected @oxc-project/runtime _decorate import',
+  );
+  assert(
+    result.code.includes('_decorateMetadata("design:paramtypes"'),
+    'expected design:paramtypes metadata call',
+  );
+  console.log('  [PASS] napi adapter: experimentalDecorators + emitDecoratorMetadata');
+}
+
+// Test: emitDecoratorMetadata implicitly promotes experimentalDecorators.
+// Mirrors ts_direct_emit_decorator_metadata_implicitly_promotes_experimental.
+{
+  const src =
+    '@Injectable() export class S { constructor(private readonly b: B) {} }\n';
+  const result = instrument(src, 's.ts', {
+    stripTypescript: true,
+    emitDecoratorMetadata: true,
+    // experimentalDecorators intentionally omitted; should be promoted.
+  });
+  assert(
+    result.code.includes('_decorate('),
+    'implicit legacy promotion must produce _decorate call',
+  );
+  assert(
+    result.code.includes('_decorateMetadata('),
+    'metadata calls expected with implicit promotion',
+  );
+  console.log('  [PASS] napi adapter: emitDecoratorMetadata silently promotes legacy');
+}
+
+// Test: with both flags off (default), decorators flow through verbatim.
+// Mirrors ts_direct_decorators_default_pass_through.
+{
+  const src = '@Injectable() export class S {}\n';
+  const result = instrument(src, 's.ts', { stripTypescript: true });
+  assert(
+    result.code.includes('@Injectable()'),
+    'decorator syntax must survive verbatim when both flags default to false',
+  );
+  assert(
+    !result.code.includes('@oxc-project/runtime'),
+    'no helper import expected when both decorator flags are off',
+  );
+  console.log('  [PASS] napi adapter: decorators pass through by default');
+}
+
 console.log('\nAll tests passed!');

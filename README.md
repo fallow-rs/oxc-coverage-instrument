@@ -108,6 +108,19 @@ The factory forwards `coverageVariable` and `ignoreClassMethods` to the native i
 
 By default the adapter auto-detects raw TypeScript: when the filename ends in `.ts` / `.tsx` (also `.mts` / `.cts`) AND no `inputSourceMap` was supplied (the source has not already been transformed by Vite / Babel / tsc), it runs an in-process TypeScript-strip pass so the output is executable JavaScript and the coverage map points at the original `.ts` source. No `@babel/preset-typescript` or upstream tsc step is required. Set `stripTypescript: false` on `createOxcInstrumenter({ ... })` to disable the auto-detect when running under a toolchain that pre-transforms TypeScript without emitting an `inputSourceMap` (`@vitejs/plugin-react-swc` in some configurations, Bun's native TS runner, Node 23+ with `--experimental-strip-types`). Set `stripTypescript: true` to force the strip pass regardless of filename or `inputSourceMap` presence.
 
+#### Legacy decorators (NestJS, Angular, TypeORM, class-validator)
+
+By default decorator syntax (Stage 3 and legacy `experimentalDecorators` alike) flows through the strip pass verbatim: counters land on the surrounding class bodies and methods, and a downstream tool (Babel / tsc / SWC / native Node decorators) is responsible for lowering them at runtime. Set `experimentalDecorators: true` on the instrument call (or on `createOxcInstrumenter({ ... })`) to lower legacy decorators in-process into `_decorate(...)` calls; set `emitDecoratorMetadata: true` additionally to emit `_decorateMetadata("design:type", ...)`, `_decorateMetadata("design:paramtypes", ...)`, and `_decorateMetadata("design:returntype", ...)` calls. The latter is what NestJS dependency injection, TypeORM column type inference, and class-validator's metadata-driven validation rely on. Setting `emitDecoratorMetadata: true` implicitly enables `experimentalDecorators`; the underlying transformer pass is gated on legacy mode.
+
+The lowered output imports helpers from [`@oxc-project/runtime`](https://www.npmjs.com/package/@oxc-project/runtime):
+
+```bash
+npm install @oxc-project/runtime
+# or: pnpm add @oxc-project/runtime, yarn add @oxc-project/runtime
+```
+
+If you see `Cannot find module '@oxc-project/runtime/helpers/decorate'` at test time, the package is missing from the consumer; install it as a regular dependency (NOT a dev dependency) so it's available wherever the instrumented code runs. Mirrors the relationship between `babel-plugin-transform-typescript-metadata` and `@babel/runtime` in a Babel-based pipeline.
+
 ### vite-plugin-istanbul integration
 
 Requires `vite-plugin-istanbul` **>= 9.0.0** (`instrumenter` option).

@@ -141,6 +141,181 @@ fn ts_direct_js_file_passes_through_unchanged() {
     assert_eq!(result.coverage_map.statement_map.len(), 2);
 }
 
+// Sample NestJS-style source exercising every decorator position
+// emit_decorator_metadata cares about: class-level decorator,
+// constructor parameter injection, method decorator, parameter decorator,
+// and a typed return.
+const NESTJS_SAMPLE: &str = "import { Injectable, Body } from '@nestjs/common';\n\
+@Injectable()\n\
+export class FooService {\n  \
+  constructor(private readonly bar: BarRepo) {}\n  \
+  method(@Body() dto: CreateDto): string {\n    \
+    return dto.name;\n  \
+  }\n\
+}\n";
+
+#[test]
+fn ts_direct_decorator_metadata_emits_helper_imports() {
+    // With both flags on, oxc_transformer lowers @Injectable() into a
+    // `_decorate(...)` call and emits `_decorateMetadata("design:type", ...)`,
+    // `_decorateMetadata("design:paramtypes", ...)`, and
+    // `_decorateMetadata("design:returntype", ...)` for every decorated
+    // member that carries TypeScript type annotations. The helpers are
+    // imported from `@oxc-project/runtime`.
+    let opts = InstrumentOptions {
+        strip_typescript: true,
+        experimental_decorators: true,
+        emit_decorator_metadata: true,
+        ..InstrumentOptions::default()
+    };
+    let result = instrument(NESTJS_SAMPLE, "foo.service.ts", &opts).expect("instrument");
+    assert!(
+        result.code.contains("import _decorate from \"@oxc-project/runtime/helpers/decorate\""),
+        "expected _decorate import, got: {}",
+        result.code
+    );
+    assert!(
+        result.code.contains(
+            "import _decorateMetadata from \"@oxc-project/runtime/helpers/decorateMetadata\""
+        ),
+        "expected _decorateMetadata import, got: {}",
+        result.code
+    );
+    assert!(
+        result.code.contains("_decorateMetadata(\"design:paramtypes\""),
+        "expected design:paramtypes metadata call, got: {}",
+        result.code
+    );
+    assert!(
+        result.code.contains("_decorateMetadata(\"design:type\""),
+        "expected design:type metadata call, got: {}",
+        result.code
+    );
+    assert!(
+        result.code.contains("_decorateMetadata(\"design:returntype\""),
+        "expected design:returntype metadata call, got: {}",
+        result.code
+    );
+}
+
+#[test]
+fn ts_direct_decorator_metadata_statement_counters_land_on_real_lines() {
+    // The decorator lowering pass produces synthetic helper-call expressions.
+    // Statement and function counters must only anchor on lines that exist
+    // in the original TypeScript source (1..=8 for `NESTJS_SAMPLE`); they
+    // must never land at synthetic line 0 or beyond the original source end.
+    // Branch counters from emit_decorator_metadata typeof guards are tracked
+    // separately under #81.
+    let opts = InstrumentOptions {
+        strip_typescript: true,
+        experimental_decorators: true,
+        emit_decorator_metadata: true,
+        ..InstrumentOptions::default()
+    };
+    let result = instrument(NESTJS_SAMPLE, "foo.service.ts", &opts).expect("instrument");
+    let source_line_count = NESTJS_SAMPLE.matches('\n').count() as u32;
+
+    for (key, loc) in &result.coverage_map.statement_map {
+        assert!(
+            loc.start.line >= 1 && loc.start.line <= source_line_count,
+            "statement {key} anchors on out-of-range line {}: {loc:?}",
+            loc.start.line
+        );
+    }
+    for (key, f) in &result.coverage_map.fn_map {
+        assert!(
+            f.decl.start.line >= 1 && f.decl.start.line <= source_line_count,
+            "fn {key} declaration anchors on out-of-range line {}: {f:?}",
+            f.decl.start.line
+        );
+    }
+    // Sanity: at least the class body and the method's return statement.
+    assert!(
+        !result.coverage_map.statement_map.is_empty(),
+        "expected at least one statement counter on the class body"
+    );
+    // Sanity: constructor + method.
+    assert_eq!(
+        result.coverage_map.fn_map.len(),
+        2,
+        "expected constructor + method fn counters, got: {:#?}",
+        result.coverage_map.fn_map
+    );
+}
+
+#[test]
+fn ts_direct_experimental_decorators_only_no_metadata() {
+    // class-validator and decorator-using libraries that DON'T need runtime
+    // type metadata should be able to lower decorators without paying the
+    // design:type / design:paramtypes / design:returntype emission cost.
+    let opts = InstrumentOptions {
+        strip_typescript: true,
+        experimental_decorators: true,
+        emit_decorator_metadata: false,
+        ..InstrumentOptions::default()
+    };
+    let result = instrument(NESTJS_SAMPLE, "foo.service.ts", &opts).expect("instrument");
+    assert!(
+        result.code.contains("_decorate("),
+        "expected _decorate call (lowered decorator), got: {}",
+        result.code
+    );
+    assert!(
+        !result.code.contains("_decorateMetadata("),
+        "no metadata emission expected when emit_decorator_metadata=false, got: {}",
+        result.code
+    );
+}
+
+#[test]
+fn ts_direct_decorators_default_pass_through() {
+    // Default behavior (both new flags false): decorator syntax flows
+    // through verbatim, no helpers imported. Preserves v0.6.1 behavior.
+    let opts = InstrumentOptions { strip_typescript: true, ..InstrumentOptions::default() };
+    assert!(!opts.experimental_decorators);
+    assert!(!opts.emit_decorator_metadata);
+    let result = instrument(NESTJS_SAMPLE, "foo.service.ts", &opts).expect("instrument");
+    assert!(
+        result.code.contains("@Injectable()"),
+        "decorator syntax must survive verbatim by default, got: {}",
+        result.code
+    );
+    assert!(
+        !result.code.contains("@oxc-project/runtime"),
+        "no helper import expected by default, got: {}",
+        result.code
+    );
+    assert!(
+        !result.code.contains("_decorate("),
+        "no lowering expected by default, got: {}",
+        result.code
+    );
+}
+
+#[test]
+fn ts_direct_emit_decorator_metadata_implicitly_promotes_experimental() {
+    // emit_decorator_metadata=true with experimental_decorators=false must
+    // silently promote experimental_decorators (upstream's decorator pass
+    // is gated on legacy mode). Output must contain metadata calls.
+    let opts = InstrumentOptions {
+        strip_typescript: true,
+        experimental_decorators: false,
+        emit_decorator_metadata: true,
+        ..InstrumentOptions::default()
+    };
+    let result = instrument(NESTJS_SAMPLE, "foo.service.ts", &opts).expect("instrument");
+    assert!(
+        result.code.contains("_decorate("),
+        "implicit legacy promotion must produce _decorate call, got: {}",
+        result.code
+    );
+    assert!(
+        result.code.contains("_decorateMetadata("),
+        "metadata calls expected with implicit promotion, got: {}",
+        result.code
+    );
+}
+
 #[test]
 fn ts_direct_enum_counter_spans_original_source() {
     // TypeScript `enum` declarations are converted to an IIFE by the

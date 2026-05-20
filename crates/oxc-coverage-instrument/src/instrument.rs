@@ -8,7 +8,9 @@ use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_parser::{Parser, ParserReturn};
 use oxc_semantic::{Scoping, SemanticBuilder};
 use oxc_span::SourceType;
-use oxc_transformer::{JsxOptions, TransformOptions, Transformer, TypeScriptOptions};
+use oxc_transformer::{
+    DecoratorOptions, JsxOptions, TransformOptions, Transformer, TypeScriptOptions,
+};
 use oxc_traverse::traverse_mut;
 
 use std::collections::BTreeMap;
@@ -54,21 +56,52 @@ pub struct InstrumentOptions {
     /// pass raw TypeScript, the output will contain TypeScript syntax and
     /// will not be executable as JavaScript** (no error is returned).
     ///
-    /// Decorator handling: `oxc_transformer`'s default `DecoratorOptions`
-    /// is used. TC39 Stage 3 decorators are supported. Legacy
-    /// `experimentalDecorators` syntax (`@Injectable()` / `@Controller()`
-    /// style used by NestJS, Angular, class-validator, TypeORM) is
-    /// passed through unchanged: the decorator syntax survives in the
-    /// output and a downstream tool (Babel / tsc / SWC / Node native
-    /// decorator support) must transform them for runtime use.
-    /// Instrumentation does NOT fail on legacy decorator code; coverage
-    /// counters land on the surrounding class bodies and methods as
-    /// expected. Issue #73 tracks deeper transformer support for
-    /// emitDecoratorMetadata semantics.
+    /// Decorator handling: by default, decorator syntax (Stage 3 and legacy
+    /// `experimentalDecorators` alike) flows through unchanged. NestJS /
+    /// Angular / TypeORM users who need `@Injectable()` / `@Controller()`
+    /// classes lowered into `_decorate(...)` calls (with or
+    /// without `design:type` / `design:paramtypes` metadata) should also
+    /// set [`InstrumentOptions::experimental_decorators`] and optionally
+    /// [`InstrumentOptions::emit_decorator_metadata`].
     ///
     /// JSX is preserved verbatim on `.tsx` files (the codegen pass emits
     /// it unchanged).
     pub strip_typescript: bool,
+    /// When true, lower TypeScript `experimentalDecorators` syntax (the
+    /// `@Injectable()` / `@Controller()` style used by NestJS, Angular,
+    /// class-validator, TypeORM) into runtime `_decorate(...)`
+    /// calls. Mirrors the `experimentalDecorators` flag in `tsconfig.json`.
+    ///
+    /// The output uses `_decorate`, `_decorateParam`,
+    /// and (when `emit_decorator_metadata` is also true) `_decorateMetadata`
+    /// calls. The transformer emits ES module imports from
+    /// `@oxc-project/runtime/helpers/*` at the top of the file; consumers
+    /// must install `@oxc-project/runtime` (or provide an equivalent
+    /// shim). See the README for details and troubleshooting.
+    ///
+    /// Has no effect unless `strip_typescript` is also true. Defaults to
+    /// false; legacy decorator syntax flows through verbatim and a
+    /// downstream tool is responsible for lowering it.
+    pub experimental_decorators: bool,
+    /// When true, emit TypeScript-style decorator metadata
+    /// (`design:type`, `design:paramtypes`, `design:returntype`) as
+    /// `_decorateMetadata(...)` calls alongside each
+    /// decorated class / method / property / accessor. Required for
+    /// NestJS dependency injection, TypeORM column type inference, and
+    /// class-validator's metadata-driven validation. Mirrors the
+    /// `emitDecoratorMetadata` flag in `tsconfig.json`.
+    ///
+    /// Setting this to true implicitly enables
+    /// [`InstrumentOptions::experimental_decorators`]; the upstream
+    /// `oxc_transformer` decorator pass is gated on legacy-mode being on,
+    /// and metadata emission is only meaningful when lowering is active.
+    /// No warning is emitted on the implicit promotion; the docstring is
+    /// authoritative.
+    ///
+    /// Has no effect unless `strip_typescript` is also true. Defaults to
+    /// false. See the README for the `@oxc-project/runtime` requirement that
+    /// applies whenever this or `experimental_decorators` is true.
+    pub emit_decorator_metadata: bool,
 }
 
 impl Default for InstrumentOptions {
@@ -80,6 +113,8 @@ impl Default for InstrumentOptions {
             report_logic: false,
             ignore_class_methods: Vec::new(),
             strip_typescript: false,
+            experimental_decorators: false,
+            emit_decorator_metadata: false,
         }
     }
 }
@@ -166,7 +201,18 @@ pub fn instrument(
     let mut scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
 
     if options.strip_typescript {
-        scoping = strip_typescript_pass(&allocator, filename, &mut parsed.program, scoping)?;
+        // emit_decorator_metadata only works under legacy lowering (upstream
+        // gates the entire decorator pass on `DecoratorOptions::legacy`), so
+        // promote experimental_decorators whenever metadata is requested.
+        let legacy = options.experimental_decorators || options.emit_decorator_metadata;
+        scoping = strip_typescript_pass(
+            &allocator,
+            filename,
+            &mut parsed.program,
+            scoping,
+            legacy,
+            options.emit_decorator_metadata,
+        )?;
     }
 
     let cov_fn_name = generate_cov_fn_name(filename);
@@ -230,6 +276,8 @@ fn strip_typescript_pass<'a>(
     filename: &str,
     program: &mut Program<'a>,
     scoping: Scoping,
+    legacy_decorators: bool,
+    emit_decorator_metadata: bool,
 ) -> Result<Scoping, InstrumentError> {
     // `JsxOptions::default()` calls `JsxOptions::enable()`, which would
     // rewrite `<div>` to `React.createElement` / `_jsx` on `.tsx` input.
@@ -237,9 +285,16 @@ fn strip_typescript_pass<'a>(
     // so codegen can emit it verbatim. Pin the JSX pass off explicitly.
     // `typescript` is also listed explicitly so a future change to
     // `TransformOptions::default()` cannot silently alter the strip pass.
+    //
+    // `decorator` defaults to `legacy: false, emit_decorator_metadata: false`,
+    // which makes the decorator pass a no-op (syntax flows through verbatim).
+    // Callers can opt into legacy lowering and metadata emission via the
+    // `experimental_decorators` and `emit_decorator_metadata` fields on
+    // `InstrumentOptions`.
     let options = TransformOptions {
         typescript: TypeScriptOptions::default(),
         jsx: JsxOptions::disable(),
+        decorator: DecoratorOptions { legacy: legacy_decorators, emit_decorator_metadata },
         ..TransformOptions::default()
     };
     let transformer = Transformer::new(allocator, Path::new(filename), &options);

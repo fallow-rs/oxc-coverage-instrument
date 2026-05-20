@@ -52,6 +52,19 @@ const TS_EXTENSION_REGEX = /\.([mc]ts|tsx?)$/i;
  *   strict because callers passing a string like `'auto'` (a prior design
  *   discussion shape) would otherwise be silently coerced to `Boolean('auto')`
  *   which is `true`, force-stripping every file.
+ * @param {boolean} [options.experimentalDecorators] Lower legacy
+ *   `experimentalDecorators` syntax into `_decorate(...)` calls (matches the
+ *   `experimentalDecorators` flag in `tsconfig.json`). Defaults to false; pass
+ *   true for NestJS / Angular / class-validator / TypeORM. Only active when
+ *   the strip pass runs. Requires `@oxc-project/runtime` at execution; see the
+ *   README's "Legacy decorators" section. No auto-detect from `tsconfig.json`
+ *   in this version; set explicitly when you need it.
+ * @param {boolean} [options.emitDecoratorMetadata] Emit
+ *   `_decorateMetadata("design:type" / "design:paramtypes" / "design:returntype", ...)`
+ *   alongside each decorated member (matches `emitDecoratorMetadata` in
+ *   `tsconfig.json`). Required for NestJS DI and TypeORM column type inference.
+ *   Setting this to true implicitly enables `experimentalDecorators` (the
+ *   underlying transformer pass is gated on legacy mode).
  * @returns {{ instrumentSync, lastSourceMap, lastFileCoverage }}
  */
 function createOxcInstrumenter(options) {
@@ -63,6 +76,18 @@ function createOxcInstrumenter(options) {
   if (stripTypescriptOverride !== undefined && typeof stripTypescriptOverride !== 'boolean') {
     throw new TypeError(
       `oxc-coverage-instrument: createOxcInstrumenter({ stripTypescript }) must be a boolean or undefined, got ${typeof stripTypescriptOverride}`,
+    );
+  }
+  const experimentalDecorators = options.experimentalDecorators || false;
+  if (typeof experimentalDecorators !== 'boolean') {
+    throw new TypeError(
+      `oxc-coverage-instrument: createOxcInstrumenter({ experimentalDecorators }) must be a boolean or undefined, got ${typeof options.experimentalDecorators}`,
+    );
+  }
+  const emitDecoratorMetadata = options.emitDecoratorMetadata || false;
+  if (typeof emitDecoratorMetadata !== 'boolean') {
+    throw new TypeError(
+      `oxc-coverage-instrument: createOxcInstrumenter({ emitDecoratorMetadata }) must be a boolean or undefined, got ${typeof options.emitDecoratorMetadata}`,
     );
   }
 
@@ -103,6 +128,8 @@ function createOxcInstrumenter(options) {
         reportLogic,
         ignoreClassMethods,
         stripTypescript,
+        experimentalDecorators,
+        emitDecoratorMetadata,
       });
 
       // Store raw JSON — defer parsing until actually needed.

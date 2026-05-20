@@ -37,6 +37,30 @@ pub struct InstrumentOptions {
     /// raw TypeScript, the output will contain TypeScript syntax and will
     /// not be executable as JavaScript (no error is returned).
     pub strip_typescript: Option<bool>,
+    /// When true, lower TypeScript `experimentalDecorators` syntax
+    /// (`@Injectable()` / `@Controller()` style used by NestJS, Angular,
+    /// class-validator, TypeORM) into runtime `_decorate(...)`
+    /// calls. Mirrors the `experimentalDecorators` flag in `tsconfig.json`.
+    ///
+    /// The instrumented output references imports from `@oxc-project/runtime` at
+    /// runtime; install `@oxc-project/runtime` (or provide an equivalent shim).
+    /// See the README for details and troubleshooting.
+    ///
+    /// Has no effect unless `stripTypescript` is also true. Defaults to false.
+    pub experimental_decorators: Option<bool>,
+    /// When true, emit TypeScript-style decorator metadata
+    /// (`design:type`, `design:paramtypes`, `design:returntype`) alongside
+    /// each decorated class / method / property. Required for NestJS
+    /// dependency injection, TypeORM column type inference, and
+    /// class-validator's metadata-driven validation. Mirrors the
+    /// `emitDecoratorMetadata` flag in `tsconfig.json`.
+    ///
+    /// Setting this to true implicitly enables `experimentalDecorators`.
+    /// The instrumented output requires `@oxc-project/runtime` at execution;
+    /// see the README.
+    ///
+    /// Has no effect unless `stripTypescript` is also true. Defaults to false.
+    pub emit_decorator_metadata: Option<bool>,
 }
 
 /// A coverage pragma comment that was found but not handled.
@@ -82,6 +106,8 @@ pub fn instrument(
             report_logic: o.report_logic.unwrap_or(false),
             ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
             strip_typescript: o.strip_typescript.unwrap_or(false),
+            experimental_decorators: o.experimental_decorators.unwrap_or(false),
+            emit_decorator_metadata: o.emit_decorator_metadata.unwrap_or(false),
         }
     });
 
