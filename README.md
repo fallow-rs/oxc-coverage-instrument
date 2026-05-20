@@ -350,8 +350,8 @@ When an `inputSourceMap` is supplied, the instrumenter composes the codegen's ou
 | [`oxc_coverage_types`](https://crates.io/crates/oxc_coverage_types) | shipped | `istanbul-lib-coverage` (data model) |
 | [`oxc_coverage_source_maps`](https://crates.io/crates/oxc_coverage_source_maps) | shipped | `istanbul-lib-source-maps` |
 | [`oxc_coverage_v8`](https://crates.io/crates/oxc_coverage_v8) | shipped | `v8-to-istanbul` (npm) |
-| `oxc_coverage_report` | queued (v0.5.1) | `istanbul-lib-report` |
-| `oxc_coverage_reports` (`text`, `text-summary`, `json-summary`, `lcov`, `cobertura`, `html`) | queued (v0.5.1) | `istanbul-reports` (partial) |
+| [`oxc_coverage_report`](https://crates.io/crates/oxc_coverage_report) | shipped | `istanbul-lib-report` |
+| [`oxc_coverage_reports`](https://crates.io/crates/oxc_coverage_reports) (`text`, `text-summary`, `json-summary`, `lcov`, `cobertura`, `html`) | shipped | `istanbul-reports` (partial) |
 
 Use the new `report` subcommand to render any of the available formats:
 
