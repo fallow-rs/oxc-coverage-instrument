@@ -698,4 +698,137 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] stripTypescript defaults to false');
 }
 
+// Test: createOxcInstrumenter auto-detects .ts as raw TypeScript when no inputSourceMap
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter();
+  const code = inst.instrumentSync('const x: number = 1;\nconsole.log(x);\n', 'app.ts');
+  assert(!code.includes(': number'), 'auto-detect must strip TS on .ts without inputSourceMap');
+  assert(code.includes('const x ='), 'auto-detect must emit executable JS');
+  console.log('  [PASS] vitest adapter auto-detects .ts without inputSourceMap');
+}
+
+// Test: createOxcInstrumenter auto-detects .tsx and preserves JSX
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter();
+  const code = inst.instrumentSync(
+    'const el: JSX.Element = <div>hi</div>;\nconsole.log(el);\n',
+    'app.tsx',
+  );
+  assert(!code.includes(': JSX.Element'), 'auto-detect must strip TS on .tsx');
+  assert(code.includes('<div>'), 'auto-detect must preserve JSX on .tsx');
+  console.log('  [PASS] vitest adapter auto-detects .tsx and preserves JSX');
+}
+
+// Test: createOxcInstrumenter does NOT auto-strip when inputSourceMap is provided
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter();
+  // Pass raw TS source WITH an inputSourceMap. In real Vite/Vitest usage the
+  // source would already be transformed JS by this point, but feeding raw TS
+  // is the cleanest way to OBSERVE whether the strip pass ran. Auto-detect
+  // must treat the inputSourceMap presence as "already transformed upstream"
+  // and skip the strip; the TS annotation in the output proves it.
+  const fakeMap = { version: 3, sources: ['orig.ts'], mappings: '', names: [] };
+  const code = inst.instrumentSync('const x: number = 1;\n', 'app.ts', fakeMap);
+  assert(
+    code.includes(': number'),
+    'with inputSourceMap the strip pass must not run, TS annotation must survive',
+  );
+  console.log('  [PASS] vitest adapter does not strip when inputSourceMap is present');
+}
+
+// Test: createOxcInstrumenter does NOT auto-strip .js files
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter();
+  const code = inst.instrumentSync('const x = 1;\nconsole.log(x);\n', 'app.js');
+  assert(code.includes('const x ='), '.js must pass through as executable JS');
+  console.log('  [PASS] vitest adapter does not auto-strip .js files');
+}
+
+// Test: explicit stripTypescript: false overrides auto-detect on .ts
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter({ stripTypescript: false });
+  const code = inst.instrumentSync('const x: number = 1;\n', 'app.ts');
+  assert(
+    code.includes(': number'),
+    'explicit stripTypescript: false must keep TS annotations on .ts',
+  );
+  console.log('  [PASS] vitest adapter honors explicit stripTypescript: false on .ts');
+}
+
+// Test: explicit stripTypescript: true overrides the auto-detect skip on .ts
+// when inputSourceMap is present. Auto-detect would NOT strip (inputSourceMap
+// signals "already transformed upstream"), but explicit true forces the strip
+// pass anyway. Observable via the TS annotation disappearing from the output.
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter({ stripTypescript: true });
+  const fakeMap = { version: 3, sources: ['orig.ts'], mappings: '', names: [] };
+  const code = inst.instrumentSync('const x: number = 1;\n', 'app.ts', fakeMap);
+  assert(
+    !code.includes(': number'),
+    'explicit stripTypescript: true must force strip even when inputSourceMap is present',
+  );
+  console.log('  [PASS] vitest adapter honors explicit stripTypescript: true override');
+}
+
+// Test: non-boolean stripTypescript throws TypeError instead of silently
+// coercing. Catches the 'auto' string case (a prior tri-state design shape)
+// that Boolean coercion would turn into force-strip.
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  let caught = null;
+  try {
+    createOxcInstrumenter({ stripTypescript: 'auto' });
+  } catch (e) {
+    caught = e;
+  }
+  assert(caught instanceof TypeError, `expected TypeError, got ${caught}`);
+  assert(
+    caught.message.includes('stripTypescript'),
+    `error message must name the offending option, got: ${caught.message}`,
+  );
+  console.log('  [PASS] vitest adapter rejects non-boolean stripTypescript with TypeError');
+}
+
+// Test: TS_EXTENSION_REGEX rejects non-TypeScript extensions that look similar.
+// The narrow form /\.([mc]ts|tsx?)$/i must not match .ts.bak (where .bak is
+// the actual extension) or .mtsx (not a real Node / TS extension).
+// Strategy: feed TS source to a non-matching filename. Auto-detect must skip
+// the strip; the parser then rejects the TS syntax because the filename
+// extension (.bak / .mtsx) means SourceType::from_path falls back to JS.
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter();
+  // .ts.bak: actual extension is .bak; strip must not auto-engage.
+  let caughtBak = null;
+  try {
+    inst.instrumentSync('const x: number = 1;\n', 'app.ts.bak');
+  } catch (e) {
+    caughtBak = e;
+  }
+  assert(
+    caughtBak !== null && /parse error/.test(caughtBak.message),
+    'app.ts.bak must not auto-strip; parser must reject TS syntax',
+  );
+  // .mtsx: not a real extension (only .mts / .cts / .ts / .tsx are valid).
+  let caughtMtsx = null;
+  try {
+    inst.instrumentSync('const x: number = 1;\n', 'app.mtsx');
+  } catch (e) {
+    caughtMtsx = e;
+  }
+  assert(
+    caughtMtsx !== null && /parse error/.test(caughtMtsx.message),
+    'app.mtsx must not auto-strip; .mtsx is not a real TypeScript extension',
+  );
+  console.log(
+    '  [PASS] vitest adapter regex rejects .ts.bak and .mtsx (non-TS extensions)',
+  );
+}
+
 console.log('\nAll tests passed!');
