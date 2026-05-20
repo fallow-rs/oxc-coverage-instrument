@@ -19,6 +19,11 @@
 
 const { instrument } = require('./index.js');
 
+// Filename pattern matching .ts, .tsx, .mts, .mtsx, .cts, .ctsx (the set of
+// extensions where TypeScript syntax may legally appear). Used for auto-detect;
+// explicit user opt-in/out via the `stripTypescript` option always wins.
+const TS_EXTENSION_REGEX = /\.[mc]?tsx?$/i;
+
 /**
  * Creates an instrumenter that implements the istanbul-lib-instrument
  * Instrumenter interface, backed by oxc-coverage-instrument.
@@ -28,10 +33,19 @@ const { instrument } = require('./index.js');
  * These are forwarded to the native instrumenter automatically.
  *
  * @param {object} [options]
- * @param {string} [options.coverageVariable] - Global variable for coverage data.
+ * @param {string} [options.coverageVariable] Global variable for coverage data.
  *   Vitest passes its internal `__VITEST_COVERAGE__`; defaults to `__coverage__`.
- * @param {string[]} [options.ignoreClassMethods] - Class method names to skip.
- * @param {boolean} [options.reportLogic] - Enable truthy-value tracking (bT).
+ * @param {string[]} [options.ignoreClassMethods] Class method names to skip.
+ * @param {boolean} [options.reportLogic] Enable truthy-value tracking (bT).
+ * @param {boolean} [options.stripTypescript] Run the TypeScript-strip pass
+ *   before instrumentation. When omitted (default), the adapter auto-detects:
+ *   it strips when the filename matches `/\.[mc]?tsx?$/i` AND no
+ *   `inputSourceMap` was supplied (i.e., the source has not already been
+ *   transformed by Vite / Babel / tsc). Set to `false` to disable auto-detect
+ *   under toolchains that pre-transform TypeScript but do not produce an
+ *   `inputSourceMap` (`@vitejs/plugin-react-swc` in some configurations, Bun's
+ *   native TS runner, Node 23+ with `--experimental-strip-types`). Set to
+ *   `true` to force strip regardless of filename or `inputSourceMap` presence.
  * @returns {{ instrumentSync, lastSourceMap, lastFileCoverage }}
  */
 function createOxcInstrumenter(options) {
@@ -39,6 +53,7 @@ function createOxcInstrumenter(options) {
   const coverageVariable = options.coverageVariable || '__coverage__';
   const ignoreClassMethods = options.ignoreClassMethods || [];
   const reportLogic = options.reportLogic || false;
+  const stripTypescriptOverride = options.stripTypescript;
 
   // Raw JSON strings from the last instrument call — parsed lazily on first access.
   let _lastCoverageMapJson = null;
@@ -66,12 +81,17 @@ function createOxcInstrumenter(options) {
 
   return {
     instrumentSync(code, filename, inputSourceMap) {
+      const stripTypescript =
+        stripTypescriptOverride === undefined
+          ? TS_EXTENSION_REGEX.test(filename) && !inputSourceMap
+          : Boolean(stripTypescriptOverride);
       const result = instrument(code, filename, {
         coverageVariable,
         sourceMap: true,
         inputSourceMap: inputSourceMap ? JSON.stringify(inputSourceMap) : undefined,
         reportLogic,
         ignoreClassMethods,
+        stripTypescript,
       });
 
       // Store raw JSON — defer parsing until actually needed.

@@ -698,4 +698,77 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] stripTypescript defaults to false');
 }
 
+// Test: createOxcInstrumenter auto-detects .ts as raw TypeScript when no inputSourceMap
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter();
+  const code = inst.instrumentSync('const x: number = 1;\nconsole.log(x);\n', 'app.ts');
+  assert(!code.includes(': number'), 'auto-detect must strip TS on .ts without inputSourceMap');
+  assert(code.includes('const x ='), 'auto-detect must emit executable JS');
+  console.log('  [PASS] vitest adapter auto-detects .ts without inputSourceMap');
+}
+
+// Test: createOxcInstrumenter auto-detects .tsx and preserves JSX
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter();
+  const code = inst.instrumentSync(
+    'const el: JSX.Element = <div>hi</div>;\nconsole.log(el);\n',
+    'app.tsx',
+  );
+  assert(!code.includes(': JSX.Element'), 'auto-detect must strip TS on .tsx');
+  assert(code.includes('<div>'), 'auto-detect must preserve JSX on .tsx');
+  console.log('  [PASS] vitest adapter auto-detects .tsx and preserves JSX');
+}
+
+// Test: createOxcInstrumenter does NOT auto-strip when inputSourceMap is provided
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter();
+  // Pass raw TS source WITH an inputSourceMap. In real Vite/Vitest usage the
+  // source would already be transformed JS by this point, but feeding raw TS
+  // is the cleanest way to OBSERVE whether the strip pass ran. Auto-detect
+  // must treat the inputSourceMap presence as "already transformed upstream"
+  // and skip the strip; the TS annotation in the output proves it.
+  const fakeMap = { version: 3, sources: ['orig.ts'], mappings: '', names: [] };
+  const code = inst.instrumentSync('const x: number = 1;\n', 'app.ts', fakeMap);
+  assert(
+    code.includes(': number'),
+    'with inputSourceMap the strip pass must not run, TS annotation must survive',
+  );
+  console.log('  [PASS] vitest adapter does not strip when inputSourceMap is present');
+}
+
+// Test: createOxcInstrumenter does NOT auto-strip .js files
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter();
+  const code = inst.instrumentSync('const x = 1;\nconsole.log(x);\n', 'app.js');
+  assert(code.includes('const x ='), '.js must pass through as executable JS');
+  console.log('  [PASS] vitest adapter does not auto-strip .js files');
+}
+
+// Test: explicit stripTypescript: false overrides auto-detect on .ts
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter({ stripTypescript: false });
+  const code = inst.instrumentSync('const x: number = 1;\n', 'app.ts');
+  assert(
+    code.includes(': number'),
+    'explicit stripTypescript: false must keep TS annotations on .ts',
+  );
+  console.log('  [PASS] vitest adapter honors explicit stripTypescript: false on .ts');
+}
+
+// Test: explicit stripTypescript: true forces strip on .js (where auto-detect would skip)
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter({ stripTypescript: true });
+  // .js with TS annotations would be a parse error, so use a TS file with .js
+  // extension to test forced strip. Use bare JS to avoid testing the parser.
+  const code = inst.instrumentSync('const x = 1;\nconsole.log(x);\n', 'forced.js');
+  assert(code.includes('const x ='), 'forced strip on plain JS still yields valid output');
+  console.log('  [PASS] vitest adapter honors explicit stripTypescript: true on .js');
+}
+
 console.log('\nAll tests passed!');

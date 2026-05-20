@@ -106,6 +106,8 @@ export default defineConfig({
 
 The factory forwards `coverageVariable` and `ignoreClassMethods` to the native instrumenter. Everything else in the Istanbul provider (collection, merging, reporting) keeps working unchanged.
 
+By default the adapter auto-detects raw TypeScript: when the filename ends in `.ts` / `.tsx` (also `.mts` / `.cts`) AND no `inputSourceMap` was supplied (the source has not already been transformed by Vite / Babel / tsc), it runs an in-process TypeScript-strip pass so the output is executable JavaScript and the coverage map points at the original `.ts` source. No `@babel/preset-typescript` or upstream tsc step is required. Set `stripTypescript: false` on `createOxcInstrumenter({ ... })` to disable the auto-detect when running under a toolchain that pre-transforms TypeScript without emitting an `inputSourceMap` (`@vitejs/plugin-react-swc` in some configurations, Bun's native TS runner, Node 23+ with `--experimental-strip-types`). Set `stripTypescript: true` to force the strip pass regardless of filename or `inputSourceMap` presence.
+
 ### vite-plugin-istanbul integration
 
 Requires `vite-plugin-istanbul` **>= 9.0.0** (`instrumenter` option).
