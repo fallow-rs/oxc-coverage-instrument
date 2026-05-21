@@ -995,4 +995,31 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] napi adapter: functionIdentityOverlay attaches x_fallow_functionMap');
 }
 
+// Test: createOxcInstrumenter forwards functionIdentityOverlay to the native
+// instrumenter so Vitest users can opt into the same downstream identity data.
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter({ functionIdentityOverlay: true });
+  inst.instrumentSync('function handler() { return 1; }\n', 'app.js');
+  const fc = inst.lastFileCoverage();
+  assert(
+    fc.x_fallow_functionMap !== undefined,
+    'vitest adapter must forward functionIdentityOverlay to native instrumenter',
+  );
+  assert.deepEqual(Object.keys(fc.x_fallow_functionMap).sort(), Object.keys(fc.fnMap).sort());
+  assert(
+    fc.x_fallow_functionMap['0'].id.startsWith('fallow:fn:'),
+    'vitest adapter overlay must carry fallow:fn:<hex> ids',
+  );
+
+  const defaultInst = createOxcInstrumenter();
+  defaultInst.instrumentSync('function handler() { return 1; }\n', 'app.js');
+  assert(
+    defaultInst.lastFileCoverage().x_fallow_functionMap === undefined,
+    'vitest adapter default output must omit x_fallow_functionMap',
+  );
+
+  console.log('  [PASS] vitest adapter forwards functionIdentityOverlay');
+}
+
 console.log('\nAll tests passed!');
