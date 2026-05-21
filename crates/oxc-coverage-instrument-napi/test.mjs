@@ -831,6 +831,29 @@ function runInstrumented(result, filename, callExpression) {
   );
 }
 
+// Test: createOxcInstrumenter auto-promotes emitDecoratorMetadata to
+// experimentalDecorators (tsconfig.json semantics). The bare napi instrument()
+// rejects the same combination, but the vitest adapter normalizes it locally
+// so vitest+NestJS users with only emitDecoratorMetadata configured do not
+// see a runtime throw on the first instrumented file.
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter({ emitDecoratorMetadata: true });
+  const code = inst.instrumentSync(
+    "@Injectable() export class S { constructor(private readonly b: B) {} }\n",
+    's.ts',
+  );
+  assert(
+    code.includes('_decorate('),
+    'auto-promotion must produce _decorate call',
+  );
+  assert(
+    code.includes('_decorateMetadata('),
+    'auto-promotion must still emit metadata calls',
+  );
+  console.log('  [PASS] vitest adapter auto-promotes emitDecoratorMetadata');
+}
+
 // Test: experimentalDecorators + emitDecoratorMetadata lowers NestJS-style
 // decorators to _decorate / _decorateMetadata calls importing helpers from
 // @oxc-project/runtime. Mirrors the Rust-side

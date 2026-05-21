@@ -63,8 +63,10 @@ const TS_EXTENSION_REGEX = /\.([mc]ts|tsx?)$/i;
  *   `_decorateMetadata("design:type" / "design:paramtypes" / "design:returntype", ...)`
  *   alongside each decorated member (matches `emitDecoratorMetadata` in
  *   `tsconfig.json`). Required for NestJS DI and TypeORM column type inference.
- *   Setting this to true implicitly enables `experimentalDecorators` (the
- *   underlying transformer pass is gated on legacy mode).
+ *   Setting this to true auto-promotes `experimentalDecorators` to true at
+ *   this layer, matching tsconfig.json semantics. The bare `instrument()`
+ *   napi entry point rejects the same combination with an Error; the vitest
+ *   adapter preserves the tsconfig-style ergonomics for the vitest UX.
  * @returns {{ instrumentSync, lastSourceMap, lastFileCoverage }}
  */
 function createOxcInstrumenter(options) {
@@ -78,8 +80,8 @@ function createOxcInstrumenter(options) {
       `oxc-coverage-instrument: createOxcInstrumenter({ stripTypescript }) must be a boolean or undefined, got ${typeof stripTypescriptOverride}`,
     );
   }
-  const experimentalDecorators = options.experimentalDecorators || false;
-  if (typeof experimentalDecorators !== 'boolean') {
+  const experimentalDecoratorsRaw = options.experimentalDecorators || false;
+  if (typeof experimentalDecoratorsRaw !== 'boolean') {
     throw new TypeError(
       `oxc-coverage-instrument: createOxcInstrumenter({ experimentalDecorators }) must be a boolean or undefined, got ${typeof options.experimentalDecorators}`,
     );
@@ -90,6 +92,12 @@ function createOxcInstrumenter(options) {
       `oxc-coverage-instrument: createOxcInstrumenter({ emitDecoratorMetadata }) must be a boolean or undefined, got ${typeof options.emitDecoratorMetadata}`,
     );
   }
+  // Auto-promote at the vitest layer: setting emitDecoratorMetadata alone is a
+  // tsconfig.json idiom (TypeScript itself silently enables experimentalDecorators
+  // in that case). The bare napi `instrument()` rejects the same combination so
+  // the underlying Rust DecoratorMode enum stays unrepresentable-invalid; this
+  // adapter is the place to mirror tsconfig ergonomics for vitest users.
+  const experimentalDecorators = experimentalDecoratorsRaw || emitDecoratorMetadata;
 
   // Raw JSON strings from the last instrument call — parsed lazily on first access.
   let _lastCoverageMapJson = null;
