@@ -3,10 +3,12 @@
   "version": "0.6.1",
   "description": "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST. 8-48x faster than istanbul-lib-instrument.",
   "main": "index.js",
+  "browser": "browser.js",
   "types": "index.d.ts",
   "exports": {
     ".": {
       "types": "./index.d.ts",
+      "browser": "./browser.js",
       "default": "./index.js"
     },
     "./vitest": {
@@ -17,6 +19,11 @@
   "files": [
     "index.js",
     "index.d.ts",
+    "browser.js",
+    "coverage-instrument.wasi.cjs",
+    "coverage-instrument.wasi-browser.js",
+    "wasi-worker.mjs",
+    "wasi-worker-browser.mjs",
     "vitest.js",
     "vitest.d.ts"
   ],
@@ -47,8 +54,12 @@
       "aarch64-unknown-linux-gnu",
       "x86_64-unknown-linux-musl",
       "x86_64-pc-windows-msvc",
-      "aarch64-pc-windows-msvc"
+      "aarch64-pc-windows-msvc",
+      "wasm32-wasip1-threads"
     ]
+  },
+  "dependencies": {
+    "@napi-rs/wasm-runtime": "^1.1.4"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.6.0",
@@ -68,6 +79,7 @@
     "@oxc-coverage-instrument/binding-linux-x64-gnu": "0.6.1",
     "@oxc-coverage-instrument/binding-linux-x64-musl": "0.6.1",
     "@oxc-coverage-instrument/binding-win32-arm64-msvc": "0.6.1",
-    "@oxc-coverage-instrument/binding-win32-x64-msvc": "0.6.1"
+    "@oxc-coverage-instrument/binding-win32-x64-msvc": "0.6.1",
+    "@oxc-coverage-instrument/binding-wasm32-wasi": "0.6.1"
   }
 }

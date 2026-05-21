@@ -402,6 +402,33 @@ The `html` format writes a self-contained directory tree (`--output-dir`, defaul
 - **Istanbul**: `coverage-final.json` v3+ format
 - **Node.js**: 18+ (via napi-rs)
 
+### Runtime matrix
+
+`oxc-coverage-instrument` ships prebuilt native bindings for seven platforms plus a WebAssembly fallback (`@oxc-coverage-instrument/binding-wasm32-wasi`, ~2.8 MB raw / ~0.6 MB brotli). The wasm binding is selected automatically when no matching native binary is available, or explicitly via `NAPI_RS_FORCE_WASI` (see [Forcing the WASM binding](#forcing-the-wasm-binding) below).
+
+| Runtime | Status | Notes |
+|:--------|:-------|:------|
+| Node 18+ (darwin/linux/win32, x64/arm64) | native | Preferred when a matching `.node` is installed. |
+| Node 22 LTS (any arch) | wasm fallback | Loads via `node:wasi`; emits an experimental-feature warning. |
+| Deno 2.x | wasm | Uses Deno's `node:wasi` polyfill. Live deploy smoke tracked in [#88](https://github.com/fallow-rs/oxc-coverage-instrument/issues/88). |
+| Browser (with COOP/COEP) | wasm | Imports the `browser` export. Requires `SharedArrayBuffer` (set `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: require-corp` on the host page) AND an ESM bundler with top-level await support (Vite 2+, webpack 5 with `experiments.topLevelAwait: true`, esbuild, rollup with `output.format: 'esm'`). webpack 4 and Parcel 1 are not supported. |
+| Bun (supported targets) | native | Bun's `node:wasi` is incomplete ([oven-sh/bun#16156](https://github.com/oven-sh/bun/issues/16156)); falls back to the native binding. |
+| Cloudflare Workers | not yet | Workers lacks `SharedArrayBuffer`. Single-threaded `wasm32-wasip1` build tracked in [#87](https://github.com/fallow-rs/oxc-coverage-instrument/issues/87). |
+| StackBlitz / WebContainer | partial | Newer WebContainer images load the wasm binding; older ones may fall through. Live smoke tracked in [#88](https://github.com/fallow-rs/oxc-coverage-instrument/issues/88). |
+
+See `examples/wasm-node/` for a complete end-to-end smoke that exercises both bindings.
+
+#### Forcing the WASM binding
+
+Set `NAPI_RS_FORCE_WASI` to opt out of the native binding even when one is available. Useful for verifying parity locally or for CI gates that must exercise the WASM code path.
+
+| Value | Behavior | When to use |
+|:------|:---------|:------------|
+| `1` (or any truthy non-`error` value) | Force the WASM binding. If the WASM binding cannot be loaded, fall back to the native binding without raising. | Local debugging; pre-release verification on a developer machine. |
+| `error` | Force the WASM binding. If the WASM binding cannot be loaded, throw with a diagnostic error and do not fall back. | CI jobs that gate on the WASM path; release verification that must fail loudly if the WASM build is broken. |
+
+The variable is read directly by the napi-rs 3 loader, so changing or replacing it would require forking the wrapper. Documented for completeness; most users will never need to set it.
+
 ## License
 
 MIT

@@ -24,8 +24,14 @@ examples/*/package-lock.json
 
 # napi build artifacts
 *.node
+*.wasm
 crates/oxc-coverage-instrument-napi/index.js
 crates/oxc-coverage-instrument-napi/index.d.ts
+crates/oxc-coverage-instrument-napi/browser.js
+crates/oxc-coverage-instrument-napi/coverage-instrument.wasi.cjs
+crates/oxc-coverage-instrument-napi/coverage-instrument.wasi-browser.js
+crates/oxc-coverage-instrument-napi/wasi-worker.mjs
+crates/oxc-coverage-instrument-napi/wasi-worker-browser.mjs
 crates/oxc-coverage-instrument-napi/node_modules/
 crates/oxc-coverage-instrument-napi/package-lock.json
 
