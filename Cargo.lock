@@ -1022,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_instrument"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "insta",
@@ -1058,14 +1058,14 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_report"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "oxc_coverage_types",
 ]
 
 [[package]]
 name = "oxc_coverage_reports"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "insta",
  "lcov",
@@ -1082,7 +1082,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_source_maps"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "oxc_coverage_types",
  "serde_json",
@@ -1091,7 +1091,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_types"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1099,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_v8"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "oxc_coverage_types",
  "serde",

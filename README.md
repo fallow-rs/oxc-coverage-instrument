@@ -21,7 +21,7 @@ This crate fills that gap. AST-level instrumentation via `oxc_traverse` + `oxc_c
 
 ```toml
 [dependencies]
-oxc_coverage_instrument = "0.6"
+oxc_coverage_instrument = "0.7"
 ```
 
 ### Node.js
