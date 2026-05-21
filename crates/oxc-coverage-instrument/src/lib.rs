@@ -34,7 +34,9 @@ mod pragma;
 mod transform;
 mod v8_to_istanbul;
 
-pub use instrument::{InstrumentError, InstrumentOptions, InstrumentResult, instrument};
+pub use instrument::{
+    DecoratorMode, InstrumentError, InstrumentOptions, InstrumentResult, instrument,
+};
 pub use oxc_coverage_source_maps::{
     SourceMapStore, remap_coverage, remap_coverage_map, remap_coverage_map_with_loader,
     remap_coverage_with_loader,

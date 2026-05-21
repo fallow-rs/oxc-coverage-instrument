@@ -3,7 +3,7 @@
 //! JavaScript (type annotations removed), and statementMap / branchMap
 //! positions still refer to the original TypeScript source offsets.
 
-use oxc_coverage_instrument::{InstrumentError, InstrumentOptions, instrument};
+use oxc_coverage_instrument::{DecoratorMode, InstrumentError, InstrumentOptions, instrument};
 
 fn ts_opts() -> InstrumentOptions {
     InstrumentOptions { source_map: true, strip_typescript: true, ..InstrumentOptions::default() }
@@ -164,8 +164,7 @@ fn ts_direct_decorator_metadata_emits_helper_imports() {
     // imported from `@oxc-project/runtime`.
     let opts = InstrumentOptions {
         strip_typescript: true,
-        experimental_decorators: true,
-        emit_decorator_metadata: true,
+        decorator_mode: DecoratorMode::ExperimentalWithMetadata,
         ..InstrumentOptions::default()
     };
     let result = instrument(NESTJS_SAMPLE, "foo.service.ts", &opts).expect("instrument");
@@ -208,8 +207,7 @@ fn ts_direct_decorator_metadata_statement_counters_land_on_real_lines() {
     // separately under #81.
     let opts = InstrumentOptions {
         strip_typescript: true,
-        experimental_decorators: true,
-        emit_decorator_metadata: true,
+        decorator_mode: DecoratorMode::ExperimentalWithMetadata,
         ..InstrumentOptions::default()
     };
     let result = instrument(NESTJS_SAMPLE, "foo.service.ts", &opts).expect("instrument");
@@ -250,8 +248,7 @@ fn ts_direct_experimental_decorators_only_no_metadata() {
     // design:type / design:paramtypes / design:returntype emission cost.
     let opts = InstrumentOptions {
         strip_typescript: true,
-        experimental_decorators: true,
-        emit_decorator_metadata: false,
+        decorator_mode: DecoratorMode::Experimental,
         ..InstrumentOptions::default()
     };
     let result = instrument(NESTJS_SAMPLE, "foo.service.ts", &opts).expect("instrument");
@@ -269,11 +266,10 @@ fn ts_direct_experimental_decorators_only_no_metadata() {
 
 #[test]
 fn ts_direct_decorators_default_pass_through() {
-    // Default behavior (both new flags false): decorator syntax flows
+    // Default behavior (DecoratorMode::PassThrough): decorator syntax flows
     // through verbatim, no helpers imported. Preserves v0.6.1 behavior.
     let opts = InstrumentOptions { strip_typescript: true, ..InstrumentOptions::default() };
-    assert!(!opts.experimental_decorators);
-    assert!(!opts.emit_decorator_metadata);
+    assert_eq!(opts.decorator_mode, DecoratorMode::PassThrough);
     let result = instrument(NESTJS_SAMPLE, "foo.service.ts", &opts).expect("instrument");
     assert!(
         result.code.contains("@Injectable()"),
@@ -293,27 +289,58 @@ fn ts_direct_decorators_default_pass_through() {
 }
 
 #[test]
-fn ts_direct_emit_decorator_metadata_implicitly_promotes_experimental() {
-    // emit_decorator_metadata=true with experimental_decorators=false must
-    // silently promote experimental_decorators (upstream's decorator pass
-    // is gated on legacy mode). Output must contain metadata calls.
+fn decorator_mode_legacy_and_emit_metadata_match_variant() {
+    // The Rust API uses an enum so the invalid combination "emit metadata
+    // without lowering decorators" is unrepresentable. The upstream
+    // transformer flags must follow the enum variant exactly.
+    assert!(!DecoratorMode::PassThrough.legacy());
+    assert!(!DecoratorMode::PassThrough.emit_metadata());
+    assert!(DecoratorMode::Experimental.legacy());
+    assert!(!DecoratorMode::Experimental.emit_metadata());
+    assert!(DecoratorMode::ExperimentalWithMetadata.legacy());
+    assert!(DecoratorMode::ExperimentalWithMetadata.emit_metadata());
+}
+
+#[test]
+fn ts_direct_decorator_metadata_does_not_emit_synthetic_branches() {
+    // Issue #81: oxc_transformer's legacy decorator pass synthesizes
+    // `typeof X === "function" ? X : Object` guards inside the
+    // `_decorateMetadata("design:paramtypes", [...])` calls. Those
+    // ConditionalExpression and BinaryExpression nodes carry zero-width
+    // spans at byte 0, so naive branch instrumentation registers them at
+    // L1:C0 and inflates the branch denominator for any NestJS / TypeORM
+    // user who enables metadata. The branch instrumenter must filter
+    // these synthetic nodes out the same way it already filters the
+    // synthesized else-arm of a transformed enum IIFE.
     let opts = InstrumentOptions {
         strip_typescript: true,
-        experimental_decorators: false,
-        emit_decorator_metadata: true,
+        decorator_mode: DecoratorMode::ExperimentalWithMetadata,
         ..InstrumentOptions::default()
     };
     let result = instrument(NESTJS_SAMPLE, "foo.service.ts", &opts).expect("instrument");
-    assert!(
-        result.code.contains("_decorate("),
-        "implicit legacy promotion must produce _decorate call, got: {}",
-        result.code
-    );
-    assert!(
-        result.code.contains("_decorateMetadata("),
-        "metadata calls expected with implicit promotion, got: {}",
-        result.code
-    );
+    for (key, entry) in &result.coverage_map.branch_map {
+        let degenerate = (entry.loc.start.line, entry.loc.start.column)
+            == (entry.loc.end.line, entry.loc.end.column)
+            && entry.loc.start.line == 1
+            && entry.loc.start.column == 0;
+        assert!(
+            !degenerate,
+            "branch {key} ({}) anchors at L1:C0 with a zero-width span; \
+             this is a synthetic typeof guard from the decorator metadata pass \
+             and must be filtered out: {entry:?}",
+            entry.branch_type
+        );
+        for (idx, loc) in entry.locations.iter().enumerate() {
+            let degenerate = (loc.start.line, loc.start.column) == (loc.end.line, loc.end.column)
+                && loc.start.line == 1
+                && loc.start.column == 0;
+            assert!(
+                !degenerate,
+                "branch {key} ({}) location {idx} anchors at L1:C0 (synthetic): {loc:?}",
+                entry.branch_type
+            );
+        }
+    }
 }
 
 #[test]
