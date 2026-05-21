@@ -56,6 +56,18 @@ jobs:
             target: aarch64-pc-windows-msvc
             build: npx napi build --release --platform --target aarch64-pc-windows-msvc
 
+          # Hotfix bypass: to ship a native-only emergency release when the
+          # WASM build is broken (e.g. an oxc_transformer or napi-rs change
+          # that regresses wasm32 compilation), remove this matrix entry
+          # AND the "Restore wasm shim files to root package" publish step
+          # below. The seven native bindings can be published independently;
+          # the wasm shim files in the root package.json `files` field will
+          # be absent from the tarball, breaking the browser export only
+          # for that one release. Track the wasm regression separately.
+          - os: ubuntu-latest
+            target: wasm32-wasip1-threads
+            build: npx napi build --release --platform --target wasm32-wasip1-threads
+
     steps:
       - name: Configure git long paths (Windows)
         if: contains(matrix.os, 'windows')
@@ -112,10 +124,23 @@ jobs:
           # is identical across build targets, so including it here lets the publish
           # job pick one up without running the build again. The wrapper files are
           # gitignored (regenerated on every build) so they must travel via artifacts.
+          #
+          # The wasm32-wasip1-threads target emits a .wasm binary plus several
+          # JS/MJS shims (coverage-instrument.wasi.cjs, coverage-instrument.wasi-browser.js,
+          # wasi-worker.mjs, wasi-worker-browser.mjs, browser.js). upload-artifact
+          # evaluates if-no-files-found across the whole artifact, so listing
+          # wasm-only globs alongside .node globs is safe (unmatched patterns are
+          # silent as long as at least one file is captured).
           path: |
             crates/oxc-coverage-instrument-napi/*.node
+            crates/oxc-coverage-instrument-napi/*.wasm
             crates/oxc-coverage-instrument-napi/index.js
             crates/oxc-coverage-instrument-napi/index.d.ts
+            crates/oxc-coverage-instrument-napi/browser.js
+            crates/oxc-coverage-instrument-napi/coverage-instrument.wasi.cjs
+            crates/oxc-coverage-instrument-napi/coverage-instrument.wasi-browser.js
+            crates/oxc-coverage-instrument-napi/wasi-worker.mjs
+            crates/oxc-coverage-instrument-napi/wasi-worker-browser.mjs
           if-no-files-found: error
 
   publish-crate:
@@ -197,8 +222,13 @@ jobs:
           path: crates/oxc-coverage-instrument-napi/artifacts
 
       - name: Move artifacts into npm dirs
+        # `--build-output-dir` tells `napi artifacts` where to find the wasi
+        # shim files (coverage-instrument.wasi.cjs, *-browser.js, wasi-worker*.mjs)
+        # that `napi build` emits alongside the .wasm binary. Without it,
+        # napi-rs looks at the package root and fails ENOENT during the
+        # wasm32-wasi npm-dir population step.
         working-directory: crates/oxc-coverage-instrument-napi
-        run: npx napi artifacts --output-dir artifacts
+        run: npx napi artifacts --output-dir artifacts --build-output-dir artifacts/bindings-wasm32-wasip1-threads
 
       - name: Restore JS/TS wrapper from build artifacts
         # The JS/TS wrapper files (index.js, index.d.ts) are gitignored because
@@ -218,6 +248,34 @@ jobs:
             fi
           done
           test -f index.js && test -f index.d.ts
+
+      - name: Restore wasm shim files to root package
+        # The wasm32-wasi binding emits a browser entry (browser.js) plus four
+        # WASI shim files that the root package's `files` field references:
+        #   browser.js                          (browser export target)
+        #   coverage-instrument.wasi.cjs        (Node WASI loader)
+        #   coverage-instrument.wasi-browser.js (browser WASI loader)
+        #   wasi-worker.mjs                     (Node worker)
+        #   wasi-worker-browser.mjs             (browser worker)
+        # `napi artifacts` only places these under `npm/wasm32-wasi/`, not at the
+        # root, so without this copy the root tarball ships an `exports` map that
+        # references missing files. Source: the bindings-wasm32-wasip1-threads
+        # artifact uploaded by the matrix build.
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: |
+          src=artifacts/bindings-wasm32-wasip1-threads
+          if [ ! -d "$src" ]; then
+            echo "::error::$src missing, wasm matrix entry did not produce an artifact"
+            exit 1
+          fi
+          for f in browser.js coverage-instrument.wasi.cjs coverage-instrument.wasi-browser.js wasi-worker.mjs wasi-worker-browser.mjs; do
+            if [ ! -f "$src/$f" ]; then
+              echo "::error::$src/$f missing, wasm build produced incomplete shim set"
+              exit 1
+            fi
+            cp "$src/$f" "$f"
+          done
+          echo "Restored wasm shims from $src"
 
       - name: Update versions from tag
         working-directory: crates/oxc-coverage-instrument-napi
