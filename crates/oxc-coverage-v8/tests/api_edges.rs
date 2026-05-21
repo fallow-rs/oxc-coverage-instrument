@@ -37,9 +37,9 @@ fn b64_urlsafe(bytes: &[u8]) -> String {
         let b1 = *chunk.get(1).unwrap_or(&0);
         let b2 = *chunk.get(2).unwrap_or(&0);
         out.push(ALPHABET[(b0 >> 2) as usize] as char);
-        out.push(ALPHABET[((b0 & 0b11) << 4 | b1 >> 4) as usize] as char);
+        out.push(ALPHABET[(((b0 & 0b11) << 4) | (b1 >> 4)) as usize] as char);
         if chunk.len() > 1 {
-            out.push(ALPHABET[((b1 & 0b1111) << 2 | b2 >> 6) as usize] as char);
+            out.push(ALPHABET[(((b1 & 0b1111) << 2) | (b2 >> 6)) as usize] as char);
         }
         if chunk.len() > 2 {
             out.push(ALPHABET[(b2 & 0b11_1111) as usize] as char);

@@ -21,6 +21,7 @@ repository = "https://github.com/fallow-rs/oxc-coverage-instrument"
 rust-version = "1.92"
 
 [workspace.lints.rust]
+unsafe_code = "warn"                    # No unsafe in this workspace today; lint preserves that
 unsafe_op_in_unsafe_fn = "warn"
 unused_unsafe = "warn"
 non_ascii_idents = "warn"
@@ -32,6 +33,7 @@ tail_expr_drop_order = "warn"
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
 
 # Restriction lints, matching Oxc's standard
 dbg_macro = "warn"
@@ -51,6 +53,17 @@ unimplemented = "warn"
 excessive_nesting = "warn"
 self_named_module_files = "warn"
 rest_pat_in_fully_bound_structs = "warn"
+
+# Extra restriction lints, ported from fallow
+empty_drop = "warn"                     # Catch no-op Drop impls
+empty_structs_with_brackets = "warn"    # Use `struct Foo;` not `struct Foo {}`
+infinite_loop = "warn"                  # Catch infinite loops without break
+pathbuf_init_then_push = "warn"         # Use PathBuf::from() directly
+pub_underscore_fields = "warn"          # Catch accidentally public _-prefixed fields
+non_zero_suggestions = "warn"           # Suggest NonZero types for naturally non-zero values
+precedence_bits = "warn"                # Catch bitwise operator precedence mistakes
+map_with_unused_argument_over_ranges = "warn" # Use `repeat`/`repeat_with` instead
+filetype_is_file = "warn"               # FileType::is_file() misses symlinks; use !is_dir()
 
 # Allow pedantic lints that are too noisy
 module_name_repetitions = "allow"
@@ -77,8 +90,26 @@ option_if_let_else = "allow"
 missing_const_for_fn = "allow"
 use_self = "allow"
 
+# Cargo group: allow transitive version conflicts we cannot resolve
+multiple_crate_versions = "allow"       # indexmap pulls hashbrown 0.16 vs 0.17 transitively
+
 [profile.dev]
 debug = false
+
+[profile.test]
+debug = false
+
+# Optimize proc-macro crates in dev for faster compilation
+[profile.dev.package.serde_derive]
+opt-level = 1
+[profile.dev.package.napi-derive]
+opt-level = 1
+
+# Optimize snapshot testing deps in dev
+[profile.dev.package.insta]
+opt-level = 3
+[profile.dev.package.similar]
+opt-level = 3
 
 [profile.release]
 opt-level = 3
