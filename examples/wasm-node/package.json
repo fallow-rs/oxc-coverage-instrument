@@ -1,0 +1,13 @@
+{
+  "name": "oxc-coverage-instrument-wasm-node-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:wasi": "NAPI_RS_FORCE_WASI=error node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "oxc-coverage-instrument": "file:../../crates/oxc-coverage-instrument-napi"
+  }
+}
