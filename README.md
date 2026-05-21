@@ -217,6 +217,8 @@ Set `functionIdentityOverlay: true` on the `instrument` call or `createOxcInstru
 
 This is a non-Istanbul extension consumed by downstream code-quality tools (Fallow et al.) that need a long-lived join key across AST inventories, runtime coverage, and source-mapped positions. Standard Istanbul consumers ignore the `x_`-prefixed field, so default output (option off) stays byte-identical to what nyc / Vitest / Jest / Codecov expect. When `inputSourceMap` is consumed, the overlay still references the pre-remap positions; consumers that remap downstream must recompute identity against the post-remap positions.
 
+The path enters the hash verbatim from the `filename` argument, so callers that need stable ids across different tools must normalise paths before instrumentation (`./app.js`, `app.js`, and `/abs/repo/app.js` all hash differently). Pick one canonical form per project, typically a workspace-root-relative POSIX path.
+
 ## Istanbul conformance
 
 Verified against `istanbul-lib-instrument` on 27 shared fixtures covering all branch types, function forms, Unicode columns, pragma boundaries, and edge cases. 189 automated conformance checks validate:

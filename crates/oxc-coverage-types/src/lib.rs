@@ -102,6 +102,12 @@ pub struct FileCoverage {
 /// when `strip_typescript` is on; instrumented JS otherwise). Consumers that
 /// remap through `inputSourceMap` must recompute identity against the
 /// post-remap positions, the overlay is not rewritten by the remap pipeline.
+///
+/// The path enters the hash verbatim from the `filename` argument passed
+/// to `instrument()`, so callers that need stable ids across tools must
+/// normalise paths first (`./app.js`, `app.js`, and `/abs/repo/app.js` all
+/// produce distinct ids). Pick one canonical form per project, typically a
+/// workspace-root-relative POSIX path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionIdentity {
     /// Stable identity string: `fallow:fn:<hex>`.
