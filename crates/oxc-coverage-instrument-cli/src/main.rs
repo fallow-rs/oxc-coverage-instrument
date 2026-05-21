@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use oxc_coverage_instrument::{InstrumentOptions, InstrumentResult, instrument};
-use oxc_coverage_report::summarize;
+use oxc_coverage_report::{CoverageMap, ReportNode, summarize};
 use oxc_coverage_reports::Format;
 use oxc_coverage_types::parse_coverage_map;
 
@@ -410,47 +410,64 @@ fn run_instrument(cli: &InstrumentArgs) -> ExitCode {
 }
 
 fn run_report(args: &ReportArgs) -> ExitCode {
+    let map = match read_coverage_map(args) {
+        Ok(map) => map,
+        Err(code) => return code,
+    };
+    let root = summarize(&map);
+
+    if args.format.is_multi_file() {
+        render_report_dir(args, &map)
+    } else {
+        render_report_stream(args, &root)
+    }
+}
+
+fn read_coverage_map(args: &ReportArgs) -> Result<CoverageMap, ExitCode> {
     let json = match std::fs::read_to_string(&args.coverage_file) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("error: cannot read {}: {e}", args.coverage_file);
-            return ExitCode::FAILURE;
+            return Err(ExitCode::FAILURE);
         }
     };
     let map = match parse_coverage_map(&json) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("error: {} is not a valid coverage-final.json ({e})", args.coverage_file);
-            return ExitCode::FAILURE;
+            return Err(ExitCode::FAILURE);
         }
     };
     if map.is_empty() {
         eprintln!("error: {} contains no files", args.coverage_file);
-        return ExitCode::from(2);
+        return Err(ExitCode::from(2));
     }
 
-    let root = summarize(&map);
+    Ok(map)
+}
 
-    if args.format.is_multi_file() {
-        let Some(output_dir) = &args.output_dir else {
-            eprintln!("error: --format html requires --output-dir <dir>");
-            return ExitCode::FAILURE;
-        };
-        let html_opts = match oxc_coverage_reports::html::HtmlOptions::new(args.html_threshold) {
-            Ok(opts) => opts,
-            Err(e) => {
-                eprintln!("error: {e}");
-                return ExitCode::FAILURE;
-            }
-        };
-        if let Err(e) = args.format.write_to_dir(&map, &args.root_dir, output_dir, &html_opts) {
-            eprintln!("error: failed to render report: {e}");
+fn render_report_dir(args: &ReportArgs, map: &CoverageMap) -> ExitCode {
+    let Some(output_dir) = &args.output_dir else {
+        eprintln!("error: --format html requires --output-dir <dir>");
+        return ExitCode::FAILURE;
+    };
+    let html_opts = match oxc_coverage_reports::html::HtmlOptions::new(args.html_threshold) {
+        Ok(opts) => opts,
+        Err(e) => {
+            eprintln!("error: {e}");
             return ExitCode::FAILURE;
         }
-        eprintln!("HTML report written to {}", output_dir.display());
-        return apply_fail_under(&root, args.fail_under);
+    };
+    if let Err(e) = args.format.write_to_dir(map, &args.root_dir, output_dir, &html_opts) {
+        eprintln!("error: failed to render report: {e}");
+        return ExitCode::FAILURE;
     }
+    eprintln!("HTML report written to {}", output_dir.display());
+    let root = summarize(map);
+    apply_fail_under(&root, args.fail_under)
+}
 
+fn render_report_stream(args: &ReportArgs, root: &ReportNode) -> ExitCode {
     match &args.output_file {
         Some(path) => {
             let mut file = match std::fs::File::create(path) {
@@ -460,7 +477,7 @@ fn run_report(args: &ReportArgs) -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             };
-            if let Err(e) = args.format.write(&root, &args.root_dir, &mut file) {
+            if let Err(e) = args.format.write(root, &args.root_dir, &mut file) {
                 eprintln!("error: failed to render report: {e}");
                 return ExitCode::FAILURE;
             }
@@ -468,13 +485,13 @@ fn run_report(args: &ReportArgs) -> ExitCode {
         None => {
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
-            if let Err(e) = args.format.write(&root, &args.root_dir, &mut handle) {
+            if let Err(e) = args.format.write(root, &args.root_dir, &mut handle) {
                 eprintln!("error: failed to render report: {e}");
                 return ExitCode::FAILURE;
             }
         }
     }
-    apply_fail_under(&root, args.fail_under)
+    apply_fail_under(root, args.fail_under)
 }
 
 fn apply_fail_under(root: &oxc_coverage_report::ReportNode, fail_under: Option<f64>) -> ExitCode {
