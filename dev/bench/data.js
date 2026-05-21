@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779356762260,
+  "lastUpdate": 1779372055069,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -719,6 +719,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 779057,
             "range": "± 14964",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3adf3eb38e9bef9105f6052efa7f0ee9a8e6b807",
+          "message": "feat(napi): add wasm32-wasi build target (#91)\n\n* feat(napi): add wasm32-wasi build target\n\nShips @oxc-coverage-instrument/binding-wasm32-wasi as an automatic\nfallback when no matching native binding is available. Target is\nwasm32-wasip1-threads (napi-rs 3's officially-supported variant).\n\nBuild matrix:\n- New ubuntu-latest entry in release-npm.yml producing the wasm binary\n  plus four shim files (coverage-instrument.wasi.cjs, wasi-browser.js,\n  wasi-worker.mjs, wasi-worker-browser.mjs)\n- New artifact upload globs cover the .wasm + shim files\n- napi artifacts now uses --build-output-dir so the shim files are\n  correctly moved into npm/wasm32-wasi/ during publish\n- Explicit \"Restore wasm shim files to root package\" step ensures the\n  five wasm shims are present in the root tarball before npm publish\n  (the default napi-rs publish flow only restores index.js/index.d.ts)\n\nCI gate:\n- New napi-wasm job builds the wasm target and runs the full 36-test\n  napi suite under NAPI_RS_FORCE_WASI=error on every PR\n- Hard size ceiling at 2 MB brotli enforces issue #46's <2 MB\n  compressed acceptance target (current baseline 0.58 MB, 80% headroom)\n\nPackage surface:\n- package.json declares browser export pointing at browser.js\n- @napi-rs/wasm-runtime added as a runtime dependency (matches the\n  oxlint / rspack napi-rs 3 ecosystem precedent)\n- @oxc-coverage-instrument/binding-wasm32-wasi added to optionalDeps\n- npm/wasm32-wasi/ ships committed scaffolding (package.json + README)\n\nRefs #46\n\n* docs(readme): runtime matrix and NAPI_RS_FORCE_WASI usage\n\nAdds a \"Runtime matrix\" subsection to Compatibility documenting which\nruntimes get the native binding, which get the wasm fallback, and which\nare not yet supported.\n\n- Browser row calls out the COOP/COEP + SharedArrayBuffer requirement\n  and the bundler matrix (Vite 2+, webpack 5 with topLevelAwait,\n  esbuild, rollup). webpack 4 and Parcel 1 are explicitly unsupported\n  due to top-level await in the generated wasi-browser shim.\n- Cloudflare Workers and Deno Deploy / StackBlitz rows link to the\n  follow-up tracker issues (#87 and #88).\n- Bun row references oven-sh/bun#16156 (incomplete node:wasi) as the\n  reason the native binding is preferred there.\n\nAdds a \"Forcing the WASM binding\" subsection with a table mapping the\ntwo NAPI_RS_FORCE_WASI values: =1 (soft-fall to native if wasm fails)\nvs =error (hard-fail with diagnostic; what CI uses).\n\nRefs #46\n\n* test(examples): wasm-node end-to-end smoke\n\nShips examples/wasm-node/ as a runnable smoke for the wasm binding.\n\n- package.json defines two scripts: `smoke` (uses native binding when\n  available) and `smoke:wasi` (forces NAPI_RS_FORCE_WASI=error and\n  fails fast if the wasi binding cannot load).\n- scripts/smoke.mjs calls instrument() on a small TypeScript-flavored\n  fixture and asserts the coverage map carries statements, functions,\n  and branches, plus a source map when sourceMap: true.\n- README.md documents the supported runtimes per binding, with a\n  per-runtime status table mirroring the project README.\n\nUsed as the cookbook entry point for downstream consumers verifying\nthat the wasm fallback works in their environment. The same smoke can\nserve as the basis for a future CI gate (tracked in #90).\n\nRefs #46",
+          "timestamp": "2026-05-21T14:54:52+01:00",
+          "tree_id": "6b75a6a852f378ea84fc282a8608bfd29b2993c9",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/3adf3eb38e9bef9105f6052efa7f0ee9a8e6b807"
+        },
+        "date": 1779372054075,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 20943,
+            "range": "± 93",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 45041,
+            "range": "± 314",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 122194,
+            "range": "± 2252",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 275343,
+            "range": "± 1722",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 95047,
+            "range": "± 618",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 477438,
+            "range": "± 5072",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 273898,
+            "range": "± 4496",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 414907,
+            "range": "± 3258",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 55647,
+            "range": "± 196",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 273573,
+            "range": "± 8007",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 537298,
+            "range": "± 1952",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2817598,
+            "range": "± 10530",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 36667,
+            "range": "± 472",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 32998,
+            "range": "± 284",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 463298,
+            "range": "± 7192",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 419464,
+            "range": "± 4356",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 161176,
+            "range": "± 2259",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 146082,
+            "range": "± 1047",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 858953,
+            "range": "± 4739",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 771350,
+            "range": "± 5983",
             "unit": "ns/iter"
           }
         ]
