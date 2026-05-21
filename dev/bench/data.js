@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779372055069,
+  "lastUpdate": 1779372378315,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -863,6 +863,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 771350,
             "range": "± 5983",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e3a5077a9917dab8dfcc4e4e6436b9d6eac7fa4b",
+          "message": "feat(types): opt-in x_fallow_functionMap identity overlay (#86)\n\n* feat(types): opt-in x_fallow_functionMap identity overlay\n\nAdd an optional non-Istanbul extension on `FileCoverage` that carries a\nstable `fallow:fn:<hex>` identity per function, keyed by the same ids as\n`fnMap`. The id is a `djb31_hex` digest of `(path, name, decl span, loc\nspan)` so two runs over byte-identical source produce identical ids and\nrenames / body edits / line shifts all change the id.\n\nGated by a new `InstrumentOptions::function_identity_overlay: bool`\n(default false) on the Rust API and `functionIdentityOverlay?: boolean`\non the napi surface. With the option off the JSON output stays\nbyte-identical to what Istanbul consumers (nyc, Vitest, Jest, Codecov)\nexpect; the `x_`-prefixed key on the overlay also makes the field a\nno-op for spec-compliant Istanbul parsers when present.\n\nDesigned for downstream code-quality tools (Fallow et al.) that need a\nlong-lived join key across AST inventories, runtime coverage beacons,\nand source-mapped positions without reconstructing identity from\n`(path, name, line, column)` after the fact. When `inputSourceMap` is\nconsumed the overlay still references pre-remap positions; consumers\nthat remap downstream must recompute identity against the post-remap\npositions (documented in the README + the `FunctionIdentity` rustdoc).\n\nTests cover named / anonymous / same-line / class-method / object-method\n/ arrow function shapes, the TS-direct strip path (positions remain\noriginal TS offsets), determinism across runs, identity change on\nposition shift, identity change on path change, and overlay omission /\npresence at the JSON-key level.\n\nCloses #78\n\n* fix(napi): forward function identity overlay in vitest adapter\n\n* fix(overlay): JSON-encode hash input + document path normalization\n\nSwitch `build_function_identity_map` from a `|`-delimited\n`format!(\"{path}|{name}|{lines}...\")` hash input to\n`serde_json::to_string(&json!([path, name, ...]))`. The flat-string\nshape would collide on adversarial pairs like `(path=\"a\", name=\"b|c\")`\nvs `(path=\"a|b\", name=\"c\")` because both flatten to `\"a|b|c|...\"`.\nJSON-encoding quotes every string so the field boundaries survive any\ncharacter, including the computed-key methods that empirically land in\n`fn_map[].name` with `|` literally inside (verified on\n`class C { ['x|y']() {} }`).\n\nRegression test lives next to the helper as a unit test: two\nsynthetic `FnEntry` inputs whose `|`-concat would tie, asserted to\nhash to distinct ids. The integration test in\n`function_identity_overlay_test.rs` is reframed as a \"weird names\ndon't crash\" smoke since the upstream-shape smoke alone cannot prove\nboundary-resistance (different source lengths shift other parts of\nthe hash and mask the collision).\n\nAlso document the path-normalization caveat on both the README and\nthe `FunctionIdentity` rustdoc: the path enters the hash verbatim\nfrom the `filename` argument, so callers that need stable ids across\ntools must normalise paths (`./app.js` and `app.js` hash differently).",
+          "timestamp": "2026-05-21T14:55:52+01:00",
+          "tree_id": "0f8c7332209e7b436fa38793100beeda732418fb",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/e3a5077a9917dab8dfcc4e4e6436b9d6eac7fa4b"
+        },
+        "date": 1779372377393,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 23295,
+            "range": "± 341",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 51384,
+            "range": "± 301",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 148843,
+            "range": "± 820",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 312978,
+            "range": "± 2244",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 125651,
+            "range": "± 976",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 521788,
+            "range": "± 15764",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 312921,
+            "range": "± 3091",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 462918,
+            "range": "± 7383",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 57273,
+            "range": "± 588",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 282006,
+            "range": "± 1634",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 553250,
+            "range": "± 15113",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2780159,
+            "range": "± 18849",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 41676,
+            "range": "± 320",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 37494,
+            "range": "± 233",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 514248,
+            "range": "± 3603",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 467121,
+            "range": "± 2193",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 195704,
+            "range": "± 1924",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 181147,
+            "range": "± 1716",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 860107,
+            "range": "± 3098",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 776496,
+            "range": "± 6739",
             "unit": "ns/iter"
           }
         ]
