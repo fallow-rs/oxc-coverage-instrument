@@ -78,6 +78,43 @@ pub struct FileCoverage {
     /// Only present when the instrumenter received an `inputSourceMap`.
     #[serde(rename = "inputSourceMap", skip_serializing_if = "Option::is_none")]
     pub input_source_map: Option<serde_json::Value>,
+    /// Optional non-Istanbul extension: stable function identity overlay for
+    /// downstream code-quality tools (Fallow et al.). Keyed by the same IDs
+    /// as `fn_map`; ignored by standard Istanbul consumers because the field
+    /// name is prefixed with `x_`. Present only when the instrumenter was
+    /// invoked with `InstrumentOptions::function_identity_overlay = true`.
+    /// See the crate-level README's "X-Fallow function identity" section.
+    #[serde(rename = "x_fallow_functionMap", default, skip_serializing_if = "Option::is_none")]
+    pub x_fallow_function_map: Option<BTreeMap<String, FunctionIdentity>>,
+}
+
+/// Stable function identity record. Non-Istanbul extension consumed by
+/// downstream code-quality tools to join AST inventories, runtime coverage,
+/// and source-mapped positions across runs without reconstructing identity
+/// from `(path, name, line, column)` after the fact.
+///
+/// The `id` field is a stable string of the form `fallow:fn:<hex>` derived
+/// from `(path, name, decl span, loc span)`. Two runs over byte-identical
+/// source produce identical ids; renames, body edits, or moving the
+/// function to a different line all change the id.
+///
+/// Positions follow the same source as `FnEntry` in `fn_map` (original TS
+/// when `strip_typescript` is on; instrumented JS otherwise). Consumers that
+/// remap through `inputSourceMap` must recompute identity against the
+/// post-remap positions, the overlay is not rewritten by the remap pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionIdentity {
+    /// Stable identity string: `fallow:fn:<hex>`.
+    pub id: String,
+    /// Function name. Mirrors `FnEntry::name` (anonymous functions use
+    /// `"(anonymous_N)"`).
+    pub name: String,
+    /// File path as passed to `instrument()`. Mirrors `FileCoverage::path`.
+    pub path: String,
+    /// Declaration span. Mirrors `FnEntry::decl`.
+    pub decl: Location,
+    /// Body span (including braces). Mirrors `FnEntry::loc`.
+    pub loc: Location,
 }
 
 /// A source location span with start and end positions.

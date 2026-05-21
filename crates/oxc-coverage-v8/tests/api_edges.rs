@@ -130,6 +130,7 @@ fn arm_tiebreaker_prefers_tighter_v8_range_at_equal_distance() {
         b: BTreeMap::new(),
         b_t: None,
         input_source_map: None,
+        x_fallow_function_map: None,
     };
     fc.branch_map.insert(
         "0".to_string(),

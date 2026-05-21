@@ -72,6 +72,7 @@ fn full_shape_file_coverage(input_source_map: Option<serde_json::Value>) -> File
         b,
         b_t: None,
         input_source_map,
+        x_fallow_function_map: None,
     }
 }
 

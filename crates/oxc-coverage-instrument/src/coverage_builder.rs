@@ -8,7 +8,9 @@
 
 use std::collections::BTreeMap;
 
-use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location};
+use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, FunctionIdentity, Location};
+
+use crate::transform::djb31_hex;
 
 /// Inputs to [`build_file_coverage`], grouped so callers thread one value
 /// instead of five.
@@ -75,5 +77,61 @@ pub(crate) fn build_file_coverage(maps: CoverageMaps) -> FileCoverage {
         )
     };
 
-    FileCoverage { path, statement_map, fn_map, branch_map, s, f, b, b_t, input_source_map: None }
+    FileCoverage {
+        path,
+        statement_map,
+        fn_map,
+        branch_map,
+        s,
+        f,
+        b,
+        b_t,
+        input_source_map: None,
+        x_fallow_function_map: None,
+    }
+}
+
+/// Compute the optional `x_fallow_functionMap` overlay from a populated
+/// `fn_map`. Each entry's id is a stable hash of `(path, name, decl span,
+/// loc span)`, formatted as `fallow:fn:<hex>`. Field separator is `|` so a
+/// rename, body edit, or line shift changes the hash but a re-run on
+/// byte-identical source does not.
+///
+/// Keyed by the same string ids as `fn_map`; consumers join via the key.
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-internal helper intentionally; the explicit pub(crate) documents that this is not part of the public API even though the parent module is already private"
+)]
+pub(crate) fn build_function_identity_map(
+    path: &str,
+    fn_map: &BTreeMap<String, FnEntry>,
+) -> BTreeMap<String, FunctionIdentity> {
+    fn_map
+        .iter()
+        .map(|(key, entry)| {
+            let input = format!(
+                "{path}|{name}|{dsl}|{dsc}|{del}|{dec}|{lsl}|{lsc}|{lel}|{lec}",
+                name = entry.name,
+                dsl = entry.decl.start.line,
+                dsc = entry.decl.start.column,
+                del = entry.decl.end.line,
+                dec = entry.decl.end.column,
+                lsl = entry.loc.start.line,
+                lsc = entry.loc.start.column,
+                lel = entry.loc.end.line,
+                lec = entry.loc.end.column,
+            );
+            let id = format!("fallow:fn:{}", djb31_hex(&input));
+            (
+                key.clone(),
+                FunctionIdentity {
+                    id,
+                    name: entry.name.clone(),
+                    path: path.to_string(),
+                    decl: entry.decl.clone(),
+                    loc: entry.loc.clone(),
+                },
+            )
+        })
+        .collect()
 }

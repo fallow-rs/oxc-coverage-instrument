@@ -211,6 +211,12 @@ let fc = v8_to_istanbul_with_loader(source, "app.js", &functions, 0, |url| {
 | **Branches** | `if`/`else`, ternary, `switch`, `&&`/`\|\|`/`??`, `??=`/`\|\|=`/`&&=`, `default-arg` |
 | **Pragmas** | `istanbul`/`v8`/`c8 ignore next/if/else/file/start/stop` |
 
+### Function identity overlay (Fallow extension)
+
+Set `functionIdentityOverlay: true` on the `instrument` call (or `function_identity_overlay: true` in Rust) to attach an optional `x_fallow_functionMap` to the resulting coverage map. The overlay carries a stable `fallow:fn:<hex>` identity per function, keyed by the same ids as `fnMap`, derived from `(path, name, decl span, loc span)`. Two runs over byte-identical source produce identical ids; renames, body edits, and line shifts all change the id.
+
+This is a non-Istanbul extension consumed by downstream code-quality tools (Fallow et al.) that need a long-lived join key across AST inventories, runtime coverage, and source-mapped positions. Standard Istanbul consumers ignore the `x_`-prefixed field, so default output (option off) stays byte-identical to what nyc / Vitest / Jest / Codecov expect. When `inputSourceMap` is consumed, the overlay still references the pre-remap positions; consumers that remap downstream must recompute identity against the post-remap positions.
+
 ## Istanbul conformance
 
 Verified against `istanbul-lib-instrument` on 27 shared fixtures covering all branch types, function forms, Unicode columns, pragma boundaries, and edge cases. 189 automated conformance checks validate:

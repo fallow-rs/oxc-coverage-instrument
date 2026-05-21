@@ -949,4 +949,50 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] napi adapter: decorators pass through by default');
 }
 
+// Test: functionIdentityOverlay surfaces a stable fallow:fn:<hex> per
+// function under the x_fallow_functionMap key on the parsed coverage map,
+// keyed by the same ids as fnMap. Default (option off) must NOT include the
+// key; standard Istanbul consumers see byte-identical shape.
+{
+  const src = 'function add(a, b) { return a + b; }\nfunction sub(a, b) { return a - b; }\n';
+
+  const defaultResult = instrument(src, 'app.js');
+  const defaultMap = JSON.parse(defaultResult.coverageMap);
+  assert(
+    defaultMap.x_fallow_functionMap === undefined,
+    'default output must omit x_fallow_functionMap',
+  );
+
+  const overlayResult = instrument(src, 'app.js', { functionIdentityOverlay: true });
+  const overlayMap = JSON.parse(overlayResult.coverageMap);
+  const overlay = overlayMap.x_fallow_functionMap;
+  assert(overlay !== undefined, 'overlay must be present when functionIdentityOverlay is true');
+  const fnKeys = Object.keys(overlayMap.fnMap).sort();
+  const overlayKeys = Object.keys(overlay).sort();
+  assert(
+    JSON.stringify(fnKeys) === JSON.stringify(overlayKeys),
+    `overlay keys must align with fnMap keys, fnMap=${fnKeys} overlay=${overlayKeys}`,
+  );
+  for (const k of fnKeys) {
+    assert(
+      typeof overlay[k].id === 'string' && overlay[k].id.startsWith('fallow:fn:'),
+      `overlay[${k}].id must be fallow:fn:<hex>, got ${JSON.stringify(overlay[k])}`,
+    );
+    assert(overlay[k].path === 'app.js', `overlay[${k}].path must mirror file path`);
+  }
+
+  // Determinism: re-instrument the same source, ids must match.
+  const repeat = JSON.parse(
+    instrument(src, 'app.js', { functionIdentityOverlay: true }).coverageMap,
+  ).x_fallow_functionMap;
+  for (const k of fnKeys) {
+    assert(
+      overlay[k].id === repeat[k].id,
+      `id must be deterministic across runs; key ${k} drifted`,
+    );
+  }
+
+  console.log('  [PASS] napi adapter: functionIdentityOverlay attaches x_fallow_functionMap');
+}
+
 console.log('\nAll tests passed!');
