@@ -15,6 +15,26 @@
 use std::collections::HashMap;
 
 use napi_derive::napi;
+use oxc_coverage_instrument::DecoratorMode;
+
+/// Reconstruct the typed [`DecoratorMode`] enum from the two-optional-boolean
+/// shape exposed on the napi `InstrumentOptions`. The pair `(experimental =
+/// false, metadata = true)` is rejected: the upstream `oxc_transformer`
+/// decorator pass is gated on legacy mode, so emitting metadata without also
+/// lowering decorators is nonsensical. Returning a JS `Error` here surfaces
+/// the misconfiguration loudly instead of silently promoting it on the Rust
+/// side.
+fn decorator_mode_from_flags(experimental: bool, metadata: bool) -> napi::Result<DecoratorMode> {
+    match (experimental, metadata) {
+        (false, false) => Ok(DecoratorMode::PassThrough),
+        (true, false) => Ok(DecoratorMode::Experimental),
+        (true, true) => Ok(DecoratorMode::ExperimentalWithMetadata),
+        (false, true) => Err(napi::Error::new(
+            napi::Status::InvalidArg,
+            "emitDecoratorMetadata: true requires experimentalDecorators: true",
+        )),
+    }
+}
 
 /// Options for the instrument function.
 #[napi(object)]
@@ -55,9 +75,11 @@ pub struct InstrumentOptions {
     /// class-validator's metadata-driven validation. Mirrors the
     /// `emitDecoratorMetadata` flag in `tsconfig.json`.
     ///
-    /// Setting this to true implicitly enables `experimentalDecorators`.
-    /// The instrumented output requires `@oxc-project/runtime` at execution;
-    /// see the README.
+    /// Requires `experimentalDecorators: true`; passing
+    /// `emitDecoratorMetadata: true` with `experimentalDecorators: false`
+    /// (or omitted) is invalid and throws a JS `Error` instead of being
+    /// silently promoted. The instrumented output requires
+    /// `@oxc-project/runtime` at execution; see the README.
     ///
     /// Has no effect unless `stripTypescript` is also true. Defaults to false.
     pub emit_decorator_metadata: Option<bool>,
@@ -98,18 +120,25 @@ pub fn instrument(
     filename: String,
     options: Option<InstrumentOptions>,
 ) -> napi::Result<InstrumentResult> {
-    let opts = options.map_or_else(oxc_coverage_instrument::InstrumentOptions::default, |o| {
-        oxc_coverage_instrument::InstrumentOptions {
-            coverage_variable: o.coverage_variable.unwrap_or_else(|| "__coverage__".to_string()),
-            source_map: o.source_map.unwrap_or(false),
-            input_source_map: o.input_source_map,
-            report_logic: o.report_logic.unwrap_or(false),
-            ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
-            strip_typescript: o.strip_typescript.unwrap_or(false),
-            experimental_decorators: o.experimental_decorators.unwrap_or(false),
-            emit_decorator_metadata: o.emit_decorator_metadata.unwrap_or(false),
+    let opts = match options {
+        None => oxc_coverage_instrument::InstrumentOptions::default(),
+        Some(o) => {
+            let experimental = o.experimental_decorators.unwrap_or(false);
+            let metadata = o.emit_decorator_metadata.unwrap_or(false);
+            let decorator_mode = decorator_mode_from_flags(experimental, metadata)?;
+            oxc_coverage_instrument::InstrumentOptions {
+                coverage_variable: o
+                    .coverage_variable
+                    .unwrap_or_else(|| "__coverage__".to_string()),
+                source_map: o.source_map.unwrap_or(false),
+                input_source_map: o.input_source_map,
+                report_logic: o.report_logic.unwrap_or(false),
+                ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
+                strip_typescript: o.strip_typescript.unwrap_or(false),
+                decorator_mode,
+            }
         }
-    });
+    };
 
     let result = oxc_coverage_instrument::instrument(&source, &filename, &opts)
         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;

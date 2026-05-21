@@ -831,6 +831,29 @@ function runInstrumented(result, filename, callExpression) {
   );
 }
 
+// Test: createOxcInstrumenter auto-promotes emitDecoratorMetadata to
+// experimentalDecorators (tsconfig.json semantics). The bare napi instrument()
+// rejects the same combination, but the vitest adapter normalizes it locally
+// so vitest+NestJS users with only emitDecoratorMetadata configured do not
+// see a runtime throw on the first instrumented file.
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const inst = createOxcInstrumenter({ emitDecoratorMetadata: true });
+  const code = inst.instrumentSync(
+    "@Injectable() export class S { constructor(private readonly b: B) {} }\n",
+    's.ts',
+  );
+  assert(
+    code.includes('_decorate('),
+    'auto-promotion must produce _decorate call',
+  );
+  assert(
+    code.includes('_decorateMetadata('),
+    'auto-promotion must still emit metadata calls',
+  );
+  console.log('  [PASS] vitest adapter auto-promotes emitDecoratorMetadata');
+}
+
 // Test: experimentalDecorators + emitDecoratorMetadata lowers NestJS-style
 // decorators to _decorate / _decorateMetadata calls importing helpers from
 // @oxc-project/runtime. Mirrors the Rust-side
@@ -861,25 +884,53 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] napi adapter: experimentalDecorators + emitDecoratorMetadata');
 }
 
-// Test: emitDecoratorMetadata implicitly promotes experimentalDecorators.
-// Mirrors ts_direct_emit_decorator_metadata_implicitly_promotes_experimental.
+// Test: emitDecoratorMetadata: true without experimentalDecorators: true is
+// rejected with a JS Error rather than silently promoted. The Rust API uses
+// a single DecoratorMode enum so the invalid combination is unrepresentable;
+// the napi adapter mirrors that by rejecting at the boundary.
+{
+  const src =
+    '@Injectable() export class S { constructor(private readonly b: B) {} }\n';
+  let caught = null;
+  try {
+    instrument(src, 's.ts', {
+      stripTypescript: true,
+      emitDecoratorMetadata: true,
+      // experimentalDecorators intentionally omitted.
+    });
+  } catch (e) {
+    caught = e;
+  }
+  assert(
+    caught !== null,
+    'emitDecoratorMetadata without experimentalDecorators must throw',
+  );
+  assert(
+    /experimentalDecorators/.test(caught.message),
+    `error must explain the required flag, got: ${caught.message}`,
+  );
+  console.log('  [PASS] napi adapter: emitDecoratorMetadata without experimentalDecorators throws');
+}
+
+// Test: experimentalDecorators=true + emitDecoratorMetadata=false lowers
+// decorators without emitting design:type / design:paramtypes metadata.
 {
   const src =
     '@Injectable() export class S { constructor(private readonly b: B) {} }\n';
   const result = instrument(src, 's.ts', {
     stripTypescript: true,
-    emitDecoratorMetadata: true,
-    // experimentalDecorators intentionally omitted; should be promoted.
+    experimentalDecorators: true,
+    emitDecoratorMetadata: false,
   });
   assert(
     result.code.includes('_decorate('),
-    'implicit legacy promotion must produce _decorate call',
+    'experimentalDecorators alone must still produce _decorate call',
   );
   assert(
-    result.code.includes('_decorateMetadata('),
-    'metadata calls expected with implicit promotion',
+    !result.code.includes('_decorateMetadata('),
+    'no metadata calls expected when emitDecoratorMetadata is false',
   );
-  console.log('  [PASS] napi adapter: emitDecoratorMetadata silently promotes legacy');
+  console.log('  [PASS] napi adapter: experimentalDecorators without emitDecoratorMetadata');
 }
 
 // Test: with both flags off (default), decorators flow through verbatim.

@@ -765,6 +765,17 @@ fn enclosing_destructure_property_pragma(ctx: &TraverseCtx<'_, CoverageState>) -
     false
 }
 
+/// True for nodes whose byte span is `(0, 0)`, i.e. nodes synthesized by
+/// `oxc_transformer` that have no anchor in the original source. Examples:
+/// the `typeof X === "function" ? X : Object` guards inserted by the legacy
+/// decorator `emit_decorator_metadata` pass (issue #81). Registering a
+/// branch entry for those would inflate the visible branch denominator
+/// without giving the user anything to act on, since the location maps back
+/// to L1:C0 of the original source.
+fn is_synthetic_span(span: Span) -> bool {
+    span.start == 0 && span.end == 0
+}
+
 /// Check if the nearest non-parenthesized ancestor is a logical expression.
 /// Oxc preserves `ParenthesizedExpression` nodes (Babel strips them), so to
 /// match istanbul-lib-instrument's chain flattening we must look through
@@ -1598,6 +1609,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
     ) {
         if self.in_ignored_subtree()
             || ctx.state.pragmas.get(expr.span.start) == Some(IgnoreType::Next)
+            || is_synthetic_span(expr.span)
         {
             return;
         }
@@ -1738,6 +1750,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
     ) {
         if self.in_ignored_subtree()
             || ctx.state.pragmas.get(expr.span.start) == Some(IgnoreType::Next)
+            || is_synthetic_span(expr.span)
         {
             return;
         }
