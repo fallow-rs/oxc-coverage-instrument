@@ -83,6 +83,16 @@ pub struct InstrumentOptions {
     ///
     /// Has no effect unless `stripTypescript` is also true. Defaults to false.
     pub emit_decorator_metadata: Option<bool>,
+    /// When true, attach an optional `x_fallow_functionMap` overlay to the
+    /// returned coverage map. The overlay carries a stable
+    /// `fallow:fn:<hex>` identity per function, keyed by the same ids as
+    /// `fnMap`, derived from `(path, name, decl span, loc span)`. Standard
+    /// Istanbul consumers ignore the `x_`-prefixed field; downstream code
+    /// quality tools (Fallow et al.) use it as a long-lived join key.
+    ///
+    /// Defaults to false. The default JSON output stays byte-identical to
+    /// what Istanbul consumers expect.
+    pub function_identity_overlay: Option<bool>,
 }
 
 /// A coverage pragma comment that was found but not handled.
@@ -136,6 +146,7 @@ pub fn instrument(
                 ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
                 strip_typescript: o.strip_typescript.unwrap_or(false),
                 decorator_mode,
+                function_identity_overlay: o.function_identity_overlay.unwrap_or(false),
             }
         }
     };

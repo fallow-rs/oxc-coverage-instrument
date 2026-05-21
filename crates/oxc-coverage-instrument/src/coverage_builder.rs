@@ -8,7 +8,9 @@
 
 use std::collections::BTreeMap;
 
-use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location};
+use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, FunctionIdentity, Location};
+
+use crate::transform::djb31_hex;
 
 /// Inputs to [`build_file_coverage`], grouped so callers thread one value
 /// instead of five.
@@ -75,5 +77,110 @@ pub(crate) fn build_file_coverage(maps: CoverageMaps) -> FileCoverage {
         )
     };
 
-    FileCoverage { path, statement_map, fn_map, branch_map, s, f, b, b_t, input_source_map: None }
+    FileCoverage {
+        path,
+        statement_map,
+        fn_map,
+        branch_map,
+        s,
+        f,
+        b,
+        b_t,
+        input_source_map: None,
+        x_fallow_function_map: None,
+    }
+}
+
+/// Compute the optional `x_fallow_functionMap` overlay from a populated
+/// `fn_map`. Each entry's id is a stable hash of `(path, name, decl span,
+/// loc span)`, formatted as `fallow:fn:<hex>`. A rename, body edit, or
+/// line shift changes the hash but a re-run on byte-identical source does
+/// not.
+///
+/// Hash input is the JSON-encoded form of the parts array. JSON encoding
+/// makes the field boundaries unambiguous so a computed-key method like
+/// `class C { ['x|y']() {} }` (which lands in `fn_map[].name` as `"x|y"`)
+/// cannot collide with any sibling whose parts happen to align under a
+/// flat string separator. Keyed by the same string ids as `fn_map`;
+/// consumers join via the key.
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-internal helper intentionally; the explicit pub(crate) documents that this is not part of the public API even though the parent module is already private"
+)]
+pub(crate) fn build_function_identity_map(
+    path: &str,
+    fn_map: &BTreeMap<String, FnEntry>,
+) -> BTreeMap<String, FunctionIdentity> {
+    fn_map
+        .iter()
+        .map(|(key, entry)| {
+            (
+                key.clone(),
+                FunctionIdentity {
+                    id: function_identity_id(path, entry),
+                    name: entry.name.clone(),
+                    path: path.to_string(),
+                    decl: entry.decl.clone(),
+                    loc: entry.loc.clone(),
+                },
+            )
+        })
+        .collect()
+}
+
+/// Compute the `fallow:fn:<hex>` id for a single `(path, FnEntry)` pair.
+/// Split out from [`build_function_identity_map`] so the collision-resistance
+/// invariant can be unit-tested in isolation without round-tripping through
+/// the full instrumenter.
+fn function_identity_id(path: &str, entry: &FnEntry) -> String {
+    // Each part is its own JSON value, so escaping handles every
+    // ambiguous character (delimiters, quotes, NUL, unicode). The
+    // .expect is documentary: every input here is a JSON-serializable
+    // primitive (string / u32), so serde_json::to_string cannot fail.
+    let input = serde_json::to_string(&serde_json::json!([
+        path,
+        entry.name,
+        entry.decl.start.line,
+        entry.decl.start.column,
+        entry.decl.end.line,
+        entry.decl.end.column,
+        entry.loc.start.line,
+        entry.loc.start.column,
+        entry.loc.end.line,
+        entry.loc.end.column,
+    ]))
+    .expect("FunctionIdentity hash input serializes to JSON infallibly");
+    format!("fallow:fn:{}", djb31_hex(&input))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::function_identity_id;
+    use oxc_coverage_types::{FnEntry, Location, Position};
+
+    fn entry(name: &str) -> FnEntry {
+        let pos = |line, column| Position { line, column };
+        FnEntry {
+            name: name.to_string(),
+            line: 1,
+            decl: Location { start: pos(1, 0), end: pos(1, 10) },
+            loc: Location { start: pos(1, 0), end: pos(1, 10) },
+        }
+    }
+
+    /// Regression test for the JSON-encoded hash input. A naive
+    /// `format!("{path}|{name}|{lines...}")` shape collides on
+    /// `(path="a", name="b|c")` vs `(path="a|b", name="c")` because both
+    /// produce the same flat string `"a|b|c|..."`. The JSON-encoded form
+    /// quotes each string so the field boundary survives any character.
+    #[test]
+    fn function_identity_id_is_collision_resistant_against_pipe_in_name() {
+        let a = function_identity_id("a", &entry("b|c"));
+        let b = function_identity_id("a|b", &entry("c"));
+        assert_ne!(
+            a, b,
+            "JSON-encoded hash input must keep (path, name) boundaries unambiguous; \
+             got collision: {a}",
+        );
+    }
 }

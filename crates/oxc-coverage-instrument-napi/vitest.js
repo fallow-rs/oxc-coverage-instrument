@@ -67,6 +67,8 @@ const TS_EXTENSION_REGEX = /\.([mc]ts|tsx?)$/i;
  *   this layer, matching tsconfig.json semantics. The bare `instrument()`
  *   napi entry point rejects the same combination with an Error; the vitest
  *   adapter preserves the tsconfig-style ergonomics for the vitest UX.
+ * @param {boolean} [options.functionIdentityOverlay] Attach the optional
+ *   `x_fallow_functionMap` extension to the last file coverage object.
  * @returns {{ instrumentSync, lastSourceMap, lastFileCoverage }}
  */
 function createOxcInstrumenter(options) {
@@ -74,6 +76,12 @@ function createOxcInstrumenter(options) {
   const coverageVariable = options.coverageVariable || '__coverage__';
   const ignoreClassMethods = options.ignoreClassMethods || [];
   const reportLogic = options.reportLogic || false;
+  const functionIdentityOverlay = options.functionIdentityOverlay || false;
+  if (typeof functionIdentityOverlay !== 'boolean') {
+    throw new TypeError(
+      `oxc-coverage-instrument: createOxcInstrumenter({ functionIdentityOverlay }) must be a boolean or undefined, got ${typeof options.functionIdentityOverlay}`,
+    );
+  }
   const stripTypescriptOverride = options.stripTypescript;
   if (stripTypescriptOverride !== undefined && typeof stripTypescriptOverride !== 'boolean') {
     throw new TypeError(
@@ -138,6 +146,7 @@ function createOxcInstrumenter(options) {
         stripTypescript,
         experimentalDecorators,
         emitDecoratorMetadata,
+        functionIdentityOverlay,
       });
 
       // Store raw JSON — defer parsing until actually needed.

@@ -12,6 +12,11 @@ export interface OxcInstrumenterOptions {
   /** When true, adds truthy-value tracking (bT) for logical expressions. */
   reportLogic?: boolean
   /**
+   * Attach the optional `x_fallow_functionMap` extension to the last file
+   * coverage object. Defaults to false.
+   */
+  functionIdentityOverlay?: boolean
+  /**
    * Run the TypeScript-strip pass before instrumentation. When omitted
    * (default), the adapter auto-detects: it strips when the filename matches
    * `/\.([mc]ts|tsx?)$/i` AND no `inputSourceMap` was supplied (i.e., the

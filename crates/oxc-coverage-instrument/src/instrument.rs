@@ -15,7 +15,7 @@ use oxc_traverse::traverse_mut;
 
 use std::collections::BTreeMap;
 
-use crate::coverage_builder::{CoverageMaps, build_file_coverage};
+use crate::coverage_builder::{CoverageMaps, build_file_coverage, build_function_identity_map};
 use crate::pragma::PragmaMap;
 use crate::transform::{
     CoverageState, CoverageTransform, PreambleInputs, TransformInit, djb31_hex,
@@ -75,6 +75,19 @@ pub struct InstrumentOptions {
     /// Defaults to [`DecoratorMode::PassThrough`]: decorator syntax flows
     /// through verbatim and a downstream tool is responsible for lowering it.
     pub decorator_mode: DecoratorMode,
+    /// When true, attach an optional `x_fallow_functionMap` overlay to the
+    /// resulting `FileCoverage`. The overlay carries a stable
+    /// `fallow:fn:<hex>` identity per function, keyed by the same ids as
+    /// `fnMap`, derived from `(path, name, decl span, loc span)`. Standard
+    /// Istanbul consumers ignore the `x_`-prefixed field; downstream
+    /// code-quality tools (Fallow et al.) use it to join AST inventories,
+    /// runtime coverage, and source-mapped positions across runs without
+    /// reconstructing identity from `(path, name, line, column)` after the
+    /// fact.
+    ///
+    /// Defaults to false. The default JSON output stays byte-identical to
+    /// what Istanbul consumers expect.
+    pub function_identity_overlay: bool,
 }
 
 /// How `strip_typescript` handles decorator syntax.
@@ -145,6 +158,7 @@ impl Default for InstrumentOptions {
             ignore_class_methods: Vec::new(),
             strip_typescript: false,
             decorator_mode: DecoratorMode::PassThrough,
+            function_identity_overlay: false,
         }
     }
 }
@@ -252,7 +266,12 @@ pub fn instrument(
     let state = CoverageState { pragmas };
     let scoping = traverse_mut(&mut transform, &allocator, &mut parsed.program, scoping, state);
 
-    let coverage_map = build_coverage_map(filename, transform, options.input_source_map.as_deref());
+    let mut coverage_map =
+        build_coverage_map(filename, transform, options.input_source_map.as_deref());
+    if options.function_identity_overlay {
+        coverage_map.x_fallow_function_map =
+            Some(build_function_identity_map(&coverage_map.path, &coverage_map.fn_map));
+    }
 
     // Serialize the coverage map once and reuse it for both the hash guard and
     // the preamble's coverageData literal. Istanbul refreshes stale coverage
