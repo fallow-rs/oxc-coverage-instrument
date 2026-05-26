@@ -1054,6 +1054,7 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "oxc_coverage_instrument",
+ "oxc_coverage_types",
  "serde_json",
 ]
 

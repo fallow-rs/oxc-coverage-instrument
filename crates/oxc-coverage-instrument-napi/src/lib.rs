@@ -16,6 +16,25 @@ use std::collections::HashMap;
 
 use napi_derive::napi;
 use oxc_coverage_instrument::DecoratorMode;
+use oxc_coverage_types::FileCoverage;
+
+/// Build a friendlier `napi::Error` for the case where the caller passed a
+/// single `FileCoverage` JSON to a function that expects an Istanbul-shape
+/// `CoverageMap` (`{[path]: FileCoverage}`). The raw serde_json error in
+/// this case is "invalid type: string \"...\", expected struct FileCoverage"
+/// which is technically correct but unhelpful: the user reads it as "the
+/// FileCoverage shape is wrong" when the actual problem is "you handed me
+/// the wrong outer container". Caught during the v0.7.2 smoke test.
+fn invalid_coverage_json_error<E: std::fmt::Display>(coverage_json: &str, err: E) -> napi::Error {
+    let hint = if serde_json::from_str::<FileCoverage>(coverage_json).is_ok() {
+        " (hint: input parses as a single FileCoverage; remapCoverageMap \
+         expects an Istanbul CoverageMap shape `{[path]: FileCoverage}`. \
+         Wrap with `{ [fc.path]: fc }` before calling.)"
+    } else {
+        ""
+    };
+    napi::Error::new(napi::Status::InvalidArg, format!("invalid coverage JSON: {err}{hint}"))
+}
 
 /// Reconstruct the typed [`DecoratorMode`] enum from the two-optional-boolean
 /// shape exposed on the napi `InstrumentOptions`. The pair `(experimental =
@@ -182,9 +201,8 @@ pub fn instrument(
 /// `Record<string, string>` of preloaded maps keyed by FileCoverage path.
 #[napi]
 pub fn remap_coverage_map(coverage_json: String) -> napi::Result<String> {
-    let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json).map_err(|e| {
-        napi::Error::new(napi::Status::InvalidArg, format!("invalid coverage JSON: {e}"))
-    })?;
+    let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json)
+        .map_err(|e| invalid_coverage_json_error(&coverage_json, e))?;
     let remapped = oxc_coverage_instrument::remap_coverage_map(&parsed);
     serde_json::to_string(&remapped)
         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
@@ -207,9 +225,8 @@ pub fn remap_coverage_map_with_loader(
     coverage_json: String,
     source_maps: HashMap<String, String>,
 ) -> napi::Result<String> {
-    let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json).map_err(|e| {
-        napi::Error::new(napi::Status::InvalidArg, format!("invalid coverage JSON: {e}"))
-    })?;
+    let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json)
+        .map_err(|e| invalid_coverage_json_error(&coverage_json, e))?;
     let remapped = oxc_coverage_instrument::remap_coverage_map_with_loader(&parsed, |path| {
         source_maps.get(path).cloned()
     });

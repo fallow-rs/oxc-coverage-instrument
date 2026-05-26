@@ -1022,4 +1022,47 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] vitest adapter forwards functionIdentityOverlay');
 }
 
+// Test: remapCoverageMap rejects a single-FileCoverage input with a hint
+// pointing at the correct CoverageMap shape. Smoke-discovered (v0.7.2): the
+// raw serde error reads "expected struct FileCoverage" when you pass one,
+// which makes the user blame their FileCoverage shape rather than realising
+// they handed over the wrong outer container.
+{
+  const r = instrument('function handler() { return 42; }\n', 'app.bundled.js', {
+    inputSourceMap: JSON.stringify({
+      version: 3,
+      file: 'app.bundled.js',
+      sources: ['src/app.ts'],
+      sourcesContent: ['function handler(){return 42}'],
+      names: [],
+      mappings: '',
+    }),
+  });
+  let caught = null;
+  try {
+    remapCoverageMap(r.coverageMap);
+  } catch (e) {
+    caught = e;
+  }
+  assert(caught !== null, 'remapCoverageMap must throw when given a single FileCoverage');
+  assert(
+    caught.message.includes('CoverageMap shape'),
+    `error must hint at CoverageMap shape, got: ${caught.message}`,
+  );
+  assert(
+    caught.message.includes('{[path]: FileCoverage}'),
+    `error must spell out the expected shape, got: ${caught.message}`,
+  );
+
+  // Sanity: the same input wrapped in the correct shape works.
+  const fc = JSON.parse(r.coverageMap);
+  const remapped = JSON.parse(remapCoverageMap(JSON.stringify({ [fc.path]: fc })));
+  assert(
+    Object.keys(remapped).length > 0,
+    'wrapped CoverageMap must remap to at least one file',
+  );
+
+  console.log('  [PASS] remapCoverageMap hints at wrong-shape input');
+}
+
 console.log('\nAll tests passed!');
