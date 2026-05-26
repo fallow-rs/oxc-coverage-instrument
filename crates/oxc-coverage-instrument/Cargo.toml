@@ -1,6 +1,6 @@
 [package]
 name = "oxc_coverage_instrument"
-version = "0.7.1"
+version = "0.7.2"
 authors.workspace = true
 edition.workspace = true
 description = "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST"
@@ -32,6 +32,11 @@ oxc_syntax = "0.126"
 oxc_transformer = "0.126"
 oxc_traverse = "0.126"
 serde_json = "1"
+# SHA-256 for the x_fallow_functionMap stable_id formula. Bit-equal to
+# fallow-cov-protocol::function_identity_id so the overlay can serve as a
+# cross-surface join key in the fallow ecosystem. Pinned to the same major
+# the protocol uses (it ships with sha2 = "0.11" as of protocol v0.7.1).
+sha2 = "0.11"
 # Companion source map crates (fallow-rs/srcmap). Exact-pinned because srcmap is pre-1.0
 # and only the parse + composition APIs are stable; bump these explicitly.
 srcmap-remapping = "=0.3.6"

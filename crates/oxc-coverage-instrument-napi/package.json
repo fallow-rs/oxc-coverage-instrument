@@ -1,6 +1,6 @@
 {
   "name": "oxc-coverage-instrument",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST. 8-48x faster than istanbul-lib-instrument.",
   "main": "index.js",
   "browser": "browser.js",
@@ -73,13 +73,13 @@
     "test": "node test.mjs"
   },
   "optionalDependencies": {
-    "@oxc-coverage-instrument/binding-darwin-arm64": "0.7.1",
-    "@oxc-coverage-instrument/binding-darwin-x64": "0.7.1",
-    "@oxc-coverage-instrument/binding-linux-arm64-gnu": "0.7.1",
-    "@oxc-coverage-instrument/binding-linux-x64-gnu": "0.7.1",
-    "@oxc-coverage-instrument/binding-linux-x64-musl": "0.7.1",
-    "@oxc-coverage-instrument/binding-win32-arm64-msvc": "0.7.1",
-    "@oxc-coverage-instrument/binding-win32-x64-msvc": "0.7.1",
-    "@oxc-coverage-instrument/binding-wasm32-wasi": "0.7.1"
+    "@oxc-coverage-instrument/binding-darwin-arm64": "0.7.2",
+    "@oxc-coverage-instrument/binding-darwin-x64": "0.7.2",
+    "@oxc-coverage-instrument/binding-linux-arm64-gnu": "0.7.2",
+    "@oxc-coverage-instrument/binding-linux-x64-gnu": "0.7.2",
+    "@oxc-coverage-instrument/binding-linux-x64-musl": "0.7.2",
+    "@oxc-coverage-instrument/binding-win32-arm64-msvc": "0.7.2",
+    "@oxc-coverage-instrument/binding-win32-x64-msvc": "0.7.2",
+    "@oxc-coverage-instrument/binding-wasm32-wasi": "0.7.2"
   }
 }
