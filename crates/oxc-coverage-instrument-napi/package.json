@@ -66,11 +66,12 @@
     "istanbul-lib-instrument": "^6.0.3"
   },
   "scripts": {
-    "build": "napi build --release --platform",
-    "build:debug": "napi build --platform",
+    "build": "napi build --release --platform && node scripts/patch-wasi-browser-shim.mjs",
+    "build:debug": "napi build --platform && node scripts/patch-wasi-browser-shim.mjs",
+    "patch-shim": "node scripts/patch-wasi-browser-shim.mjs",
     "prepublishOnly": "napi prepublish -t npm",
     "artifacts": "napi artifacts",
-    "test": "node test.mjs"
+    "test": "node test.mjs && node scripts/patch-wasi-browser-shim.test.mjs"
   },
   "optionalDependencies": {
     "@oxc-coverage-instrument/binding-darwin-arm64": "0.7.2",
