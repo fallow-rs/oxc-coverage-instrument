@@ -431,19 +431,20 @@ The `html` format writes a self-contained directory tree (`--output-dir`, defaul
 
 ### Runtime matrix
 
-`oxc-coverage-instrument` ships prebuilt native bindings for seven platforms plus a WebAssembly fallback (`@oxc-coverage-instrument/binding-wasm32-wasi`, ~2.8 MB raw / ~0.6 MB brotli). The wasm binding is selected automatically when no matching native binary is available, or explicitly via `NAPI_RS_FORCE_WASI` (see [Forcing the WASM binding](#forcing-the-wasm-binding) below).
+`oxc-coverage-instrument` ships prebuilt native bindings for seven platforms plus WebAssembly fallbacks (`@oxc-coverage-instrument/binding-wasm32-wasi` for runtimes with `SharedArrayBuffer`, and a single-threaded `wasm32-wasip1` variant for runtimes that disallow shared memory). The wasm binding is selected automatically when no matching native binary is available, or explicitly via `NAPI_RS_FORCE_WASI` (see [Forcing the WASM binding](#forcing-the-wasm-binding) below).
 
 | Runtime | Status | Notes |
 |:--------|:-------|:------|
 | Node 18+ (darwin/linux/win32, x64/arm64) | native | Preferred when a matching `.node` is installed. |
 | Node 22 LTS (any arch) | wasm fallback | Loads via `node:wasi`; emits an experimental-feature warning. |
 | Deno 2.x | wasm | Uses Deno's `node:wasi` polyfill. Live deploy smoke tracked in [#88](https://github.com/fallow-rs/oxc-coverage-instrument/issues/88). |
-| Browser (with COOP/COEP) | wasm | Imports the `browser` export. Requires `SharedArrayBuffer` (set `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: require-corp` on the host page) AND an ESM bundler with top-level await support (Vite 2+, webpack 5 with `experiments.topLevelAwait: true`, esbuild, rollup with `output.format: 'esm'`). webpack 4 and Parcel 1 are not supported. |
+| Browser (with COOP/COEP) | threaded wasm | Imports the `browser` export. Uses the threaded `wasm32-wasip1-threads` binding when `SharedArrayBuffer` is available (set `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: require-corp` on the host page) and an ESM bundler with top-level await support is present. webpack 4 and Parcel 1 are not supported. |
+| Browser (without COOP/COEP) | single-threaded wasm | Falls back to the `wasm32-wasip1` binding when `SharedArrayBuffer` is unavailable. |
 | Bun (supported targets) | native | Bun's `node:wasi` is incomplete ([oven-sh/bun#16156](https://github.com/oven-sh/bun/issues/16156)); falls back to the native binding. |
-| Cloudflare Workers | not yet | Workers lacks `SharedArrayBuffer`. Single-threaded `wasm32-wasip1` build tracked in [#87](https://github.com/fallow-rs/oxc-coverage-instrument/issues/87). |
+| Cloudflare Workers | single-threaded wasm | Workers lacks `SharedArrayBuffer`; the `browser` export selects the `wasm32-wasip1` binding. `examples/cloudflare-workers/` verifies Worker `FileCoverage` against native output byte-for-byte. |
 | StackBlitz / WebContainer | partial | Newer WebContainer images load the wasm binding; older ones may fall through. Live smoke tracked in [#88](https://github.com/fallow-rs/oxc-coverage-instrument/issues/88). |
 
-See `examples/wasm-node/` for a complete end-to-end smoke that exercises both bindings.
+See `examples/wasm-node/` for a complete end-to-end Node smoke that exercises native plus WASM. `examples/cloudflare-workers/` contains the secret-free Workers acceptance smoke that compares Worker `FileCoverage` with native output byte-for-byte.
 
 #### Forcing the WASM binding
 

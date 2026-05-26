@@ -19,8 +19,11 @@ node_modules/
 /coverage/
 crates/*/coverage/
 examples/*/coverage/
+examples/*/.wrangler/
+examples/*/dist/
 examples/*/node_modules/
 examples/*/package-lock.json
+!examples/cloudflare-workers/package-lock.json
 
 # napi build artifacts
 *.node
@@ -32,6 +35,10 @@ crates/oxc-coverage-instrument-napi/coverage-instrument.wasi.cjs
 crates/oxc-coverage-instrument-napi/coverage-instrument.wasi-browser.js
 crates/oxc-coverage-instrument-napi/wasi-worker.mjs
 crates/oxc-coverage-instrument-napi/wasi-worker-browser.mjs
+crates/oxc-coverage-instrument-napi/npm/*/coverage-instrument.wasi.cjs
+crates/oxc-coverage-instrument-napi/npm/*/coverage-instrument.wasi-browser.js
+crates/oxc-coverage-instrument-napi/npm/*/wasi-worker.mjs
+crates/oxc-coverage-instrument-napi/npm/*/wasi-worker-browser.mjs
 crates/oxc-coverage-instrument-napi/node_modules/
 crates/oxc-coverage-instrument-napi/package-lock.json
 

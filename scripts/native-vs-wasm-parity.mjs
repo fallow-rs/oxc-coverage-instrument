@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Byte-for-byte parity check between the native and WASM (wasm32-wasip1-threads)
-// napi bindings.
+// Byte-for-byte parity check between the native and currently-built WASM napi
+// binding.
 //
 // v0.7.1 shipped a one-off local check that the two bindings produce identical
 // coverage maps. This script reproduces that check on every PR so any future
@@ -30,6 +30,7 @@ const repoRoot = join(__dirname, '..');
 const fixturesDir = join(repoRoot, 'crates', 'oxc-coverage-instrument', 'tests', 'conformance', 'fixtures');
 
 const isDumpMode = process.argv.includes('--dump');
+const wasmVariant = process.env.OXC_COVERAGE_WASM_VARIANT || 'wasm';
 
 const listFixtures = () =>
   readdirSync(fixturesDir)
@@ -99,7 +100,7 @@ const diff = () => {
     process.exit(1);
   }
 
-  console.log(`native vs wasm parity OK: ${fixtures.size} fixtures byte-identical across both bindings`);
+  console.log(`native vs ${wasmVariant} parity OK: ${fixtures.size} fixtures byte-identical across both bindings`);
 };
 
 if (isDumpMode) {

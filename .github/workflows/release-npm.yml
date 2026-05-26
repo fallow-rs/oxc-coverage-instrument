@@ -65,6 +65,10 @@ jobs:
           # be absent from the tarball, breaking the browser export only
           # for that one release. Track the wasm regression separately.
           - os: ubuntu-latest
+            target: wasm32-wasip1
+            build: NAPI_RS_WASI_LINK_DIR=wasm32-wasip1 npx napi build --release --platform --target wasm32-wasip1
+
+          - os: ubuntu-latest
             target: wasm32-wasip1-threads
             build: npx napi build --release --platform --target wasm32-wasip1-threads
 
@@ -107,17 +111,31 @@ jobs:
         working-directory: crates/oxc-coverage-instrument-napi
         run: npm ci || npm install
 
+      - name: Patch napi-rs WASI link dir selector
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-napi-wasi-link-dir.mjs
+
       - name: Build native binding
         working-directory: crates/oxc-coverage-instrument-napi
         run: ${{ matrix.build }}
+
+      - name: Patch single-threaded WASI artifacts
+        if: matrix.target == 'wasm32-wasip1'
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-wasi-singlethreaded-artifacts.mjs .
 
       # Inject the SharedArrayBuffer guard into the regenerated browser shim
       # (issue #89). The shim is only emitted by the wasm32-wasip1-threads
       # matrix entry; the patch script is a no-op when the shim is absent,
       # so it is safe to run unconditionally across the matrix.
       - name: Patch wasi-browser shim with SharedArrayBuffer guard
+        if: matrix.target == 'wasm32-wasip1-threads'
         working-directory: crates/oxc-coverage-instrument-napi
         run: node scripts/patch-wasi-browser-shim.mjs
+
+      - name: Patch root browser loader
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-browser-loader.mjs
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -228,6 +246,12 @@ jobs:
         with:
           path: crates/oxc-coverage-instrument-napi/artifacts
 
+      - name: Isolate single-threaded wasm artifact
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: |
+          mkdir -p artifacts-singlethreaded
+          mv artifacts/bindings-wasm32-wasip1 artifacts-singlethreaded/
+
       - name: Move artifacts into npm dirs
         # `--build-output-dir` tells `napi artifacts` where to find the wasi
         # shim files (coverage-instrument.wasi.cjs, *-browser.js, wasi-worker*.mjs)
@@ -236,6 +260,14 @@ jobs:
         # wasm32-wasi npm-dir population step.
         working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi artifacts --output-dir artifacts --build-output-dir artifacts/bindings-wasm32-wasip1-threads
+
+      - name: Prepare single-threaded WASI npm package
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/prepare-wasi-singlethreaded-package.mjs artifacts-singlethreaded/bindings-wasm32-wasip1
+
+      - name: Validate single-threaded WASI npm package
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/validate-wasi-singlethreaded-package.mjs npm/wasm32-wasi-singlethreaded
 
       - name: Restore JS/TS wrapper from build artifacts
         # The JS/TS wrapper files (index.js, index.d.ts) are gitignored because
@@ -284,6 +316,10 @@ jobs:
           done
           echo "Restored wasm shims from $src"
 
+      - name: Patch root browser loader
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-browser-loader.mjs
+
       - name: Update versions from tag
         working-directory: crates/oxc-coverage-instrument-napi
         run: |
@@ -307,6 +343,21 @@ jobs:
       - name: Prepare root package
         working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi pre-publish --no-gh-release -t npm --skip-optional-publish
+
+      - name: Restore single-threaded optional dependency
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: |
+          VERSION="${TAG_REF#refs/tags/v}"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.optionalDependencies ||= {};
+            pkg.optionalDependencies['@oxc-coverage-instrument/binding-wasm32-wasi-singlethreaded'] = '$VERSION';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Verify npm pack surfaces
+        run: node scripts/npm-pack-surface-check.mjs
 
       - name: Publish platform packages
         working-directory: crates/oxc-coverage-instrument-napi

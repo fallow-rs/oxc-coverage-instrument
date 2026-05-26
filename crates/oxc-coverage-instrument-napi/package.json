@@ -55,6 +55,7 @@
       "x86_64-unknown-linux-musl",
       "x86_64-pc-windows-msvc",
       "aarch64-pc-windows-msvc",
+      "wasm32-wasip1",
       "wasm32-wasip1-threads"
     ]
   },
@@ -62,16 +63,17 @@
     "@napi-rs/wasm-runtime": "^1.1.4"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.6.0",
+    "@napi-rs/cli": "3.6.2",
     "istanbul-lib-instrument": "^6.0.3"
   },
   "scripts": {
-    "build": "napi build --release --platform && node scripts/patch-wasi-browser-shim.mjs",
-    "build:debug": "napi build --platform && node scripts/patch-wasi-browser-shim.mjs",
-    "patch-shim": "node scripts/patch-wasi-browser-shim.mjs",
+    "build": "napi build --release --platform && npm run patch-shim",
+    "build:debug": "napi build --platform && npm run patch-shim",
+    "patch-shim": "node scripts/patch-wasi-browser-shim.mjs && node scripts/patch-browser-loader.mjs",
     "prepublishOnly": "napi prepublish -t npm",
     "artifacts": "napi artifacts",
-    "test": "node test.mjs && node scripts/patch-wasi-browser-shim.test.mjs"
+    "test": "node test.mjs && node scripts/patch-wasi-browser-shim.test.mjs",
+    "test:browser-loader": "node scripts/browser-loader.test.mjs"
   },
   "optionalDependencies": {
     "@oxc-coverage-instrument/binding-darwin-arm64": "0.7.2",
@@ -81,6 +83,7 @@
     "@oxc-coverage-instrument/binding-linux-x64-musl": "0.7.2",
     "@oxc-coverage-instrument/binding-win32-arm64-msvc": "0.7.2",
     "@oxc-coverage-instrument/binding-win32-x64-msvc": "0.7.2",
-    "@oxc-coverage-instrument/binding-wasm32-wasi": "0.7.2"
+    "@oxc-coverage-instrument/binding-wasm32-wasi": "0.7.2",
+    "@oxc-coverage-instrument/binding-wasm32-wasi-singlethreaded": "0.7.2"
   }
 }
