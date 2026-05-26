@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779788278274,
+  "lastUpdate": 1779789984533,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -289,6 +289,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 85414120,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27c6c49a05080bf319eacc8326f817d5c9d48662",
+          "message": "feat(source-maps): RemapOptions { drop_unmapped } for remap helpers (#93)\n\nAdds an opt-in flag that prunes statement / function / branch entries\n(and their matching s / f / b / bT slots) when their positions cannot\nbe looked up in the inputSourceMap, instead of silently keeping the\ngenerated-output coordinates. Drop semantics match\nistanbul-lib-source-maps's transformer.js: statements drop when start\nor end fails; functions drop when any of decl / loc start or end\nfails; branch arms drop per arm, the whole branch drops only when no\narms survive or the umbrella loc start / end fails.\n\nSurfaced via RemapOptions on both the Rust and napi APIs. Existing\nfns stay as zero-overhead wrappers; the new third arg on\nremapCoverageMap / remapCoverageMapWithLoader is optional so the JS\nsurface is backwards compatible.\n\nUse case (from the issue): Vue 3 + Vite coverage where OXC instruments\ncompiler-emitted boilerplate in the ?vue&type=script chunk that has\nno mapping back to the .vue source. The unmapped positions otherwise\nsurvive at chunk-line coordinates and istanbul-reports renders them\nagainst the .vue path on lines that belong to <template> or CSS.\n\nCloses #92",
+          "timestamp": "2026-05-26T11:04:44+01:00",
+          "tree_id": "2949f177bb31490e2ba8e040cee014f00e2f54bd",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/27c6c49a05080bf319eacc8326f817d5c9d48662"
+        },
+        "date": 1779789983982,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 85427152,
             "unit": "bytes"
           }
         ]
