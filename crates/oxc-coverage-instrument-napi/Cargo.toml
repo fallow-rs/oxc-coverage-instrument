@@ -10,8 +10,11 @@ publish = false
 workspace = true
 
 [lib]
-crate-type = ["cdylib"]
-test = false
+# `rlib` next to `cdylib` so `cargo test` can link an in-process harness
+# against the lib. `cdylib` alone (with `test = false`) blocks unit tests on
+# pure helpers; adding `rlib` opens that path for platform-agnostic logic that
+# does not need a Node host (e.g. `looks_like_single_file_coverage`).
+crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [dependencies]
