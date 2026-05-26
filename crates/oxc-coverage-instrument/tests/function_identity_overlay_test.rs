@@ -158,15 +158,13 @@ fn overlay_path_change_changes_id() {
 
 #[test]
 fn overlay_handles_computed_key_method_with_special_chars_in_name() {
-    // Smoke test for the end-to-end path: a computed-key method whose
-    // name contains characters that would be ambiguous under a flat
-    // string separator must still produce a valid `fallow:fn:<hex>` id.
-    // The true collision-resistance regression test lives in the unit
-    // tests under `crates/oxc-coverage-instrument/src/coverage_builder.rs`
-    // where two synthetic FnEntry inputs are constructed to align under
-    // the prior `|`-concat shape and prove they hash differently under
-    // the JSON-encoded one. This integration test only proves "weird
-    // names don't crash the integration".
+    // Smoke test: a computed-key method whose name contains separator-like
+    // characters must still produce a valid `fallow:fn:<8 hex>` id.
+    // The formula now matches fallow-cov-protocol exactly (SHA-256 of
+    // path + name + start_line + literal "function" salt), which inherits
+    // the protocol's deliberate trade-off: producers with different
+    // positional fidelity MUST agree on the id, so columns are excluded.
+    // Cross-protocol parity is asserted in coverage_builder.rs unit tests.
     let src = "class C { ['x|y']() { return 1; } }\n";
     let result = instrument(src, "app.js", &opts_with_overlay()).expect("instrument");
     let overlay = result.coverage_map.x_fallow_function_map.expect("overlay");
@@ -174,6 +172,7 @@ fn overlay_handles_computed_key_method_with_special_chars_in_name() {
     let entry = overlay.values().next().unwrap();
     assert_eq!(entry.name, "x|y", "computed-key name must surface verbatim");
     assert!(entry.id.starts_with("fallow:fn:"), "id must be present for weird names");
+    assert_eq!(entry.id.len(), "fallow:fn:".len() + 8, "wire-pinned 8-hex suffix: {}", entry.id);
 }
 
 #[test]

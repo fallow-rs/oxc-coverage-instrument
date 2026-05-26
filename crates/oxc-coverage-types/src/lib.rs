@@ -93,15 +93,25 @@ pub struct FileCoverage {
 /// and source-mapped positions across runs without reconstructing identity
 /// from `(path, name, line, column)` after the fact.
 ///
-/// The `id` field is a stable string of the form `fallow:fn:<hex>` derived
-/// from `(path, name, decl span, loc span)`. Two runs over byte-identical
-/// source produce identical ids; renames, body edits, or moving the
-/// function to a different line all change the id.
+/// `id` is `fallow:fn:<8 hex>` derived from
+/// `SHA-256(path + name + decl.start.line + literal "function")` truncated
+/// to the first 4 bytes rendered as 8 lowercase hex chars. This is
+/// bit-equal to `fallow_cov_protocol::function_identity_id` so the overlay
+/// can serve as the cross-surface join key against any other producer in
+/// the fallow ecosystem (V8 dumps, Istanbul ingesters, browser / node
+/// beacons). Renames or moving the function to a different line change
+/// the id; column-level edits on the same line do not.
 ///
-/// Positions follow the same source as `FnEntry` in `fn_map` (original TS
-/// when `strip_typescript` is on; instrumented JS otherwise). Consumers that
-/// remap through `inputSourceMap` must recompute identity against the
-/// post-remap positions, the overlay is not rewritten by the remap pipeline.
+/// Columns survive on `decl` / `loc` for display and same-line
+/// disambiguation, but are deliberately NOT part of the hash so producers
+/// observing the same function with different positional fidelity all
+/// agree on the id (protocol invariant).
+///
+/// Positions in `decl` / `loc` follow the same source as `FnEntry` in
+/// `fn_map` (original TS when `strip_typescript` is on; instrumented JS
+/// otherwise). Consumers that remap through `inputSourceMap` must
+/// recompute identity against the post-remap positions; the overlay is
+/// not rewritten by the remap pipeline.
 ///
 /// The path enters the hash verbatim from the `filename` argument passed
 /// to `instrument()`, so callers that need stable ids across tools must
@@ -110,7 +120,7 @@ pub struct FileCoverage {
 /// workspace-root-relative POSIX path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionIdentity {
-    /// Stable identity string: `fallow:fn:<hex>`.
+    /// Stable identity string: `fallow:fn:<8 hex>`.
     pub id: String,
     /// Function name. Mirrors `FnEntry::name` (anonymous functions use
     /// `"(anonymous_N)"`).

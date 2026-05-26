@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, FunctionIdentity, Location};
 
-use crate::transform::djb31_hex;
+use sha2::{Digest, Sha256};
 
 /// Inputs to [`build_file_coverage`], grouped so callers thread one value
 /// instead of five.
@@ -92,17 +92,26 @@ pub(crate) fn build_file_coverage(maps: CoverageMaps) -> FileCoverage {
 }
 
 /// Compute the optional `x_fallow_functionMap` overlay from a populated
-/// `fn_map`. Each entry's id is a stable hash of `(path, name, decl span,
-/// loc span)`, formatted as `fallow:fn:<hex>`. A rename, body edit, or
-/// line shift changes the hash but a re-run on byte-identical source does
-/// not.
+/// `fn_map`. Each entry's id is `fallow:fn:<8 hex>` derived from
+/// `SHA-256(path + name + start_line + "function")` truncated to the first
+/// 4 bytes. The byte-equal formula lives in `fallow-cov-protocol` as
+/// `function_identity_id`; matching it lets the overlay serve as a
+/// cross-surface join key against V8 / Istanbul / source-mapped findings
+/// in the fallow ecosystem (protocol invariant: "two producers observing
+/// the same function with different positional fidelity MUST produce the
+/// same `stable_id`").
 ///
-/// Hash input is the JSON-encoded form of the parts array. JSON encoding
-/// makes the field boundaries unambiguous so a computed-key method like
-/// `class C { ['x|y']() {} }` (which lands in `fn_map[].name` as `"x|y"`)
-/// cannot collide with any sibling whose parts happen to align under a
-/// flat string separator. Keyed by the same string ids as `fn_map`;
-/// consumers join via the key.
+/// `decl.start.line` is the canonical line input. A rename or moving the
+/// function to a different line changes the id; a body edit on the same
+/// line does not. Columns survive on the overlay's `decl` / `loc` fields
+/// for display and same-line disambiguation, but are deliberately NOT
+/// part of the hash so positional fidelity differences between producers
+/// don't fork the join key.
+///
+/// The path enters the hash verbatim from the `filename` argument passed
+/// to `instrument()`; consumers that need stable ids across tools must
+/// normalise paths first (`./app.js`, `app.js`, and `/abs/repo/app.js`
+/// all hash differently).
 #[expect(
     clippy::redundant_pub_crate,
     reason = "crate-internal helper intentionally; the explicit pub(crate) documents that this is not part of the public API even though the parent module is already private"
@@ -128,59 +137,101 @@ pub(crate) fn build_function_identity_map(
         .collect()
 }
 
-/// Compute the `fallow:fn:<hex>` id for a single `(path, FnEntry)` pair.
-/// Split out from [`build_function_identity_map`] so the collision-resistance
-/// invariant can be unit-tested in isolation without round-tripping through
-/// the full instrumenter.
+/// Compute the `fallow:fn:<8 hex>` id for a single `(path, FnEntry)` pair.
+/// Bit-equal to `fallow_cov_protocol::function_identity_id(path, name,
+/// start_line)`; see [`build_function_identity_map`] for the rationale.
 fn function_identity_id(path: &str, entry: &FnEntry) -> String {
-    // Each part is its own JSON value, so escaping handles every
-    // ambiguous character (delimiters, quotes, NUL, unicode). The
-    // .expect is documentary: every input here is a JSON-serializable
-    // primitive (string / u32), so serde_json::to_string cannot fail.
-    let input = serde_json::to_string(&serde_json::json!([
-        path,
-        entry.name,
-        entry.decl.start.line,
-        entry.decl.start.column,
-        entry.decl.end.line,
-        entry.decl.end.column,
-        entry.loc.start.line,
-        entry.loc.start.column,
-        entry.loc.end.line,
-        entry.loc.end.column,
-    ]))
-    .expect("FunctionIdentity hash input serializes to JSON infallibly");
-    format!("fallow:fn:{}", djb31_hex(&input))
+    let mut hasher = Sha256::new();
+    hasher.update(path.as_bytes());
+    hasher.update(entry.name.as_bytes());
+    hasher.update(entry.decl.start.line.to_string().as_bytes());
+    hasher.update(b"function");
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity("fallow:fn:".len() + 8);
+    hex.push_str("fallow:fn:");
+    for byte in &digest[..4] {
+        // `{:02x}` keeps the leading zero on bytes < 0x10 so the suffix is
+        // always exactly 8 hex chars; this is part of the protocol's wire
+        // contract (`fallow-cov-protocol::function_identity_id` invariant).
+        use std::fmt::Write;
+        write!(&mut hex, "{byte:02x}").expect("writing to String is infallible");
+    }
+    hex
 }
 
 #[cfg(test)]
 mod tests {
     use super::function_identity_id;
     use oxc_coverage_types::{FnEntry, Location, Position};
+    use sha2::{Digest, Sha256};
 
-    fn entry(name: &str) -> FnEntry {
+    fn entry(name: &str, start_line: u32) -> FnEntry {
         let pos = |line, column| Position { line, column };
         FnEntry {
             name: name.to_string(),
-            line: 1,
-            decl: Location { start: pos(1, 0), end: pos(1, 10) },
-            loc: Location { start: pos(1, 0), end: pos(1, 10) },
+            line: start_line,
+            decl: Location { start: pos(start_line, 0), end: pos(start_line, 10) },
+            loc: Location { start: pos(start_line, 0), end: pos(start_line, 10) },
         }
     }
 
-    /// Regression test for the JSON-encoded hash input. A naive
-    /// `format!("{path}|{name}|{lines...}")` shape collides on
-    /// `(path="a", name="b|c")` vs `(path="a|b", name="c")` because both
-    /// produce the same flat string `"a|b|c|..."`. The JSON-encoded form
-    /// quotes each string so the field boundary survives any character.
+    /// Reimplements `fallow_cov_protocol::function_identity_id` inline so
+    /// we can assert byte-equality without taking a dep on the protocol
+    /// crate (which would create an awkward cycle if the protocol ever
+    /// grew a dep on oxc-coverage-types). If this helper drifts from
+    /// fallow-cov-protocol's canonical formula, the cross-surface join
+    /// silently breaks; update both sides together.
+    fn protocol_function_identity_id(file: &str, name: &str, start_line: u32) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(file.as_bytes());
+        hasher.update(name.as_bytes());
+        hasher.update(start_line.to_string().as_bytes());
+        hasher.update(b"function");
+        let digest = hasher.finalize();
+        let mut out = String::from("fallow:fn:");
+        for byte in &digest[..4] {
+            use std::fmt::Write;
+            write!(&mut out, "{byte:02x}").unwrap();
+        }
+        out
+    }
+
+    /// Cross-protocol parity: the overlay's id MUST match what a consumer
+    /// would compute via `fallow_cov_protocol::function_identity_id` from
+    /// the public `(path, name, decl.start.line)` triple, otherwise the
+    /// "cross-surface join key" promise in the rustdoc is a lie.
     #[test]
-    fn function_identity_id_is_collision_resistant_against_pipe_in_name() {
-        let a = function_identity_id("a", &entry("b|c"));
-        let b = function_identity_id("a|b", &entry("c"));
-        assert_ne!(
-            a, b,
-            "JSON-encoded hash input must keep (path, name) boundaries unambiguous; \
-             got collision: {a}",
+    fn function_identity_id_matches_fallow_cov_protocol() {
+        for (path, name, line) in [
+            ("src/app.ts", "handler", 1u32),
+            ("src/app.ts", "handler", 42),
+            ("a/b/c.ts", "(anonymous_0)", 7),
+            ("computed.ts", "x|y", 3),
+        ] {
+            let ours = function_identity_id(path, &entry(name, line));
+            let theirs = protocol_function_identity_id(path, name, line);
+            assert_eq!(
+                ours, theirs,
+                "x_fallow_functionMap.id must match fallow-cov-protocol \
+                 function_identity_id({path:?}, {name:?}, {line})",
+            );
+        }
+    }
+
+    /// Suffix shape: always `fallow:fn:` + 8 lowercase hex chars. The 8-char
+    /// width is part of the wire contract: pinned by SHA-256-truncated-to-4-bytes
+    /// in the protocol; renderers and length-sensitive tests downstream
+    /// depend on it. Catches `format!("{}", u8)` (drops leading zero) or
+    /// a hex-encoder swap that changes byte ordering.
+    #[test]
+    fn function_identity_id_has_fixed_8_hex_suffix() {
+        let id = function_identity_id("src/app.ts", &entry("handler", 1));
+        assert_eq!(id.len(), "fallow:fn:".len() + 8, "got {id:?}");
+        assert!(id.starts_with("fallow:fn:"));
+        let hex = &id["fallow:fn:".len()..];
+        assert!(
+            hex.chars().all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_lowercase())),
+            "suffix must be lowercase hex: {hex:?}",
         );
     }
 }
