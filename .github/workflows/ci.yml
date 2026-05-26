@@ -180,24 +180,34 @@ jobs:
         run: node scripts/istanbul-upstream-specs.mjs
 
   napi-wasm:
-    # Build the napi binding for wasm32-wasip1-threads and run the full test
-    # suite under NAPI_RS_FORCE_WASI=error so the WASI binding is exercised
-    # end-to-end on every PR (the `error` value fails fast if the WASI binding
-    # cannot be loaded, instead of silently falling back to the native one).
+    # Build the napi binding for both WASI variants. The threaded variant runs
+    # the full test suite under NAPI_RS_FORCE_WASI=error; the single-threaded
+    # variant runs the issue #87 instrument() smoke while the broader JS
+    # package surface is wired in parallel.
     # Catches regressions that compile against native libc but not against the
     # wasm32 emulated environment.
-    name: Napi Test (wasm32-wasi)
+    name: Napi Test (${{ matrix.variant }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: wasm32-wasip1-threads
+            target: wasm32-wasip1-threads
+            wasi_link_dir: ''
+          - variant: wasm32-wasip1
+            target: wasm32-wasip1
+            wasi_link_dir: wasm32-wasip1
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - uses: ./.github/actions/setup-rust
         with:
-          cache-key: napi-wasm
-          targets: wasm32-wasip1-threads
+          cache-key: napi-wasm-${{ matrix.target }}
+          targets: ${{ matrix.target }}
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -207,16 +217,38 @@ jobs:
         working-directory: crates/oxc-coverage-instrument-napi
         run: npm ci || npm install
 
+      - name: Patch napi-rs WASI link dir selector
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-napi-wasi-link-dir.mjs
+
       - name: Build wasm32-wasi binding
         working-directory: crates/oxc-coverage-instrument-napi
-        run: npx napi build --release --platform --target wasm32-wasip1-threads
+        env:
+          NAPI_RS_WASI_LINK_DIR: ${{ matrix.wasi_link_dir }}
+        run: |
+          rm -f coverage-instrument.wasm32-wasi*.wasm
+          npx napi build --release --platform --target ${{ matrix.target }}
+
+      - name: Patch single-threaded WASI artifacts
+        if: matrix.target == 'wasm32-wasip1'
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-wasi-singlethreaded-artifacts.mjs .
 
       # Inject the SharedArrayBuffer guard into the regenerated browser shim
       # (issue #89). The shim is rewritten by `napi build`, so the patch must
       # run after every wasm build that emits it.
       - name: Patch wasi-browser shim with SharedArrayBuffer guard
+        if: matrix.target == 'wasm32-wasip1-threads'
         working-directory: crates/oxc-coverage-instrument-napi
         run: node scripts/patch-wasi-browser-shim.mjs
+
+      - name: Patch root browser loader
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-browser-loader.mjs
+
+      - name: Test browser loader package selection
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: npm run test:browser-loader
 
       # The optionalDependency `@oxc-coverage-instrument/binding-wasm32-wasi`
       # is pinned at the previously published version; the loader in
@@ -227,37 +259,27 @@ jobs:
       # freshly-built local artifact; if napi build failed to produce it, the
       # loader fails loudly instead of pretending to test the new code.
       - name: Force loader to use freshly-built local wasm
-        working-directory: crates/oxc-coverage-instrument-napi
-        run: |
-          ls -la coverage-instrument.wasm32-wasi*.wasm || true
-          rm -f node_modules/@oxc-coverage-instrument/binding-wasm32-wasi/*.wasm
+        run: node scripts/force-local-wasm-artifacts.mjs
 
-      - name: Run napi tests against wasm binding
+      - name: Run threaded napi tests against wasm binding
+        if: matrix.target == 'wasm32-wasip1-threads'
         working-directory: crates/oxc-coverage-instrument-napi
         env:
           NAPI_RS_FORCE_WASI: error
-        run: node test.mjs
+        run: npm test
+
+      - name: Run single-threaded instrument smoke
+        if: matrix.target == 'wasm32-wasip1'
+        env:
+          NAPI_RS_FORCE_WASI: error
+        run: node scripts/wasm-instrument-smoke.mjs
 
       - name: Report wasm size and enforce ceiling
-        working-directory: crates/oxc-coverage-instrument-napi
-        # Issue #46 acceptance target: WASM artifact size <2 MB compressed.
+        # Issue #46 and #87 acceptance target: each WASM artifact size <2 MB compressed.
         # The ceiling is gated on brotli (the best compressor of the three);
         # baseline at branch-cut was 0.58 MB, leaving ~3.5x headroom for
         # dependency drift before the gate fires.
-        env:
-          MAX_BROTLI_BYTES: 2097152
-        run: |
-          ls -lh *.wasm
-          raw=$(wc -c < coverage-instrument.wasm32-wasi.wasm)
-          gz=$(gzip -9 -c coverage-instrument.wasm32-wasi.wasm | wc -c)
-          br=$(brotli -q 11 -c coverage-instrument.wasm32-wasi.wasm | wc -c)
-          printf '%-12s%10d  %.2f MB\n' 'raw'    "$raw" "$(echo "scale=2; $raw/1048576" | bc)"
-          printf '%-12s%10d  %.2f MB\n' 'gzip -9' "$gz"  "$(echo "scale=2; $gz/1048576"  | bc)"
-          printf '%-12s%10d  %.2f MB\n' 'brotli'  "$br"  "$(echo "scale=2; $br/1048576"  | bc)"
-          if [ "$br" -gt "$MAX_BROTLI_BYTES" ]; then
-            echo "::error::Brotli-compressed wasm size $br exceeds ceiling $MAX_BROTLI_BYTES (~2 MB). Issue #46 acceptance target violated."
-            exit 1
-          fi
+        run: node scripts/wasm-size-check.mjs crates/oxc-coverage-instrument-napi/coverage-instrument.wasm32-wasi.wasm
 
   istanbul-diff:
     # Byte-for-byte diff against istanbul-lib-instrument on the shared
@@ -341,23 +363,33 @@ jobs:
         run: npm run verify
 
   native-vs-wasm-parity:
-    # Byte-for-byte parity between the native and WASM (wasm32-wasip1-threads)
+    # Byte-for-byte parity between the native binding and each WASM variant
     # napi bindings on every conformance fixture. The existing `istanbul-diff`
     # job only runs the native binding; this job catches the case where a
     # future change subtly diverges WASM output from native (e.g. a
     # cfg(target_arch = "wasm32") branch that affects coverage shape).
-    name: Native vs WASM parity
+    name: Native vs WASM parity (${{ matrix.variant }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: wasm32-wasip1-threads
+            target: wasm32-wasip1-threads
+            wasi_link_dir: ''
+          - variant: wasm32-wasip1
+            target: wasm32-wasip1
+            wasi_link_dir: wasm32-wasip1
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - uses: ./.github/actions/setup-rust
         with:
-          cache-key: native-vs-wasm-parity
-          targets: wasm32-wasip1-threads
+          cache-key: native-vs-wasm-parity-${{ matrix.target }}
+          targets: ${{ matrix.target }}
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -367,47 +399,75 @@ jobs:
         working-directory: crates/oxc-coverage-instrument-napi
         run: npm ci || npm install
 
+      - name: Patch napi-rs WASI link dir selector
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-napi-wasi-link-dir.mjs
+
       - name: Build native napi binding
         working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi build --release --platform
 
       - name: Build wasm32-wasi napi binding
         working-directory: crates/oxc-coverage-instrument-napi
-        run: npx napi build --release --platform --target wasm32-wasip1-threads
+        env:
+          NAPI_RS_WASI_LINK_DIR: ${{ matrix.wasi_link_dir }}
+        run: |
+          rm -f coverage-instrument.wasm32-wasi*.wasm
+          npx napi build --release --platform --target ${{ matrix.target }}
+
+      - name: Patch single-threaded WASI artifacts
+        if: matrix.target == 'wasm32-wasip1'
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-wasi-singlethreaded-artifacts.mjs .
 
       - name: Patch wasi-browser shim with SharedArrayBuffer guard
+        if: matrix.target == 'wasm32-wasip1-threads'
         working-directory: crates/oxc-coverage-instrument-napi
         run: node scripts/patch-wasi-browser-shim.mjs
+
+      - name: Patch root browser loader
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-browser-loader.mjs
 
       # See napi-wasm job for rationale: prevent the wasi loader from falling
       # back to the previously published artifact if the local build is missing.
       - name: Force loader to use freshly-built local wasm
-        working-directory: crates/oxc-coverage-instrument-napi
-        run: |
-          ls -la coverage-instrument.wasm32-wasi*.wasm || true
-          rm -f node_modules/@oxc-coverage-instrument/binding-wasm32-wasi/*.wasm
+        run: node scripts/force-local-wasm-artifacts.mjs
 
       - name: Run native-vs-wasm parity
+        env:
+          OXC_COVERAGE_WASM_VARIANT: ${{ matrix.variant }}
         run: node scripts/native-vs-wasm-parity.mjs
 
   wasm-node-example:
-    # End-to-end smoke for the wasm-node example: builds both bindings, then
+    # End-to-end smoke for the wasm-node example: builds native plus each WASM
+    # variant, then
     # exercises both `npm run smoke` (native-preferred load) and
     # `npm run smoke:wasi` (NAPI_RS_FORCE_WASI=error) against the example's
     # `instrument()` call. Catches regressions where the published smoke
     # scripts drift away from the loader contract.
-    name: WASM node example
+    name: WASM node example (${{ matrix.variant }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: wasm32-wasip1-threads
+            target: wasm32-wasip1-threads
+            wasi_link_dir: ''
+          - variant: wasm32-wasip1
+            target: wasm32-wasip1
+            wasi_link_dir: wasm32-wasip1
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - uses: ./.github/actions/setup-rust
         with:
-          cache-key: wasm-node-example
-          targets: wasm32-wasip1-threads
+          cache-key: wasm-node-example-${{ matrix.target }}
+          targets: ${{ matrix.target }}
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -417,17 +477,35 @@ jobs:
         working-directory: crates/oxc-coverage-instrument-napi
         run: npm ci || npm install
 
+      - name: Patch napi-rs WASI link dir selector
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-napi-wasi-link-dir.mjs
+
       - name: Build native napi binding
         working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi build --release --platform
 
       - name: Build wasm32-wasi napi binding
         working-directory: crates/oxc-coverage-instrument-napi
-        run: npx napi build --release --platform --target wasm32-wasip1-threads
+        env:
+          NAPI_RS_WASI_LINK_DIR: ${{ matrix.wasi_link_dir }}
+        run: |
+          rm -f coverage-instrument.wasm32-wasi*.wasm
+          npx napi build --release --platform --target ${{ matrix.target }}
+
+      - name: Patch single-threaded WASI artifacts
+        if: matrix.target == 'wasm32-wasip1'
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-wasi-singlethreaded-artifacts.mjs .
 
       - name: Patch wasi-browser shim with SharedArrayBuffer guard
+        if: matrix.target == 'wasm32-wasip1-threads'
         working-directory: crates/oxc-coverage-instrument-napi
         run: node scripts/patch-wasi-browser-shim.mjs
+
+      - name: Patch root browser loader
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-browser-loader.mjs
 
       - name: Install example deps
         working-directory: examples/wasm-node
@@ -439,9 +517,7 @@ jobs:
       # shadow the freshly-built local wasm. Strip it so the loader has no
       # choice but to use the artifact under test.
       - name: Force loader to use freshly-built local wasm
-        run: |
-          rm -f crates/oxc-coverage-instrument-napi/node_modules/@oxc-coverage-instrument/binding-wasm32-wasi/*.wasm
-          rm -f examples/wasm-node/node_modules/@oxc-coverage-instrument/binding-wasm32-wasi/*.wasm
+        run: node scripts/force-local-wasm-artifacts.mjs
 
       - name: Run smoke (native binding)
         working-directory: examples/wasm-node
@@ -450,6 +526,93 @@ jobs:
       - name: Run smoke (WASI binding)
         working-directory: examples/wasm-node
         run: npm run smoke:wasi
+
+  cloudflare-workers-example:
+    # Secret-free Workers acceptance smoke for the single-threaded wasm target.
+    # The job builds the local wasm32-wasip1 artifact, creates a local optional
+    # package from that artifact, bundles with Wrangler, then runs the Worker in
+    # local workerd and compares its FileCoverage byte-for-byte with native.
+    name: Cloudflare Workers example
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: cloudflare-workers-example
+          targets: wasm32-wasip1,wasm32-wasip1-threads
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Install napi deps
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: npm ci || npm install
+
+      - name: Patch napi-rs WASI link dir selector
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-napi-wasi-link-dir.mjs
+
+      - name: Build native napi binding
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: npx napi build --release --platform
+
+      - name: Build threaded wasm32-wasi napi binding
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: |
+          rm -f coverage-instrument.wasm32-wasi*.wasm
+          npx napi build --release --platform --target wasm32-wasip1-threads
+
+      - name: Patch threaded wasi-browser shim
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: |
+          node scripts/patch-wasi-browser-shim.mjs
+          node scripts/patch-browser-loader.mjs
+
+      - name: Install Workers example deps
+        working-directory: examples/cloudflare-workers
+        run: npm install
+
+      - name: Prepare local threaded optional package
+        run: |
+          node scripts/force-local-wasm-artifacts.mjs
+          node scripts/prepare-local-wasm-package.mjs \
+            --package-name @oxc-coverage-instrument/binding-wasm32-wasi \
+            --install-root crates/oxc-coverage-instrument-napi \
+            --install-root examples/cloudflare-workers
+
+      - name: Build single-threaded wasm32-wasi napi binding
+        working-directory: crates/oxc-coverage-instrument-napi
+        env:
+          NAPI_RS_WASI_LINK_DIR: wasm32-wasip1
+        run: |
+          rm -f coverage-instrument.wasm32-wasi*.wasm
+          npx napi build --release --platform --target wasm32-wasip1
+          node scripts/patch-wasi-singlethreaded-artifacts.mjs .
+          node scripts/patch-browser-loader.mjs
+
+      - name: Prepare local single-threaded optional package
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: |
+          node scripts/prepare-wasi-singlethreaded-package.mjs . \
+            --install-root . \
+            --install-root ../../examples/cloudflare-workers
+
+      - name: Validate local single-threaded optional package
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/validate-wasi-singlethreaded-package.mjs npm/wasm32-wasi-singlethreaded
+
+      - name: Bundle Worker
+        working-directory: examples/cloudflare-workers
+        run: npm run build
+
+      - name: Smoke Worker against native FileCoverage
+        working-directory: examples/cloudflare-workers
+        run: npm run smoke
 
   ci-ok:
     name: CI
@@ -469,6 +632,7 @@ jobs:
       - vitest-typescript-example
       - native-vs-wasm-parity
       - wasm-node-example
+      - cloudflare-workers-example
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}

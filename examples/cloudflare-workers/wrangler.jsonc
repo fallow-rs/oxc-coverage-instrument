@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "oxc-coverage-instrument-workers-smoke",
+  "main": "src/index.js",
+  "compatibility_date": "2026-05-26",
+  "workers_dev": false,
+  "rules": [
+    {
+      "type": "CompiledWasm",
+      "globs": ["**/*.wasm"],
+      "fallthrough": true
+    }
+  ]
+}
