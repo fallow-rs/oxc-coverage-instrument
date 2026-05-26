@@ -13,9 +13,15 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 console.log('Testing oxc-coverage-instrument napi bindings...\n');
-// Diagnostic: surface which local wasm artifacts exist so CI logs reveal
-// when the loader silently falls back to a published optionalDependency
-// because the freshly-built wasm wasn't dropped at the expected path.
+
+// Log which local napi artifacts exist before the binding loader runs. This
+// is a permanent CI safeguard, not debug output: when the wasm32-wasi job
+// has no local artifact the loader silently falls back to the published
+// `@oxc-coverage-instrument/binding-wasm32-wasi` optionalDependency and
+// silently exercises the previous release. Surfacing the file list up front
+// catches that regression class on the first failing run instead of after
+// hours of remote diagnosis. Companion safeguard: the wasi CI job deletes
+// the published wasm between build and test (see `.github/workflows/ci.yml`).
 for (const f of [
   'coverage-instrument.wasm32-wasi.wasm',
   'coverage-instrument.wasm32-wasi.debug.wasm',
@@ -23,8 +29,9 @@ for (const f of [
   'coverage-instrument.darwin-arm64.node',
 ]) {
   const p = join(__dirname, f);
-  if (existsSync(p)) console.log(`[diag] present: ${f} (${statSync(p).size} bytes)`);
+  if (existsSync(p)) console.log(`[napi-artifact] ${f} (${statSync(p).size} bytes)`);
 }
+console.log();
 
 function runInstrumented(result, filename, callExpression) {
   const sharedGlobal = {};
