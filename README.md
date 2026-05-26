@@ -190,6 +190,23 @@ let remapped = remap_coverage_with_loader(&fc, |path| {
 
 For runners (Jest with `transform`, plugins that hand maps in incrementally) that want continuous remapping during collection, `SourceMapStore` accumulates per-file maps via `add_map` and applies them via `transform_coverage`.
 
+By default, positions whose source-map lookup returns `None` are silently kept at their generated-output coordinates (matching the legacy Mode A flow). Pass `RemapOptions { drop_unmapped: true }` (or `{ dropUnmapped: true }` from JS) to drop statement / function / branch entries that fail to remap, along with their matching `s` / `f` / `b` / `bT` slots. Drop semantics align with `istanbul-lib-source-maps`'s `transformer.js`: statements drop when start or end fails, functions drop when any of `decl` / `loc` start or end fails, and branch arms drop per arm (the whole branch drops only when no arms survive or the umbrella `loc` fails to remap). Use this when instrumenting compiler-emitted boilerplate that has no original-source mapping (e.g. the `?vue&type=script` chunk produced by `@vitejs/plugin-vue`) to keep downstream Istanbul reporters from rendering chunk-line positions against `.vue` paths.
+
+```rust
+use oxc_coverage_instrument::{remap_coverage_map_with_options, RemapOptions};
+
+let remapped =
+    remap_coverage_map_with_options(&coverage_map, RemapOptions { drop_unmapped: true });
+```
+
+```js
+import { remapCoverageMap } from 'oxc-coverage-instrument';
+
+const remapped = JSON.parse(
+    remapCoverageMap(JSON.stringify(coverageMap), { dropUnmapped: true }),
+);
+```
+
 ### Converting V8 byte-range coverage to Istanbul
 
 `v8_to_istanbul` accepts the same shape Node's inspector and `@vitest/coverage-v8` emit. With block coverage enabled, statement/function/branch counts are populated by intersecting V8 ranges with locations recovered from a visit-only AST pass. Inline `//# sourceMappingURL=data:...` trailers are decoded automatically; external map references resolve through the optional loader on `v8_to_istanbul_with_loader`.

@@ -11,7 +11,8 @@
 use std::collections::BTreeMap;
 
 use oxc_coverage_source_maps::{
-    SourceMapStore, remap_coverage, remap_coverage_map_with_loader, remap_coverage_with_loader,
+    RemapOptions, SourceMapStore, remap_coverage, remap_coverage_map_with_loader,
+    remap_coverage_map_with_options, remap_coverage_with_loader, remap_coverage_with_options,
 };
 use oxc_coverage_types::{
     BranchEntry, FileCoverage, FnEntry, Location, Position, parse_coverage_map,
@@ -220,6 +221,250 @@ fn remap_skips_positions_with_unknown_line() {
     let blank = &remapped.statement_map["blank"];
     assert_eq!(blank.start.line, 0, "unknown line stays unknown");
     assert_eq!(blank.end.line, 0);
+}
+
+/// Single-line identity map: line 1 of the generated file maps to line 1 of
+/// `src/app.ts`. Positions on line 2+ have no mapping and
+/// `original_position_for` returns `None` for them, which is the trigger we
+/// need to exercise `RemapOptions::drop_unmapped`.
+fn one_line_identity_map() -> serde_json::Value {
+    serde_json::from_str(&format!(
+        r#"{{"version":3,"sources":["{SRC_PATH}"],"mappings":"AAAA","names":[]}}"#,
+    ))
+    .unwrap()
+}
+
+/// `FileCoverage` whose statement / function / branch entries straddle a
+/// "mapped line 1 / unmapped line 2+" boundary so the `drop_unmapped` tests
+/// can assert which entries survive and which get pruned.
+///
+/// Statement `keep` sits at line 1 (mapped), `drop` at line 2 (unmapped).
+/// Function `keep` has both `decl` and `loc` on line 1; function `drop` has
+/// `decl` on line 1 but `loc` on line 2, exercising the "any of decl/loc
+/// fails" rule. Branch `keep` has its umbrella `loc` on line 1 with two arms,
+/// one on line 1 (kept) and one on line 2 (pruned); branch `drop_no_arms`
+/// has its umbrella `loc` on line 1 but every arm on line 2 (drop because
+/// no arms survive); branch `drop_outer` has its umbrella `loc` on line 2
+/// (drop even though arms map).
+fn mixed_mapped_file_coverage() -> FileCoverage {
+    let pos = |line: u32, col: u32| Position { line, column: col };
+    let loc =
+        |sl: u32, sc: u32, el: u32, ec: u32| Location { start: pos(sl, sc), end: pos(el, ec) };
+
+    let mut statement_map = BTreeMap::new();
+    statement_map.insert("keep".to_string(), loc(1, 0, 1, 10));
+    statement_map.insert("drop".to_string(), loc(2, 0, 2, 10));
+
+    let mut fn_map = BTreeMap::new();
+    fn_map.insert(
+        "keep".to_string(),
+        FnEntry { name: "k".to_string(), line: 1, decl: loc(1, 0, 1, 1), loc: loc(1, 0, 1, 10) },
+    );
+    fn_map.insert(
+        "drop".to_string(),
+        FnEntry { name: "d".to_string(), line: 1, decl: loc(1, 0, 1, 1), loc: loc(2, 0, 2, 10) },
+    );
+
+    let mut branch_map = BTreeMap::new();
+    branch_map.insert(
+        "keep".to_string(),
+        BranchEntry {
+            loc: loc(1, 0, 1, 8),
+            line: 1,
+            branch_type: "if".to_string(),
+            // arm 0 maps (line 1); arm 1 does not (line 2).
+            locations: vec![loc(1, 4, 1, 5), loc(2, 6, 2, 7)],
+        },
+    );
+    branch_map.insert(
+        "drop_no_arms".to_string(),
+        BranchEntry {
+            loc: loc(1, 0, 1, 8),
+            line: 1,
+            branch_type: "if".to_string(),
+            // every arm unmapped.
+            locations: vec![loc(2, 4, 2, 5), loc(2, 6, 2, 7)],
+        },
+    );
+    branch_map.insert(
+        "drop_outer".to_string(),
+        BranchEntry {
+            loc: loc(2, 0, 2, 8),
+            line: 2,
+            branch_type: "if".to_string(),
+            // arms are technically mappable, but umbrella loc is not.
+            locations: vec![loc(1, 4, 1, 5), loc(1, 6, 1, 7)],
+        },
+    );
+
+    let mut s = BTreeMap::new();
+    s.insert("keep".to_string(), 7);
+    s.insert("drop".to_string(), 13);
+    let mut f = BTreeMap::new();
+    f.insert("keep".to_string(), 2);
+    f.insert("drop".to_string(), 3);
+    let mut b = BTreeMap::new();
+    b.insert("keep".to_string(), vec![4, 5]);
+    b.insert("drop_no_arms".to_string(), vec![6, 7]);
+    b.insert("drop_outer".to_string(), vec![8, 9]);
+    let mut b_t = BTreeMap::new();
+    b_t.insert("keep".to_string(), vec![10, 11]);
+    b_t.insert("drop_no_arms".to_string(), vec![12, 13]);
+    b_t.insert("drop_outer".to_string(), vec![14, 15]);
+
+    FileCoverage {
+        path: "intermediate.js".to_string(),
+        statement_map,
+        fn_map,
+        branch_map,
+        s,
+        f,
+        b,
+        b_t: Some(b_t),
+        input_source_map: Some(one_line_identity_map()),
+        x_fallow_function_map: None,
+    }
+}
+
+#[test]
+fn drop_unmapped_default_keeps_generated_positions() {
+    // Default options preserve current behaviour: nothing gets dropped, and
+    // unmapped positions keep their generated-output coordinates.
+    let fc = mixed_mapped_file_coverage();
+    let remapped =
+        remap_coverage(&fc).expect("remap with embedded map and default options succeeds");
+
+    assert_eq!(remapped.statement_map.len(), 2, "default keeps both statements");
+    assert_eq!(remapped.fn_map.len(), 2, "default keeps both functions");
+    assert_eq!(remapped.branch_map.len(), 3, "default keeps all branches");
+    assert_eq!(remapped.branch_map["keep"].locations.len(), 2, "default keeps both arms");
+}
+
+#[test]
+fn drop_unmapped_prunes_statements_and_aligned_counters() {
+    let fc = mixed_mapped_file_coverage();
+    let opts = RemapOptions { drop_unmapped: true };
+    let remapped = remap_coverage_with_options(&fc, opts).expect("drop_unmapped remap succeeds");
+
+    assert!(remapped.statement_map.contains_key("keep"));
+    assert!(!remapped.statement_map.contains_key("drop"));
+    assert!(remapped.s.contains_key("keep"), "matching `s` slot survives");
+    assert_eq!(remapped.s["keep"], 7);
+    assert!(!remapped.s.contains_key("drop"), "matching `s` slot drops with the statement");
+}
+
+#[test]
+fn drop_unmapped_prunes_functions_when_decl_or_loc_fails() {
+    let fc = mixed_mapped_file_coverage();
+    let opts = RemapOptions { drop_unmapped: true };
+    let remapped = remap_coverage_with_options(&fc, opts).expect("drop_unmapped remap succeeds");
+
+    assert!(remapped.fn_map.contains_key("keep"));
+    assert!(!remapped.fn_map.contains_key("drop"), "function with unmapped loc drops");
+    assert!(remapped.f.contains_key("keep"));
+    assert!(!remapped.f.contains_key("drop"));
+    let kept = &remapped.fn_map["keep"];
+    assert_eq!(kept.line, kept.loc.start.line, "FnEntry.line tracks loc.start.line after remap");
+}
+
+#[test]
+fn drop_unmapped_prunes_branch_arms_and_realigns_counters() {
+    let fc = mixed_mapped_file_coverage();
+    let opts = RemapOptions { drop_unmapped: true };
+    let remapped = remap_coverage_with_options(&fc, opts).expect("drop_unmapped remap succeeds");
+
+    // Per-arm prune: arm 0 (line 1) survives, arm 1 (line 2) drops.
+    let kept =
+        remapped.branch_map.get("keep").expect("branch with at least one mapped arm survives");
+    assert_eq!(kept.locations.len(), 1, "only the mapped arm survives");
+    assert_eq!(kept.locations[0].start.line, 1, "the surviving arm maps to line 1");
+
+    // Counter vectors realign so positions still line up with the kept arms.
+    assert_eq!(remapped.b["keep"], vec![4], "b realigns to the kept arm");
+    let b_t = remapped.b_t.as_ref().expect("bT survives when drop preserves the branch");
+    assert_eq!(b_t["keep"], vec![10], "bT realigns to the kept arm");
+}
+
+#[test]
+fn drop_unmapped_drops_whole_branch_when_no_arms_survive() {
+    let fc = mixed_mapped_file_coverage();
+    let opts = RemapOptions { drop_unmapped: true };
+    let remapped = remap_coverage_with_options(&fc, opts).expect("drop_unmapped remap succeeds");
+
+    assert!(
+        !remapped.branch_map.contains_key("drop_no_arms"),
+        "branch drops when every arm fails to remap",
+    );
+    assert!(!remapped.b.contains_key("drop_no_arms"), "matching `b` slot drops with the branch");
+    let b_t = remapped.b_t.as_ref().expect("bT exists for the surviving branches");
+    assert!(!b_t.contains_key("drop_no_arms"), "matching `bT` slot drops with the branch");
+}
+
+#[test]
+fn drop_unmapped_drops_branch_when_outer_loc_fails() {
+    let fc = mixed_mapped_file_coverage();
+    let opts = RemapOptions { drop_unmapped: true };
+    let remapped = remap_coverage_with_options(&fc, opts).expect("drop_unmapped remap succeeds");
+
+    assert!(
+        !remapped.branch_map.contains_key("drop_outer"),
+        "branch drops when the umbrella `loc` fails to remap, even if arms would map",
+    );
+    assert!(!remapped.b.contains_key("drop_outer"));
+    let b_t = remapped.b_t.as_ref().expect("bT exists for the surviving branches");
+    assert!(!b_t.contains_key("drop_outer"));
+}
+
+#[test]
+fn drop_unmapped_keeps_unknown_line_zero_positions() {
+    // Istanbul uses `line: 0` as the "unknown" sentinel; the drop path must
+    // treat it as a successful no-op rather than pruning it.
+    let mut fc = mixed_mapped_file_coverage();
+    fc.statement_map.insert(
+        "blank".to_string(),
+        Location { start: Position { line: 0, column: 0 }, end: Position { line: 0, column: 0 } },
+    );
+    fc.s.insert("blank".to_string(), 0);
+
+    let opts = RemapOptions { drop_unmapped: true };
+    let remapped = remap_coverage_with_options(&fc, opts).expect("drop_unmapped remap succeeds");
+    assert!(
+        remapped.statement_map.contains_key("blank"),
+        "`line: 0` sentinel positions survive `drop_unmapped`",
+    );
+}
+
+#[test]
+fn drop_unmapped_applies_to_coverage_map_helper() {
+    let fc = mixed_mapped_file_coverage();
+    let mut coverage_map = BTreeMap::new();
+    coverage_map.insert("intermediate.js".to_string(), fc);
+
+    let opts = RemapOptions { drop_unmapped: true };
+    let remapped = remap_coverage_map_with_options(&coverage_map, opts);
+    let entry = remapped.get(SRC_PATH).expect("entry is rekeyed by source path");
+    assert_eq!(entry.statement_map.len(), 1, "drop_unmapped flows through coverage-map helper");
+    assert!(entry.fn_map.contains_key("keep"));
+    assert!(!entry.fn_map.contains_key("drop"));
+}
+
+#[test]
+fn drop_unmapped_applies_through_store() {
+    let fc = mixed_mapped_file_coverage();
+    let mut store = SourceMapStore::new();
+    store.add_map("intermediate.js", one_line_identity_map());
+
+    let opts = RemapOptions { drop_unmapped: true };
+    let remapped = store
+        .transform_coverage_with_options(&fc, opts)
+        .expect("store-driven drop_unmapped remap succeeds");
+    assert_eq!(remapped.statement_map.len(), 1);
+
+    let mut coverage_map = BTreeMap::new();
+    coverage_map.insert("intermediate.js".to_string(), fc);
+    let remapped_map = store.transform_coverage_map_with_options(&coverage_map, opts);
+    let entry = remapped_map.get(SRC_PATH).expect("store map-level helper rekeys by source path");
+    assert_eq!(entry.statement_map.len(), 1);
 }
 
 #[test]

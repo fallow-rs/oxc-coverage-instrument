@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 
 use napi_derive::napi;
-use oxc_coverage_instrument::DecoratorMode;
+use oxc_coverage_instrument::{DecoratorMode, RemapOptions as CoreRemapOptions};
 use oxc_coverage_types::FileCoverage;
 
 /// Build a friendlier `napi::Error` for the case where the caller passed a
@@ -114,6 +114,30 @@ pub struct InstrumentOptions {
     pub function_identity_overlay: Option<bool>,
 }
 
+/// Options for `remapCoverageMap` and `remapCoverageMapWithLoader`.
+///
+/// Defaults to the legacy keep-generated-position behaviour, so callers that
+/// omit this argument see no change.
+#[napi(object)]
+pub struct RemapOptions {
+    /// When `true`, statement / function / branch entries whose positions
+    /// cannot be looked up in the source map are pruned, along with their
+    /// matching `s` / `f` / `b` / `bT` hit-count slots.
+    ///
+    /// Drop semantics mirror `istanbul-lib-source-maps`'s `transformer.js`:
+    /// statements drop when start or end fails to remap; functions drop when
+    /// any of `decl` / `loc` start or end fails; branch arms drop per arm,
+    /// and the whole branch drops when no arms survive or when the umbrella
+    /// `loc` start/end fails to remap.
+    ///
+    /// Defaults to `false`.
+    pub drop_unmapped: Option<bool>,
+}
+
+fn core_remap_options_from(options: Option<RemapOptions>) -> CoreRemapOptions {
+    CoreRemapOptions { drop_unmapped: options.and_then(|o| o.drop_unmapped).unwrap_or(false) }
+}
+
 /// A coverage pragma comment that was found but not handled.
 #[napi(object)]
 pub struct UnhandledPragma {
@@ -199,11 +223,20 @@ pub fn instrument(
 /// the Vitest istanbul reporter path. For nyc's disk-read flow (Mode A
 /// fallback) use [`remap_coverage_map_with_loader`] and supply a
 /// `Record<string, string>` of preloaded maps keyed by FileCoverage path.
+///
+/// Pass `{ dropUnmapped: true }` to align with `istanbul-lib-source-maps`'s
+/// `transformer.js` and drop entries whose positions cannot be looked up in
+/// the source map (instead of silently keeping their generated-output
+/// coordinates). See [`RemapOptions`] for the full per-kind drop semantics.
 #[napi]
-pub fn remap_coverage_map(coverage_json: String) -> napi::Result<String> {
+pub fn remap_coverage_map(
+    coverage_json: String,
+    options: Option<RemapOptions>,
+) -> napi::Result<String> {
     let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json)
         .map_err(|e| invalid_coverage_json_error(&coverage_json, e))?;
-    let remapped = oxc_coverage_instrument::remap_coverage_map(&parsed);
+    let core_options = core_remap_options_from(options);
+    let remapped = oxc_coverage_instrument::remap_coverage_map_with_options(&parsed, core_options);
     serde_json::to_string(&remapped)
         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
 }
@@ -224,12 +257,16 @@ pub fn remap_coverage_map(coverage_json: String) -> napi::Result<String> {
 pub fn remap_coverage_map_with_loader(
     coverage_json: String,
     source_maps: HashMap<String, String>,
+    options: Option<RemapOptions>,
 ) -> napi::Result<String> {
     let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json)
         .map_err(|e| invalid_coverage_json_error(&coverage_json, e))?;
-    let remapped = oxc_coverage_instrument::remap_coverage_map_with_loader(&parsed, |path| {
-        source_maps.get(path).cloned()
-    });
+    let core_options = core_remap_options_from(options);
+    let remapped = oxc_coverage_instrument::remap_coverage_map_with_loader_and_options(
+        &parsed,
+        |path| source_maps.get(path).cloned(),
+        core_options,
+    );
     serde_json::to_string(&remapped)
         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
 }
