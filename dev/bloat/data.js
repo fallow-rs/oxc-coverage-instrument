@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779804050871,
+  "lastUpdate": 1779831322755,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -400,6 +400,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/8922226afbe7dc754c4e7c3e62118f8f4dcd08b6"
         },
         "date": 1779804050422,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 85427152,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fe1c0cd7f1a60af2201305c16e56e180c4c3fab9",
+          "message": "feat: add single-threaded WASI binding for Workers\n\nCloses #87.",
+          "timestamp": "2026-05-26T22:30:20+01:00",
+          "tree_id": "fcc0acea8da9f0ec7fb7755b943af17ca42ccee5",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/fe1c0cd7f1a60af2201305c16e56e180c4c3fab9"
+        },
+        "date": 1779831321746,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
