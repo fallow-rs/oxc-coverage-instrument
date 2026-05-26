@@ -25,14 +25,18 @@ use oxc_coverage_instrument::{DecoratorMode, RemapOptions as CoreRemapOptions};
 /// FileCoverage shape is wrong" when the actual problem is "you handed me
 /// the wrong outer container". Caught during the v0.7.2 smoke test.
 fn invalid_coverage_json_error<E: std::fmt::Display>(coverage_json: &str, err: E) -> napi::Error {
-    let hint = if looks_like_single_file_coverage(coverage_json) {
+    let detection = looks_like_single_file_coverage(coverage_json);
+    let hint = if detection {
         " (hint: input parses as a single FileCoverage; remapCoverageMap \
          expects an Istanbul CoverageMap shape `{[path]: FileCoverage}`. \
          Wrap with `{ [fc.path]: fc }` before calling.)"
     } else {
         ""
     };
-    napi::Error::new(napi::Status::InvalidArg, format!("invalid coverage JSON: {err}{hint}"))
+    napi::Error::new(
+        napi::Status::InvalidArg,
+        format!("invalid coverage JSON [shape_check={detection}]: {err}{hint}"),
+    )
 }
 
 /// Cheap, platform-agnostic "this JSON looks like a single `FileCoverage`,
