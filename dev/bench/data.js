@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779779601206,
+  "lastUpdate": 1779780151808,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -1151,6 +1151,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 785566,
             "range": "± 12754",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "c696091241b46b71e1a94b47e88b95ac3693a7a0",
+          "message": "chore: release v0.7.1\n\nRepublishes after v0.7.0 left npm side unpublished. The release-npm.yml\nmatrix called dtolnay/rust-toolchain with toolchain: stable + the cross\ntarget, but rust-toolchain.toml pins the channel to 1.95, so the cross\ntarget rustlib landed in stable's sysroot while cargo (under the repo)\npicked up 1.95 and could not find the target's core crate.\n\n5 of 8 build matrix jobs failed (musl, aarch64-linux-gnu,\naarch64-pc-windows, x86_64-darwin, wasm32-wasip1-threads), the publish\nto npm step was skipped, and crates.io v0.7.0 went out without an\naccompanying npm release.\n\nFix: route both the matrix build and the publish-crate job through\n./.github/actions/setup-rust which honors rust-toolchain.toml first.",
+          "timestamp": "2026-05-26T09:16:24+02:00",
+          "tree_id": "76276305dcc2e6b6029dc4b8e3db65f2953a677e",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/c696091241b46b71e1a94b47e88b95ac3693a7a0"
+        },
+        "date": 1779780150954,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 20920,
+            "range": "± 95",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 50541,
+            "range": "± 154",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 138906,
+            "range": "± 1994",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 280303,
+            "range": "± 892",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 116285,
+            "range": "± 463",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 483222,
+            "range": "± 2372",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 282006,
+            "range": "± 2982",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 447246,
+            "range": "± 3959",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 53921,
+            "range": "± 148",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 255111,
+            "range": "± 12507",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 502014,
+            "range": "± 1967",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2668106,
+            "range": "± 8984",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 37714,
+            "range": "± 168",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 34166,
+            "range": "± 953",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 490505,
+            "range": "± 3472",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 448554,
+            "range": "± 3666",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 181036,
+            "range": "± 1107",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 168285,
+            "range": "± 832",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 839709,
+            "range": "± 1633",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 768041,
+            "range": "± 3015",
             "unit": "ns/iter"
           }
         ]
