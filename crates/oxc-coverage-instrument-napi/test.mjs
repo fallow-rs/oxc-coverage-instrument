@@ -1065,4 +1065,85 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] remapCoverageMap hints at wrong-shape input');
 }
 
+// Test: remapCoverageMap drop_unmapped prunes entries on unmapped lines (issue #92)
+{
+  // Single-line identity map: line 1 of the generated file maps to line 1 of
+  // src/app.ts; everything on line 2+ is unmapped. Without `dropUnmapped`,
+  // unmapped positions keep their generated-output coordinates (line 2); with
+  // `dropUnmapped: true`, those entries (and their matching s/f/b slots) are
+  // pruned from the FileCoverage, matching istanbul-lib-source-maps's
+  // transformer.js behaviour.
+  const inputSourceMap = {
+    version: 3,
+    sources: ['src/app.ts'],
+    sourcesContent: ['const x: number = 1;\n'],
+    mappings: 'AAAA',
+    names: [],
+  };
+  const intermediateJs = 'const x = 1;\nconst y = 2;\n';
+  const result = instrument(intermediateJs, 'intermediate.js', {
+    inputSourceMap: JSON.stringify(inputSourceMap),
+  });
+  const coverageMap = { 'intermediate.js': JSON.parse(result.coverageMap) };
+  const inputJson = JSON.stringify(coverageMap);
+
+  const kept = JSON.parse(remapCoverageMap(inputJson));
+  const pruned = JSON.parse(remapCoverageMap(inputJson, { dropUnmapped: true }));
+
+  const keptStatements = Object.keys(kept['src/app.ts'].statementMap).length;
+  const prunedStatements = Object.keys(pruned['src/app.ts'].statementMap).length;
+  assert(
+    keptStatements > prunedStatements,
+    `dropUnmapped must prune at least one statement (kept=${keptStatements}, pruned=${prunedStatements})`,
+  );
+  // Every surviving entry must sit on the mapped line.
+  for (const loc of Object.values(pruned['src/app.ts'].statementMap)) {
+    assert.equal(loc.start.line, 1, `surviving statement must be on the mapped line, got ${loc.start.line}`);
+  }
+  // `s` slot keys stay aligned with `statementMap` keys.
+  assert.deepEqual(
+    Object.keys(pruned['src/app.ts'].s).sort(),
+    Object.keys(pruned['src/app.ts'].statementMap).sort(),
+    'surviving `s` keys must match `statementMap` keys',
+  );
+
+  // Default (omitted options) is unchanged.
+  const defaultRemap = JSON.parse(remapCoverageMap(inputJson));
+  assert.equal(
+    Object.keys(defaultRemap['src/app.ts'].statementMap).length,
+    keptStatements,
+    'omitting options must behave identically to the prior API',
+  );
+
+  console.log('  [PASS] remapCoverageMap dropUnmapped prunes unmapped entries');
+}
+
+// Test: remapCoverageMapWithLoader respects dropUnmapped
+{
+  const inputSourceMap = JSON.stringify({
+    version: 3,
+    sources: ['src/app.ts'],
+    sourcesContent: ['const x: number = 1;\n'],
+    mappings: 'AAAA',
+    names: [],
+  });
+  const intermediateJs = 'const x = 1;\nconst y = 2;\n';
+  const result = instrument(intermediateJs, 'intermediate.js');
+  const coverageMap = { 'intermediate.js': JSON.parse(result.coverageMap) };
+  const inputJson = JSON.stringify(coverageMap);
+  const loader = { 'intermediate.js': inputSourceMap };
+
+  const kept = JSON.parse(remapCoverageMapWithLoader(inputJson, loader));
+  const pruned = JSON.parse(remapCoverageMapWithLoader(inputJson, loader, { dropUnmapped: true }));
+
+  const keptStatements = Object.keys(kept['src/app.ts'].statementMap).length;
+  const prunedStatements = Object.keys(pruned['src/app.ts'].statementMap).length;
+  assert(
+    keptStatements > prunedStatements,
+    `loader form: dropUnmapped must prune at least one statement (kept=${keptStatements}, pruned=${prunedStatements})`,
+  );
+
+  console.log('  [PASS] remapCoverageMapWithLoader respects dropUnmapped');
+}
+
 console.log('\nAll tests passed!');

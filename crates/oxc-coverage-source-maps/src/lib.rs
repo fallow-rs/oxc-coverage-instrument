@@ -30,6 +30,30 @@ use std::collections::BTreeMap;
 
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
 
+/// Options for the remap helpers. The default value preserves the legacy
+/// keep-generated-position behaviour for positions whose source-map lookup
+/// returns `None`, so existing callers that pass [`RemapOptions::default`] (or
+/// rely on the parameterless [`remap_coverage`] / [`remap_coverage_map`]
+/// helpers) see no change.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RemapOptions {
+    /// When `true`, statement / function / branch entries whose positions
+    /// cannot be looked up in the source map are pruned, along with their
+    /// matching `s` / `f` / `b` / `bT` hit-count slots.
+    ///
+    /// Drop semantics mirror `istanbul-lib-source-maps`'s
+    /// `transformer.js`:
+    /// - **statement**: dropped when either `start` or `end` fails to remap.
+    /// - **function**: dropped when any of `decl.start`, `decl.end`,
+    ///   `loc.start`, `loc.end` fails to remap.
+    /// - **branch**: per-arm prune when either arm endpoint fails to remap;
+    ///   the whole branch is dropped when no arms survive, or when the
+    ///   umbrella `loc` start/end fails to remap.
+    ///
+    /// Defaults to `false` so existing callers see no change.
+    pub drop_unmapped: bool,
+}
+
 /// Remap a single `FileCoverage` through its embedded `inputSourceMap`.
 ///
 /// Returns `None` when the entry has no `inputSourceMap`, when that map fails
@@ -40,7 +64,16 @@ use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position}
 /// `sourceRoot` joined with the first entry in `sources` (matching
 /// `istanbul-lib-source-maps` semantics).
 pub fn remap_coverage(coverage: &FileCoverage) -> Option<FileCoverage> {
-    remap_coverage_with_loader(coverage, |_| None)
+    remap_coverage_with_loader_and_options(coverage, |_| None, RemapOptions::default())
+}
+
+/// Like [`remap_coverage`], but with a [`RemapOptions`] argument. See
+/// [`RemapOptions::drop_unmapped`] for the pruning semantics.
+pub fn remap_coverage_with_options(
+    coverage: &FileCoverage,
+    options: RemapOptions,
+) -> Option<FileCoverage> {
+    remap_coverage_with_loader_and_options(coverage, |_| None, options)
 }
 
 /// Like [`remap_coverage`], but when the entry has no embedded
@@ -56,12 +89,25 @@ pub fn remap_coverage_with_loader<L>(coverage: &FileCoverage, loader: L) -> Opti
 where
     L: Fn(&str) -> Option<String>,
 {
+    remap_coverage_with_loader_and_options(coverage, loader, RemapOptions::default())
+}
+
+/// Like [`remap_coverage_with_loader`], with a [`RemapOptions`] argument. See
+/// [`RemapOptions::drop_unmapped`] for the pruning semantics.
+pub fn remap_coverage_with_loader_and_options<L>(
+    coverage: &FileCoverage,
+    loader: L,
+    options: RemapOptions,
+) -> Option<FileCoverage>
+where
+    L: Fn(&str) -> Option<String>,
+{
     let input_sm_json = match coverage.input_source_map.as_ref() {
         Some(value) => serde_json::to_string(value).ok()?,
         None => loader(&coverage.path)?,
     };
     let sm = srcmap_sourcemap::SourceMap::from_json(&input_sm_json).ok()?;
-    apply_source_map(coverage, &sm)
+    apply_source_map(coverage, &sm, options)
 }
 
 /// Remap every `FileCoverage` in a coverage map. Entries without an
@@ -76,7 +122,16 @@ where
 pub fn remap_coverage_map(
     coverage_map: &BTreeMap<String, FileCoverage>,
 ) -> BTreeMap<String, FileCoverage> {
-    remap_coverage_map_with_loader(coverage_map, |_| None)
+    remap_coverage_map_with_loader_and_options(coverage_map, |_| None, RemapOptions::default())
+}
+
+/// Like [`remap_coverage_map`], with a [`RemapOptions`] argument. See
+/// [`RemapOptions::drop_unmapped`] for the pruning semantics.
+pub fn remap_coverage_map_with_options(
+    coverage_map: &BTreeMap<String, FileCoverage>,
+    options: RemapOptions,
+) -> BTreeMap<String, FileCoverage> {
+    remap_coverage_map_with_loader_and_options(coverage_map, |_| None, options)
 }
 
 /// Like [`remap_coverage_map`], but with a disk-read fallback for entries
@@ -89,9 +144,22 @@ pub fn remap_coverage_map_with_loader<L>(
 where
     L: Fn(&str) -> Option<String>,
 {
+    remap_coverage_map_with_loader_and_options(coverage_map, loader, RemapOptions::default())
+}
+
+/// Like [`remap_coverage_map_with_loader`], with a [`RemapOptions`] argument.
+/// See [`RemapOptions::drop_unmapped`] for the pruning semantics.
+pub fn remap_coverage_map_with_loader_and_options<L>(
+    coverage_map: &BTreeMap<String, FileCoverage>,
+    loader: L,
+    options: RemapOptions,
+) -> BTreeMap<String, FileCoverage>
+where
+    L: Fn(&str) -> Option<String>,
+{
     let mut out = BTreeMap::new();
     for (path, fc) in coverage_map {
-        match remap_coverage_with_loader(fc, &loader) {
+        match remap_coverage_with_loader_and_options(fc, &loader, options) {
             Some(remapped) => {
                 out.insert(remapped.path.clone(), remapped);
             }
@@ -108,6 +176,7 @@ where
 fn apply_source_map(
     coverage: &FileCoverage,
     sm: &srcmap_sourcemap::SourceMap,
+    options: RemapOptions,
 ) -> Option<FileCoverage> {
     let primary_source = resolve_primary_source(sm)?;
 
@@ -115,17 +184,118 @@ fn apply_source_map(
     out.path = primary_source;
     out.input_source_map = None;
 
-    for loc in out.statement_map.values_mut() {
-        remap_location(loc, sm);
-    }
-    for fn_entry in out.fn_map.values_mut() {
-        remap_fn_entry(fn_entry, sm);
-    }
-    for branch_entry in out.branch_map.values_mut() {
-        remap_branch_entry(branch_entry, sm);
+    if options.drop_unmapped {
+        prune_unmapped(&mut out, sm);
+    } else {
+        for loc in out.statement_map.values_mut() {
+            remap_location(loc, sm);
+        }
+        for fn_entry in out.fn_map.values_mut() {
+            remap_fn_entry(fn_entry, sm);
+        }
+        for branch_entry in out.branch_map.values_mut() {
+            remap_branch_entry(branch_entry, sm);
+        }
     }
 
     Some(out)
+}
+
+/// Drop statement / function / branch entries whose positions cannot be looked
+/// up in the source map, taking matching `s` / `f` / `b` / `bT` slots with
+/// them. Mirrors `istanbul-lib-source-maps`'s `transformer.js`. See
+/// [`RemapOptions::drop_unmapped`] for the exact per-kind rules.
+fn prune_unmapped(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap) {
+    // Statements: drop when either start or end fails to remap.
+    let mut dropped_statements: Vec<String> = Vec::new();
+    coverage.statement_map.retain(|key, loc| {
+        if try_remap_location(loc, sm) {
+            true
+        } else {
+            dropped_statements.push(key.clone());
+            false
+        }
+    });
+    for key in &dropped_statements {
+        coverage.s.remove(key);
+    }
+
+    // Functions: drop when any of decl.start, decl.end, loc.start, loc.end
+    // fails to remap. `FnEntry::line` is refreshed from the remapped
+    // `loc.start.line` on the surviving entries.
+    let mut dropped_fns: Vec<String> = Vec::new();
+    coverage.fn_map.retain(|key, fn_entry| {
+        let decl_ok = try_remap_location(&mut fn_entry.decl, sm);
+        let loc_ok = try_remap_location(&mut fn_entry.loc, sm);
+        if decl_ok && loc_ok {
+            fn_entry.line = fn_entry.loc.start.line;
+            true
+        } else {
+            dropped_fns.push(key.clone());
+            false
+        }
+    });
+    for key in &dropped_fns {
+        coverage.f.remove(key);
+    }
+
+    // Branches: per-arm prune when either arm endpoint fails to remap; drop
+    // the whole branch when no arms survive OR when the umbrella `loc`
+    // start/end fails to remap. The `b` / `bT` arm vectors track surviving
+    // arms by position so their hit counts stay aligned.
+    let mut dropped_branches: Vec<String> = Vec::new();
+    let mut surviving_arms: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    coverage.branch_map.retain(|key, branch_entry| {
+        let loc_ok = try_remap_location(&mut branch_entry.loc, sm);
+        if !loc_ok {
+            dropped_branches.push(key.clone());
+            return false;
+        }
+
+        let mut kept_indices: Vec<usize> = Vec::new();
+        let mut kept_locations: Vec<Location> = Vec::new();
+        for (idx, arm) in branch_entry.locations.iter_mut().enumerate() {
+            if try_remap_location(arm, sm) {
+                kept_indices.push(idx);
+                kept_locations.push(arm.clone());
+            }
+        }
+        if kept_locations.is_empty() {
+            dropped_branches.push(key.clone());
+            return false;
+        }
+
+        branch_entry.locations = kept_locations;
+        branch_entry.line = branch_entry.loc.start.line;
+        surviving_arms.insert(key.clone(), kept_indices);
+        true
+    });
+    for key in &dropped_branches {
+        coverage.b.remove(key);
+        if let Some(b_t) = coverage.b_t.as_mut() {
+            b_t.remove(key);
+        }
+    }
+    realign_arm_vec_map(&mut coverage.b, &surviving_arms);
+    if let Some(b_t) = coverage.b_t.as_mut() {
+        realign_arm_vec_map(b_t, &surviving_arms);
+    }
+}
+
+/// Project each surviving-arm hit-count vector down to the kept indices.
+/// Branches that disappeared from the map (already removed via `b.remove`)
+/// are not in `surviving_arms` and are left untouched here.
+fn realign_arm_vec_map(
+    arm_counts: &mut BTreeMap<String, Vec<u32>>,
+    surviving_arms: &BTreeMap<String, Vec<usize>>,
+) {
+    for (key, indices) in surviving_arms {
+        let Some(existing) = arm_counts.get_mut(key) else {
+            continue;
+        };
+        let trimmed = indices.iter().map(|&i| existing.get(i).copied().unwrap_or(0)).collect();
+        *existing = trimmed;
+    }
 }
 
 /// Stateful map store for the Mode B "continuous remap during collection"
@@ -201,12 +371,24 @@ impl SourceMapStore {
     /// usable map, matching [`remap_coverage`]'s fallback semantics.
     #[must_use]
     pub fn transform_coverage(&self, coverage: &FileCoverage) -> Option<FileCoverage> {
+        self.transform_coverage_with_options(coverage, RemapOptions::default())
+    }
+
+    /// Like [`SourceMapStore::transform_coverage`], but with a
+    /// [`RemapOptions`] argument. See [`RemapOptions::drop_unmapped`] for the
+    /// pruning semantics.
+    #[must_use]
+    pub fn transform_coverage_with_options(
+        &self,
+        coverage: &FileCoverage,
+        options: RemapOptions,
+    ) -> Option<FileCoverage> {
         if let Some(value) = self.maps.get(&coverage.path) {
             let json = serde_json::to_string(value).ok()?;
             let sm = srcmap_sourcemap::SourceMap::from_json(&json).ok()?;
-            return apply_source_map(coverage, &sm);
+            return apply_source_map(coverage, &sm, options);
         }
-        remap_coverage(coverage)
+        remap_coverage_with_options(coverage, options)
     }
 
     /// Remap every entry of a coverage map using the store. Entries whose
@@ -217,9 +399,21 @@ impl SourceMapStore {
         &self,
         coverage_map: &BTreeMap<String, FileCoverage>,
     ) -> BTreeMap<String, FileCoverage> {
+        self.transform_coverage_map_with_options(coverage_map, RemapOptions::default())
+    }
+
+    /// Like [`SourceMapStore::transform_coverage_map`], but with a
+    /// [`RemapOptions`] argument. See [`RemapOptions::drop_unmapped`] for the
+    /// pruning semantics.
+    #[must_use]
+    pub fn transform_coverage_map_with_options(
+        &self,
+        coverage_map: &BTreeMap<String, FileCoverage>,
+        options: RemapOptions,
+    ) -> BTreeMap<String, FileCoverage> {
         let mut out = BTreeMap::new();
         for (path, fc) in coverage_map {
-            match self.transform_coverage(fc) {
+            match self.transform_coverage_with_options(fc, options) {
                 Some(remapped) => {
                     out.insert(remapped.path.clone(), remapped);
                 }
@@ -266,9 +460,38 @@ fn remap_position(pos: &mut Position, sm: &srcmap_sourcemap::SourceMap) {
     }
 }
 
+/// Strict variant of [`remap_position`]: returns `true` when the position was
+/// rewritten through the source map (or was the `line: 0` "unknown" sentinel,
+/// which istanbul treats as a successful no-op), and `false` when the lookup
+/// returned `None`. Used by [`prune_unmapped`] to decide which entries to
+/// drop in `drop_unmapped` mode.
+fn try_remap_position(pos: &mut Position, sm: &srcmap_sourcemap::SourceMap) -> bool {
+    if pos.line == 0 {
+        return true;
+    }
+    let gen_line = pos.line - 1;
+    let Some(orig) = sm.original_position_for(gen_line, pos.column) else {
+        return false;
+    };
+    pos.line = orig.line + 1;
+    pos.column = orig.column;
+    true
+}
+
 fn remap_location(loc: &mut Location, sm: &srcmap_sourcemap::SourceMap) {
     remap_position(&mut loc.start, sm);
     remap_position(&mut loc.end, sm);
+}
+
+/// Strict variant of [`remap_location`]: returns `true` only when both
+/// endpoints remap successfully (or were the `line: 0` "unknown" sentinel).
+/// The location is rewritten in place regardless so partial-success diagnostic
+/// inspection stays available to the caller; pruning paths discard the entry
+/// when this returns `false`.
+fn try_remap_location(loc: &mut Location, sm: &srcmap_sourcemap::SourceMap) -> bool {
+    let start = try_remap_position(&mut loc.start, sm);
+    let end = try_remap_position(&mut loc.end, sm);
+    start && end
 }
 
 fn remap_fn_entry(fn_entry: &mut FnEntry, sm: &srcmap_sourcemap::SourceMap) {
