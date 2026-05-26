@@ -340,6 +340,117 @@ jobs:
         working-directory: examples/vitest-typescript
         run: npm run verify
 
+  native-vs-wasm-parity:
+    # Byte-for-byte parity between the native and WASM (wasm32-wasip1-threads)
+    # napi bindings on every conformance fixture. The existing `istanbul-diff`
+    # job only runs the native binding; this job catches the case where a
+    # future change subtly diverges WASM output from native (e.g. a
+    # cfg(target_arch = "wasm32") branch that affects coverage shape).
+    name: Native vs WASM parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: native-vs-wasm-parity
+          targets: wasm32-wasip1-threads
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Install napi deps
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: npm ci || npm install
+
+      - name: Build native napi binding
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: npx napi build --release --platform
+
+      - name: Build wasm32-wasi napi binding
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: npx napi build --release --platform --target wasm32-wasip1-threads
+
+      - name: Patch wasi-browser shim with SharedArrayBuffer guard
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-wasi-browser-shim.mjs
+
+      # See napi-wasm job for rationale: prevent the wasi loader from falling
+      # back to the previously published artifact if the local build is missing.
+      - name: Force loader to use freshly-built local wasm
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: |
+          ls -la coverage-instrument.wasm32-wasi*.wasm || true
+          rm -f node_modules/@oxc-coverage-instrument/binding-wasm32-wasi/*.wasm
+
+      - name: Run native-vs-wasm parity
+        run: node scripts/native-vs-wasm-parity.mjs
+
+  wasm-node-example:
+    # End-to-end smoke for the wasm-node example: builds both bindings, then
+    # exercises both `npm run smoke` (native-preferred load) and
+    # `npm run smoke:wasi` (NAPI_RS_FORCE_WASI=error) against the example's
+    # `instrument()` call. Catches regressions where the published smoke
+    # scripts drift away from the loader contract.
+    name: WASM node example
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: wasm-node-example
+          targets: wasm32-wasip1-threads
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Install napi deps
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: npm ci || npm install
+
+      - name: Build native napi binding
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: npx napi build --release --platform
+
+      - name: Build wasm32-wasi napi binding
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: npx napi build --release --platform --target wasm32-wasip1-threads
+
+      - name: Patch wasi-browser shim with SharedArrayBuffer guard
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-wasi-browser-shim.mjs
+
+      - name: Install example deps
+        working-directory: examples/wasm-node
+        run: npm install
+
+      # The file: dep links examples/wasm-node back to the napi crate directly,
+      # but the optionalDependency `@oxc-coverage-instrument/binding-wasm32-wasi`
+      # may still be installed into the example's nested node_modules and
+      # shadow the freshly-built local wasm. Strip it so the loader has no
+      # choice but to use the artifact under test.
+      - name: Force loader to use freshly-built local wasm
+        run: |
+          rm -f crates/oxc-coverage-instrument-napi/node_modules/@oxc-coverage-instrument/binding-wasm32-wasi/*.wasm
+          rm -f examples/wasm-node/node_modules/@oxc-coverage-instrument/binding-wasm32-wasi/*.wasm
+
+      - name: Run smoke (native binding)
+        working-directory: examples/wasm-node
+        run: npm run smoke
+
+      - name: Run smoke (WASI binding)
+        working-directory: examples/wasm-node
+        run: npm run smoke:wasi
+
   ci-ok:
     name: CI
     if: always()
@@ -356,6 +467,8 @@ jobs:
       - napi-wasm
       - istanbul-diff
       - vitest-typescript-example
+      - native-vs-wasm-parity
+      - wasm-node-example
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
