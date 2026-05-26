@@ -16,7 +16,6 @@ use std::collections::HashMap;
 
 use napi_derive::napi;
 use oxc_coverage_instrument::{DecoratorMode, RemapOptions as CoreRemapOptions};
-use oxc_coverage_types::FileCoverage;
 
 /// Build a friendlier `napi::Error` for the case where the caller passed a
 /// single `FileCoverage` JSON to a function that expects an Istanbul-shape
@@ -26,7 +25,7 @@ use oxc_coverage_types::FileCoverage;
 /// FileCoverage shape is wrong" when the actual problem is "you handed me
 /// the wrong outer container". Caught during the v0.7.2 smoke test.
 fn invalid_coverage_json_error<E: std::fmt::Display>(coverage_json: &str, err: E) -> napi::Error {
-    let hint = if serde_json::from_str::<FileCoverage>(coverage_json).is_ok() {
+    let hint = if looks_like_single_file_coverage(coverage_json) {
         " (hint: input parses as a single FileCoverage; remapCoverageMap \
          expects an Istanbul CoverageMap shape `{[path]: FileCoverage}`. \
          Wrap with `{ [fc.path]: fc }` before calling.)"
@@ -34,6 +33,87 @@ fn invalid_coverage_json_error<E: std::fmt::Display>(coverage_json: &str, err: E
         ""
     };
     napi::Error::new(napi::Status::InvalidArg, format!("invalid coverage JSON: {err}{hint}"))
+}
+
+/// Cheap, platform-agnostic "this JSON looks like a single `FileCoverage`,
+/// not a `CoverageMap`" heuristic for [`invalid_coverage_json_error`]'s hint.
+///
+/// The original implementation (PR #67, v0.7.2) was
+/// `serde_json::from_str::<FileCoverage>(coverage_json).is_ok()`, but that
+/// returned `Err` under the `wasm32-wasi` napi binding even when the same
+/// JSON round-tripped through `FileCoverage` cleanly on the native binding.
+/// The hint silently disappeared on wasi and the regression test failed in
+/// CI without the underlying reproducer being easy to obtain locally.
+///
+/// Switching to a shape check on the parsed `serde_json::Value` (top-level
+/// object with a string `path` and the three canonical Istanbul map keys)
+/// removes the dependency on full `FileCoverage` deserialization, which is
+/// where the platform divergence lives. The false-positive rate is
+/// effectively zero for realistic CoverageMap inputs because every
+/// CoverageMap key is a file-path string and the outer container's children
+/// (per-file `FileCoverage` objects) only get reached after the outer parse
+/// has already succeeded.
+fn looks_like_single_file_coverage(coverage_json: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(coverage_json) else {
+        return false;
+    };
+    let Some(obj) = value.as_object() else {
+        return false;
+    };
+    obj.get("path").is_some_and(serde_json::Value::is_string)
+        && obj.contains_key("statementMap")
+        && obj.contains_key("fnMap")
+        && obj.contains_key("branchMap")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::looks_like_single_file_coverage;
+
+    const SINGLE_FC: &str =
+        r#"{"path":"app.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}"#;
+    const COVERAGE_MAP: &str = r#"{"app.js":{"path":"app.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+
+    #[test]
+    fn detects_single_file_coverage() {
+        assert!(looks_like_single_file_coverage(SINGLE_FC));
+    }
+
+    #[test]
+    fn rejects_coverage_map_outer_container() {
+        // CoverageMap's keys are path strings; the outer container's value
+        // for `"app.js"` is a `FileCoverage`, not a string, so the `path`
+        // string check fails on the outer object.
+        assert!(!looks_like_single_file_coverage(COVERAGE_MAP));
+    }
+
+    #[test]
+    fn rejects_non_object_root() {
+        assert!(!looks_like_single_file_coverage("[]"));
+        assert!(!looks_like_single_file_coverage("\"hello\""));
+        assert!(!looks_like_single_file_coverage("42"));
+        assert!(!looks_like_single_file_coverage("null"));
+    }
+
+    #[test]
+    fn rejects_invalid_json() {
+        assert!(!looks_like_single_file_coverage("{ not json"));
+        assert!(!looks_like_single_file_coverage(""));
+    }
+
+    #[test]
+    fn rejects_object_missing_required_keys() {
+        // Has path but no Istanbul map keys: ambiguous, treat as not-FileCoverage.
+        assert!(!looks_like_single_file_coverage(r#"{"path":"app.js"}"#));
+        // Has statementMap but no path: not a FileCoverage.
+        assert!(!looks_like_single_file_coverage(
+            r#"{"statementMap":{},"fnMap":{},"branchMap":{}}"#
+        ));
+        // Path is not a string.
+        assert!(!looks_like_single_file_coverage(
+            r#"{"path":42,"statementMap":{},"fnMap":{},"branchMap":{}}"#,
+        ));
+    }
 }
 
 /// Reconstruct the typed [`DecoratorMode`] enum from the two-optional-boolean

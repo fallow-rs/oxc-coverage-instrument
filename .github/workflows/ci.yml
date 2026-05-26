@@ -211,6 +211,20 @@ jobs:
         working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi build --release --platform --target wasm32-wasip1-threads
 
+      # The optionalDependency `@oxc-coverage-instrument/binding-wasm32-wasi`
+      # is pinned at the previously published version; the loader in
+      # `coverage-instrument.wasi.cjs` would silently fall back to that
+      # package's wasm whenever the freshly-built local artifact is missing,
+      # making the wasi job exercise the published code instead of the PR
+      # under test. Remove the published wasm so the loader can only use the
+      # freshly-built local artifact; if napi build failed to produce it, the
+      # loader fails loudly instead of pretending to test the new code.
+      - name: Force loader to use freshly-built local wasm
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: |
+          ls -la coverage-instrument.wasm32-wasi*.wasm || true
+          rm -f node_modules/@oxc-coverage-instrument/binding-wasm32-wasi/*.wasm
+
       - name: Run napi tests against wasm binding
         working-directory: crates/oxc-coverage-instrument-napi
         env:

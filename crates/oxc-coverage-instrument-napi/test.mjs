@@ -7,8 +7,24 @@ import {
   v8ToIstanbulWithLoader,
 } from './index.js';
 import { strict as assert } from 'node:assert';
+import { existsSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 console.log('Testing oxc-coverage-instrument napi bindings...\n');
+// Diagnostic: surface which local wasm artifacts exist so CI logs reveal
+// when the loader silently falls back to a published optionalDependency
+// because the freshly-built wasm wasn't dropped at the expected path.
+for (const f of [
+  'coverage-instrument.wasm32-wasi.wasm',
+  'coverage-instrument.wasm32-wasi.debug.wasm',
+  'coverage-instrument.linux-x64-gnu.node',
+  'coverage-instrument.darwin-arm64.node',
+]) {
+  const p = join(__dirname, f);
+  if (existsSync(p)) console.log(`[diag] present: ${f} (${statSync(p).size} bytes)`);
+}
 
 function runInstrumented(result, filename, callExpression) {
   const sharedGlobal = {};
