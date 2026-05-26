@@ -211,6 +211,13 @@ jobs:
         working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi build --release --platform --target wasm32-wasip1-threads
 
+      # Inject the SharedArrayBuffer guard into the regenerated browser shim
+      # (issue #89). The shim is rewritten by `napi build`, so the patch must
+      # run after every wasm build that emits it.
+      - name: Patch wasi-browser shim with SharedArrayBuffer guard
+        working-directory: crates/oxc-coverage-instrument-napi
+        run: node scripts/patch-wasi-browser-shim.mjs
+
       # The optionalDependency `@oxc-coverage-instrument/binding-wasm32-wasi`
       # is pinned at the previously published version; the loader in
       # `coverage-instrument.wasi.cjs` would silently fall back to that
