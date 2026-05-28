@@ -45,3 +45,6 @@ crates/oxc-coverage-instrument-napi/package-lock.json
 # CLI crash handover files
 HANDOVER-CRASH-*.md
 /.plans/
+
+# Playwright MCP session artifacts (console logs, traces)
+/.playwright-mcp/
