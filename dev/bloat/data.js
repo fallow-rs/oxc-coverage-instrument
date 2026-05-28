@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779992653748,
+  "lastUpdate": 1779996487477,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -521,6 +521,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 85516488,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "3d3c742b81e9aa65587603ede0e654932e18e0f6",
+          "message": "chore: release v0.7.5",
+          "timestamp": "2026-05-28T21:26:04+02:00",
+          "tree_id": "984e0d4d92064e81ab0c7a432affbfdb70896372",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/3d3c742b81e9aa65587603ede0e654932e18e0f6"
+        },
+        "date": 1779996486860,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 85505312,
             "unit": "bytes"
           }
         ]
