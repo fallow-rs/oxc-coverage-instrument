@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779861379344,
+  "lastUpdate": 1779992648788,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -2447,6 +2447,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 785411,
             "range": "± 8264",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eca4b5a388fb6270dce1ca08da92fd623ed339bf",
+          "message": "feat: compose inputSourceMap eagerly during instrument() (#101)\n\nAdd an opt-in composeInputSourceMap flag to InstrumentOptions (napi:\ncomposeInputSourceMap). When true and inputSourceMap is set, instrument()\nfolds the input source map into the coverage map during instrumentation\nvia remap_coverage, so the returned coverageMap and the runtime\n__coverage__ baked into the preamble carry original-source positions,\nare keyed by the original source path, and embed no inputSourceMap.\nremapCoverageMap on the result is then a no-op.\n\nThis removes the per-collection remap round-trip for E2E collectors\n(Playwright et al.) that dump window.__coverage__ directly. Composition\nruns after the function-identity overlay attaches and before the coverage\nmap is serialized into the preamble, so the overlay keeps its pre-remap\nids and the eager path is bit-for-bit equal to instrument-then-remap.\nWhen the input map is unusable the embedded map is retained so the lazy\npath still works. The output source map is unaffected (still composed\nonce by finalize_source_map). Core + napi only; CLI and the Vitest\nadapter are out of scope.",
+          "timestamp": "2026-05-28T19:18:42+01:00",
+          "tree_id": "8a5f6b98f96bd7274f241ed029a55aa9e32bbbdb",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/eca4b5a388fb6270dce1ca08da92fd623ed339bf"
+        },
+        "date": 1779992647747,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 22818,
+            "range": "± 537",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 52025,
+            "range": "± 826",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 148998,
+            "range": "± 799",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 310753,
+            "range": "± 1697",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 127492,
+            "range": "± 733",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 523854,
+            "range": "± 5473",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 312974,
+            "range": "± 1861",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 466687,
+            "range": "± 3578",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 58743,
+            "range": "± 229",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 284265,
+            "range": "± 889",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 558964,
+            "range": "± 3468",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2829906,
+            "range": "± 9726",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 41004,
+            "range": "± 155",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 36220,
+            "range": "± 132",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 520364,
+            "range": "± 2576",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 475309,
+            "range": "± 2779",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 195879,
+            "range": "± 1436",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 179560,
+            "range": "± 1079",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 869470,
+            "range": "± 12982",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 786018,
+            "range": "± 3981",
             "unit": "ns/iter"
           }
         ]
