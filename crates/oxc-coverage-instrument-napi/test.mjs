@@ -529,6 +529,53 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] inputSourceMap composed into coverage map');
 }
 
+// Test 14b: composeInputSourceMap folds the input map in eagerly (issue #100)
+{
+  const originalTs = 'const x: number = 1;\nconst y: number = 2;\nconst z: number = 3;\n';
+  const intermediateJs = 'const x = 1;\nconst y = 2;\nconst z = 3;\n';
+  const inputSourceMap = {
+    version: 3,
+    sources: ['src/app.ts'],
+    sourcesContent: [originalTs],
+    mappings: 'AAAA;AACA;AACA',
+    names: [],
+  };
+
+  const result = instrument(intermediateJs, 'intermediate.js', {
+    inputSourceMap: JSON.stringify(inputSourceMap),
+    composeInputSourceMap: true,
+  });
+  const cm = JSON.parse(result.coverageMap);
+
+  // The returned coverage map is already in original-source space.
+  assert.equal(cm.path, 'src/app.ts', 'composed coverage map is keyed by the original source path');
+  assert(!cm.inputSourceMap, 'composed coverage map carries no embedded inputSourceMap');
+  const lines = Object.values(cm.statementMap)
+    .map((loc) => loc.start.line)
+    .sort();
+  assert.deepEqual(lines, [1, 2, 3], 'composed statement lines point at original.ts lines');
+
+  // The runtime coverage baked into `code` is keyed by the original path too,
+  // so an E2E collector can dump window.__coverage__ verbatim.
+  assert(
+    result.code.includes('var path = "src/app.ts"'),
+    'composed preamble keys the runtime coverage by the original source path',
+  );
+
+  // remapCoverageMap on the composed result is a no-op: the entry has no
+  // inputSourceMap, so it passes through unchanged under its original key.
+  const passthrough = JSON.parse(remapCoverageMap(JSON.stringify({ [cm.path]: cm })));
+  assert(passthrough['src/app.ts'], 'remapCoverageMap leaves the already-composed entry in place');
+  assert.deepEqual(
+    Object.values(passthrough['src/app.ts'].statementMap)
+      .map((loc) => loc.start.line)
+      .sort(),
+    [1, 2, 3],
+    'remapCoverageMap is a no-op on the composed result',
+  );
+  console.log('  [PASS] composeInputSourceMap folds the input map in eagerly');
+}
+
 // Test 15: ignoreClassMethods drops fnMap entries for matching methods
 {
   const source = `

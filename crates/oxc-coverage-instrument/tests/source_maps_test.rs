@@ -337,3 +337,240 @@ fn source_map_store_passes_through_when_no_map_available() {
     let remapped = store.transform_coverage_map(&coverage);
     assert!(remapped.contains_key("plain.js"), "passthrough preserves key");
 }
+
+// ---------------------------------------------------------------------------
+// Eager composition (issue #100): `InstrumentOptions::compose_input_source_map`
+// folds the embedded `inputSourceMap` into the coverage map at instrument time
+// instead of leaving it for a downstream `remap_coverage` / `remapCoverageMap`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compose_input_source_map_rewrites_path_and_positions() {
+    let (_, intermediate, input_sm) = three_line_inputs();
+    let opts = InstrumentOptions {
+        input_source_map: Some(input_sm),
+        compose_input_source_map: true,
+        ..InstrumentOptions::default()
+    };
+    let result = instrument(&intermediate, "intermediate.js", &opts).unwrap();
+
+    // Path and positions are already in the original source, and no input map
+    // is left embedded (the composition consumed it).
+    assert_eq!(result.coverage_map.path, "src/app.ts");
+    assert!(
+        result.coverage_map.input_source_map.is_none(),
+        "eager compose clears the consumed inputSourceMap"
+    );
+    let mut lines: Vec<u32> =
+        result.coverage_map.statement_map.values().map(|loc| loc.start.line).collect();
+    lines.sort_unstable();
+    assert_eq!(lines, vec![1, 2, 3], "statementMap lines after eager compose");
+}
+
+#[test]
+fn compose_input_source_map_equals_instrument_then_remap() {
+    // The whole contract: eager compose must be bit-for-bit equal to
+    // instrument-without-compose followed by `remap_coverage`. If this holds,
+    // `remapCoverageMap` on the eager result is provably a no-op.
+    let (_, intermediate, input_sm) = three_line_inputs();
+
+    let eager = instrument(
+        &intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm.clone()),
+            compose_input_source_map: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+
+    let lazy_instrumented = instrument(
+        &intermediate,
+        "intermediate.js",
+        &InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() },
+    )
+    .unwrap();
+    let lazy = remap_coverage(&lazy_instrumented.coverage_map).expect("lazy remap succeeds");
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map).unwrap(),
+        serde_json::to_value(&lazy).unwrap(),
+        "eager compose must equal instrument-then-remap_coverage"
+    );
+}
+
+#[test]
+fn compose_input_source_map_bakes_original_positions_into_preamble() {
+    // The point of composing eagerly is that the runtime `__coverage__` (the
+    // `coverageData` literal in the preamble injected into `code`) already
+    // carries the original-source path, so an E2E collector can dump it
+    // verbatim. The preamble keys the coverage object by `coverage.path`.
+    let (_, intermediate, input_sm) = three_line_inputs();
+
+    let composed = instrument(
+        &intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm.clone()),
+            compose_input_source_map: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        composed.code.contains("var path = \"src/app.ts\""),
+        "composed preamble keys runtime coverage by the original source path"
+    );
+
+    let lazy = instrument(
+        &intermediate,
+        "intermediate.js",
+        &InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() },
+    )
+    .unwrap();
+    assert!(
+        lazy.code.contains("var path = \"intermediate.js\""),
+        "without compose, the preamble keeps the generated path"
+    );
+}
+
+#[test]
+fn compose_input_source_map_no_op_without_input_map() {
+    // compose_input_source_map is gated on input_source_map being set; with no
+    // map there is nothing to compose, so the result is the plain generated map.
+    let opts = InstrumentOptions { compose_input_source_map: true, ..InstrumentOptions::default() };
+    let result = instrument("const x = 1;", "intermediate.js", &opts).unwrap();
+    assert_eq!(result.coverage_map.path, "intermediate.js", "no map -> path unchanged");
+    assert!(result.coverage_map.input_source_map.is_none());
+}
+
+#[test]
+fn compose_input_source_map_off_keeps_embedded_map() {
+    // Default (flag off) preserves the legacy behavior: the input map stays
+    // embedded for downstream remap and positions remain generated.
+    let (_, intermediate, input_sm) = three_line_inputs();
+    let opts =
+        InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() };
+    let result = instrument(&intermediate, "intermediate.js", &opts).unwrap();
+    assert_eq!(result.coverage_map.path, "intermediate.js");
+    assert!(
+        result.coverage_map.input_source_map.is_some(),
+        "with compose off, the inputSourceMap stays embedded"
+    );
+}
+
+#[test]
+fn compose_input_source_map_unusable_map_backs_off() {
+    // A source map that declares no usable source makes `remap_coverage` return
+    // None; eager compose must back off and leave the embedded map in place so
+    // the lazy remap path is still available.
+    let input_sm = r#"{"version":3,"sources":[],"mappings":"","names":[]}"#;
+    let opts = InstrumentOptions {
+        input_source_map: Some(input_sm.to_string()),
+        compose_input_source_map: true,
+        ..InstrumentOptions::default()
+    };
+    let result = instrument("const x = 1;", "intermediate.js", &opts).unwrap();
+    assert_eq!(result.coverage_map.path, "intermediate.js", "unusable map -> path unchanged");
+    assert!(
+        result.coverage_map.input_source_map.is_some(),
+        "unusable map -> embedded map retained for the lazy fallback"
+    );
+}
+
+#[test]
+fn compose_input_source_map_preserves_function_identity_overlay() {
+    // The function-identity overlay is built before composition and the remap
+    // pipeline does not rewrite it, so the eager overlay must equal the overlay
+    // produced by instrument-then-remap. This keeps the `fallow:fn:<hex>` join
+    // keys stable across the eager and lazy paths.
+    let intermediate = "function add(a, b) {\n  return a + b;\n}\n";
+    let original_ts = "function add(a: number, b: number): number {\n  return a + b;\n}\n";
+    let input_sm = format!(
+        r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{original_ts:?}],"mappings":"AAAA;AACA;AACA","names":[]}}"#,
+    );
+
+    let eager = instrument(
+        intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm.clone()),
+            compose_input_source_map: true,
+            function_identity_overlay: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+
+    let lazy_instrumented = instrument(
+        intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm),
+            function_identity_overlay: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+    let lazy = remap_coverage(&lazy_instrumented.coverage_map).expect("lazy remap succeeds");
+
+    assert!(eager.coverage_map.x_fallow_function_map.is_some(), "overlay survives eager compose");
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.x_fallow_function_map).unwrap(),
+        serde_json::to_value(&lazy.x_fallow_function_map).unwrap(),
+        "overlay must be identical across eager and lazy paths"
+    );
+}
+
+#[test]
+fn compose_input_source_map_does_not_double_compose_output_source_map() {
+    // The coverage map and the output `source_map` are independent artifacts.
+    // `compose_input_source_map` rewrites the COVERAGE map; the output source
+    // map (instrumented JS -> original source) is composed once by
+    // `finalize_source_map` regardless of the flag. So with `source_map: true`,
+    // the emitted `source_map` must be byte-identical whether or not
+    // `compose_input_source_map` is set: the flag must NOT feed the input map
+    // into the source-map chain a second time.
+    let (_, intermediate, input_sm) = three_line_inputs();
+
+    let without_compose = instrument(
+        &intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            source_map: true,
+            input_source_map: Some(input_sm.clone()),
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+
+    let with_compose = instrument(
+        &intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            source_map: true,
+            input_source_map: Some(input_sm),
+            compose_input_source_map: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+
+    let sm_without = without_compose.source_map.expect("source_map emitted");
+    let sm_with = with_compose.source_map.expect("source_map emitted");
+    assert_eq!(
+        sm_with, sm_without,
+        "output source_map must not change when the coverage map is composed eagerly"
+    );
+
+    // And the output source map chains all the way back to the original source
+    // (instrumented JS -> src/app.ts), not just to the intermediate JS.
+    let parsed: serde_json::Value = serde_json::from_str(&sm_with).unwrap();
+    let sources: Vec<&str> =
+        parsed["sources"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
+    assert!(
+        sources.contains(&"src/app.ts"),
+        "output source map must point back at the original source, got: {sources:?}"
+    );
+}

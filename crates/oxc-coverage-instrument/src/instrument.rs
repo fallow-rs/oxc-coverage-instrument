@@ -34,6 +34,31 @@ pub struct InstrumentOptions {
     /// When provided, this is stored on the `FileCoverage` as `inputSourceMap` so
     /// downstream tools (nyc, istanbul-reports) can chain back to the original source.
     pub input_source_map: Option<String>,
+    /// When true AND [`InstrumentOptions::input_source_map`] is set, compose the
+    /// input source map into the coverage map during instrumentation instead of
+    /// embedding it for downstream composition.
+    ///
+    /// The resulting `FileCoverage` (and the `coverageData` literal baked into
+    /// the instrumented code's preamble, hence the runtime coverage variable)
+    /// carries original-source positions, is re-keyed by the original source
+    /// `path`, and has no `inputSourceMap` field. A subsequent
+    /// [`crate::remap_coverage`] / `remapCoverageMap` on the result is a no-op.
+    ///
+    /// This trades the per-collection remap round-trip (instrument, then walk
+    /// every entry through its embedded map at report time) for a one-time
+    /// composition at instrument time. Useful for E2E collectors (Playwright et
+    /// al.) that dump `window.__coverage__` directly and want original-source
+    /// positions without a normalization pass.
+    ///
+    /// Composition uses the default keep-generated-position semantics for
+    /// positions whose source-map lookup fails (matching `remap_coverage` /
+    /// `remapCoverageMap` called without options). If the input map is unusable
+    /// (declares no source, fails to parse), composition backs off and the
+    /// embedded `inputSourceMap` is left in place so the lazy remap path still
+    /// works. Has no effect when `input_source_map` is `None`.
+    ///
+    /// Defaults to false.
+    pub compose_input_source_map: bool,
     /// When true, adds truthy-value tracking (`bT`) for logical expression operands.
     /// This enables nyc-style logic coverage that tracks not just which branch was
     /// taken, but whether each operand evaluated to a truthy value.
@@ -154,6 +179,7 @@ impl Default for InstrumentOptions {
             coverage_variable: "__coverage__".to_string(),
             source_map: false,
             input_source_map: None,
+            compose_input_source_map: false,
             report_logic: false,
             ignore_class_methods: Vec::new(),
             strip_typescript: false,
@@ -271,6 +297,23 @@ pub fn instrument(
     if options.function_identity_overlay {
         coverage_map.x_fallow_function_map =
             Some(build_function_identity_map(&coverage_map.path, &coverage_map.fn_map));
+    }
+
+    // Eager composition (issue #100): when requested, fold the embedded
+    // `inputSourceMap` into the coverage map now, before the map is serialized
+    // into the preamble's `coverageData` literal. The runtime `__coverage__`
+    // then ships original-source positions/path and `remap_coverage` on the
+    // result is a no-op. Run AFTER the function-identity overlay attaches so
+    // the overlay's ids stay derived from the pre-remap positions, keeping the
+    // eager path bit-for-bit equal to instrument-then-`remap_coverage` (the
+    // remap pipeline intentionally does not rewrite the overlay). When the
+    // input map is unusable, `remap_coverage` returns `None` and we leave the
+    // embedded map in place so the lazy remap path remains available.
+    if options.compose_input_source_map
+        && options.input_source_map.is_some()
+        && let Some(composed) = oxc_coverage_source_maps::remap_coverage(&coverage_map)
+    {
+        coverage_map = composed;
     }
 
     // Serialize the coverage map once and reuse it for both the hash guard and

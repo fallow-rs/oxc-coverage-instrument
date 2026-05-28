@@ -207,6 +207,25 @@ const remapped = JSON.parse(
 );
 ```
 
+#### Composing eagerly during `instrument()`
+
+The flow above is lazy: `instrument()` embeds the `inputSourceMap` and a downstream `remapCoverageMap` walks every entry back to the original source at report time. For collectors that dump `window.__coverage__` directly (Playwright E2E, per-test snapshots), that round-trip happens once per collected file. Set `composeInputSourceMap: true` (Rust: `compose_input_source_map: true`) alongside `inputSourceMap` to fold the map in once, during instrumentation:
+
+```js
+const { code, coverageMap } = instrument(intermediateJs, 'intermediate.js', {
+    inputSourceMap: JSON.stringify(inputSourceMap),
+    composeInputSourceMap: true,
+});
+// coverageMap is keyed by the original source path with original-source
+// positions and carries no inputSourceMap. The runtime __coverage__ baked into
+// `code` is keyed the same way, so collection is just:
+//   const raw = await page.evaluate(() => window.__coverage__);
+//   writeFileSync(out, JSON.stringify(raw));
+// remapCoverageMap(raw) is then a no-op.
+```
+
+The composed result is bit-for-bit equal to instrument-without-compose followed by `remap_coverage`, using the same default keep-generated-position semantics for positions whose source-map lookup fails (no `dropUnmapped` knob is exposed at instrument time; use the lazy `remapCoverageMap` path if you need pruning). When the input map is unusable (declares no source, fails to parse), composition backs off and the `inputSourceMap` is left embedded so the lazy path still works. The flag has no effect when `inputSourceMap` is unset. The `x_fallow_functionMap` overlay, if requested, keeps its pre-remap-derived ids in both the eager and lazy paths (the remap pipeline does not rewrite it).
+
 ### Converting V8 byte-range coverage to Istanbul
 
 `v8_to_istanbul` accepts the same shape Node's inspector and `@vitest/coverage-v8` emit. With block coverage enabled, statement/function/branch counts are populated by intersecting V8 ranges with locations recovered from a visit-only AST pass. Inline `//# sourceMappingURL=data:...` trailers are decoded automatically; external map references resolve through the optional loader on `v8_to_istanbul_with_loader`.
