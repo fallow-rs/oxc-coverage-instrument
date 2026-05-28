@@ -144,6 +144,16 @@ pub struct InstrumentOptions {
     pub source_map: Option<bool>,
     /// Input source map JSON string from a prior transformation.
     pub input_source_map: Option<String>,
+    /// When true AND `inputSourceMap` is set, compose the input source map into
+    /// the coverage map during instrumentation. The returned `coverageMap` (and
+    /// the runtime `__coverage__` baked into the instrumented `code`) carries
+    /// original-source positions, is keyed by the original source path, and has
+    /// no `inputSourceMap` embedded; `remapCoverageMap` on the result is a
+    /// no-op. Useful for E2E collectors (Playwright et al.) that dump
+    /// `window.__coverage__` directly and want original-source positions without
+    /// a downstream remap round-trip. Has no effect when `inputSourceMap` is
+    /// unset. Default false.
+    pub compose_input_source_map: Option<bool>,
     /// When true, adds truthy-value tracking (bT) for logical expression operands.
     pub report_logic: Option<bool>,
     /// Class method names to exclude from coverage instrumentation.
@@ -265,6 +275,7 @@ pub fn instrument(
                     .unwrap_or_else(|| "__coverage__".to_string()),
                 source_map: o.source_map.unwrap_or(false),
                 input_source_map: o.input_source_map,
+                compose_input_source_map: o.compose_input_source_map.unwrap_or(false),
                 report_logic: o.report_logic.unwrap_or(false),
                 ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
                 strip_typescript: o.strip_typescript.unwrap_or(false),
