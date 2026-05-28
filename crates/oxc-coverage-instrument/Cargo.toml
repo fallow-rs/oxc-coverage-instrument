@@ -1,6 +1,6 @@
 [package]
 name = "oxc_coverage_instrument"
-version = "0.7.3"
+version = "0.7.4"
 authors.workspace = true
 edition.workspace = true
 description = "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST"
