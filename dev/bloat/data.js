@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779861167285,
+  "lastUpdate": 1779992452481,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -463,6 +463,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 85429072,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eca4b5a388fb6270dce1ca08da92fd623ed339bf",
+          "message": "feat: compose inputSourceMap eagerly during instrument() (#101)\n\nAdd an opt-in composeInputSourceMap flag to InstrumentOptions (napi:\ncomposeInputSourceMap). When true and inputSourceMap is set, instrument()\nfolds the input source map into the coverage map during instrumentation\nvia remap_coverage, so the returned coverageMap and the runtime\n__coverage__ baked into the preamble carry original-source positions,\nare keyed by the original source path, and embed no inputSourceMap.\nremapCoverageMap on the result is then a no-op.\n\nThis removes the per-collection remap round-trip for E2E collectors\n(Playwright et al.) that dump window.__coverage__ directly. Composition\nruns after the function-identity overlay attaches and before the coverage\nmap is serialized into the preamble, so the overlay keeps its pre-remap\nids and the eager path is bit-for-bit equal to instrument-then-remap.\nWhen the input map is unusable the embedded map is retained so the lazy\npath still works. The output source map is unaffected (still composed\nonce by finalize_source_map). Core + napi only; CLI and the Vitest\nadapter are out of scope.",
+          "timestamp": "2026-05-28T19:18:42+01:00",
+          "tree_id": "8a5f6b98f96bd7274f241ed029a55aa9e32bbbdb",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/eca4b5a388fb6270dce1ca08da92fd623ed339bf"
+        },
+        "date": 1779992452078,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 85519856,
             "unit": "bytes"
           }
         ]
