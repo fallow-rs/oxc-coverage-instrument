@@ -1,6 +1,6 @@
 {
   "name": "@oxc-coverage-instrument/binding-wasm32-wasi-singlethreaded",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "main": "coverage-instrument.wasi.cjs",
   "browser": "coverage-instrument.wasi-browser.js",
   "files": [
