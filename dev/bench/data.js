@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779996701456,
+  "lastUpdate": 1780092042252,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -2879,6 +2879,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 781794,
             "range": "± 6165",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "814fda7bc415a6ac931f6c2dbdadb5bc8f4bb370",
+          "message": "refactor: split oversized parser/builder units and cover CLI error paths (#102)\n\nSplits parse_instrument_args, prune_unmapped, and build_file_coverage into focused helpers (no behavior change) and adds CLI integration tests for previously uncovered error branches. CLI main.rs 85.1%->92.0% line; workspace total 95.7%->96.3%. Closes #103.",
+          "timestamp": "2026-05-29T22:55:21+01:00",
+          "tree_id": "bb9bbe523ecf00a3d601ab7944dc4a425d168407",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/814fda7bc415a6ac931f6c2dbdadb5bc8f4bb370"
+        },
+        "date": 1780092041346,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 20648,
+            "range": "± 119",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 49774,
+            "range": "± 774",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 139006,
+            "range": "± 1697",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 280688,
+            "range": "± 3532",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 115517,
+            "range": "± 346",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 484775,
+            "range": "± 5573",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 284141,
+            "range": "± 2295",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 444008,
+            "range": "± 1968",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 53285,
+            "range": "± 172",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 256534,
+            "range": "± 1382",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 503316,
+            "range": "± 3280",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2679619,
+            "range": "± 15232",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 37537,
+            "range": "± 230",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 33761,
+            "range": "± 106",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 489978,
+            "range": "± 2976",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 448742,
+            "range": "± 1834",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 175710,
+            "range": "± 1265",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 167829,
+            "range": "± 1148",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 833029,
+            "range": "± 3303",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 763395,
+            "range": "± 2071",
             "unit": "ns/iter"
           }
         ]
