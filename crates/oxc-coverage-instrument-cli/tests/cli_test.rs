@@ -772,3 +772,144 @@ fn report_flag_without_value_exits_failure() {
         "trailing --format must surface a missing-value error, got: {stderr}",
     );
 }
+
+#[test]
+fn report_threshold_rejects_non_numeric_value() {
+    // Distinct from the out-of-range and non-finite tests: a token that does
+    // not parse as f64 at all must hit the parse-error arm, not the range arm.
+    let cov = write_temp("report_threshold_nonnumeric.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("html")
+        .arg("--output-dir")
+        .arg(std::env::temp_dir().join("oxc_cov_cli_threshold_nonnumeric_out"))
+        .arg("--threshold")
+        .arg("not-a-number")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "non-numeric --threshold must be rejected");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("--threshold must be a number"),
+        "non-numeric --threshold should surface the parse error, got: {stderr}"
+    );
+}
+
+#[test]
+fn report_fail_under_rejects_non_numeric_value() {
+    let cov = write_temp("report_fail_under_nonnumeric.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("text-summary")
+        .arg("--fail-under")
+        .arg("ninety")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "non-numeric --fail-under must be rejected");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("--fail-under must be a number"), "got: {stderr}");
+}
+
+#[test]
+fn report_fail_under_rejects_out_of_range_value() {
+    let cov = write_temp("report_fail_under_oob.json", SAMPLE_COVERAGE);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("text-summary")
+        .arg("--fail-under")
+        .arg("250")
+        .arg(&cov)
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "out-of-range --fail-under must be rejected");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("outside [0, 100]"), "got: {stderr}");
+}
+
+#[test]
+fn report_fail_under_rejects_non_finite_value() {
+    // `parse_percentage` shares the finite-number guard with `--threshold`;
+    // NaN / inf parse as f64 but must be rejected before the range check.
+    let cov = write_temp("report_fail_under_nan.json", SAMPLE_COVERAGE);
+    for bad in ["nan", "inf", "-inf"] {
+        let out = cli()
+            .arg("report")
+            .arg("--format")
+            .arg("text-summary")
+            .arg("--fail-under")
+            .arg(bad)
+            .arg(&cov)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "should reject --fail-under {bad}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("finite number") || stderr.contains("outside [0, 100]"),
+            "rejection for {bad:?} should mention finite-number or range; got: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn report_nonexistent_coverage_file_reports_read_error() {
+    // Distinct from the missing-positional case: a path IS supplied but the
+    // file is absent, so the read in read_coverage_map fails.
+    let missing = std::env::temp_dir().join("oxc_cov_cli_report_absent_file.json");
+    let _ = std::fs::remove_file(&missing);
+    let out = cli().arg("report").arg("--format").arg("text").arg(&missing).output().unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("cannot read"), "should report read failure, got: {stderr}");
+}
+
+#[test]
+fn explicit_instrument_subcommand_without_file_reports_error() {
+    // `instrument` with no following filename feeds an empty slice to
+    // parse_instrument_args, which must ask for a file rather than panic.
+    let out = cli().arg("instrument").output().unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("instrument requires a file argument"), "got: {stderr}");
+}
+
+#[test]
+fn output_to_unwritable_path_reports_write_error() {
+    // `-o` pointing into a directory that does not exist makes the code-file
+    // write in write_code_and_map fail; the CLI must surface a clear error.
+    let src = write_temp("output_unwritable.js", "const x = 1;");
+    let bad_dir = std::env::temp_dir().join("oxc_cov_cli_nonexistent_dir_xyz");
+    let _ = std::fs::remove_dir_all(&bad_dir);
+    let bad_out = bad_dir.join("nested").join("out.js");
+    let out = cli().arg(&src).arg("-o").arg(&bad_out).output().unwrap();
+    assert!(!out.status.success(), "writing under a missing dir should fail");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("cannot write"), "got: {stderr}");
+}
+
+#[test]
+fn source_map_with_output_file_writes_sidecar_map() {
+    // With `-o`, the source map goes to `<out>.map` (the file branch of
+    // write_or_print_source_map) rather than to stderr.
+    let src = write_temp("source_map_sidecar.js", "const x = 1;");
+    let out_path = std::env::temp_dir().join("oxc_cov_cli_source_map_sidecar.instrumented.js");
+    let sm_path = std::path::PathBuf::from(format!("{}.map", out_path.display()));
+    let map_path = std::path::PathBuf::from(format!("{}.map.json", out_path.display()));
+    let _ = std::fs::remove_file(&out_path);
+    let _ = std::fs::remove_file(&sm_path);
+    let _ = std::fs::remove_file(&map_path);
+
+    let out = cli().arg(&src).arg("--source-map").arg("-o").arg(&out_path).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+
+    let sm = std::fs::read_to_string(&sm_path).expect("source map sidecar should be written");
+    let value: serde_json::Value =
+        serde_json::from_str(&sm).expect("sidecar .map should be valid JSON");
+    assert_eq!(value["version"], 3, "expected a v3 source map in the sidecar");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("Source map:"), "should report the sidecar path, got: {stderr}");
+}

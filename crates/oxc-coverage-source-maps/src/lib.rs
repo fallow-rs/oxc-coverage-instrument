@@ -206,7 +206,14 @@ fn apply_source_map(
 /// them. Mirrors `istanbul-lib-source-maps`'s `transformer.js`. See
 /// [`RemapOptions::drop_unmapped`] for the exact per-kind rules.
 fn prune_unmapped(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap) {
-    // Statements: drop when either start or end fails to remap.
+    prune_statements(coverage, sm);
+    prune_functions(coverage, sm);
+    prune_branches(coverage, sm);
+}
+
+/// Statements: drop when either start or end fails to remap, taking the
+/// matching `s` hit slot with the dropped entry.
+fn prune_statements(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap) {
     let mut dropped_statements: Vec<String> = Vec::new();
     coverage.statement_map.retain(|key, loc| {
         if try_remap_location(loc, sm) {
@@ -219,10 +226,12 @@ fn prune_unmapped(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap)
     for key in &dropped_statements {
         coverage.s.remove(key);
     }
+}
 
-    // Functions: drop when any of decl.start, decl.end, loc.start, loc.end
-    // fails to remap. `FnEntry::line` is refreshed from the remapped
-    // `loc.start.line` on the surviving entries.
+/// Functions: drop when any of decl.start, decl.end, loc.start, loc.end fails
+/// to remap. `FnEntry::line` is refreshed from the remapped `loc.start.line`
+/// on the surviving entries; the matching `f` hit slot follows the drop.
+fn prune_functions(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap) {
     let mut dropped_fns: Vec<String> = Vec::new();
     coverage.fn_map.retain(|key, fn_entry| {
         let decl_ok = try_remap_location(&mut fn_entry.decl, sm);
@@ -238,11 +247,13 @@ fn prune_unmapped(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap)
     for key in &dropped_fns {
         coverage.f.remove(key);
     }
+}
 
-    // Branches: per-arm prune when either arm endpoint fails to remap; drop
-    // the whole branch when no arms survive OR when the umbrella `loc`
-    // start/end fails to remap. The `b` / `bT` arm vectors track surviving
-    // arms by position so their hit counts stay aligned.
+/// Branches: per-arm prune when either arm endpoint fails to remap; drop the
+/// whole branch when no arms survive OR when the umbrella `loc` start/end fails
+/// to remap. The `b` / `bT` arm vectors track surviving arms by position so
+/// their hit counts stay aligned.
+fn prune_branches(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap) {
     let mut dropped_branches: Vec<String> = Vec::new();
     let mut surviving_arms: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     coverage.branch_map.retain(|key, branch_entry| {
