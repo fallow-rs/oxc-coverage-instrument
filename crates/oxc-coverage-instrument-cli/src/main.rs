@@ -220,29 +220,40 @@ fn dispatch(args: &[String]) -> Result<ExitCode, ExitCode> {
     }
 }
 
-fn parse_instrument_args(args: &[String]) -> Result<InstrumentArgs, ExitCode> {
-    if args.is_empty() {
+/// Resolve the leading positional filename for the instrument path, handling
+/// the empty-args, `--help`/`-h`, `--version`/`-V`, and unknown-leading-flag
+/// short-circuits before any option scanning begins. `Err` carries the exit
+/// code for those early-return cases (success for help/version, failure
+/// otherwise); `Ok` is the filename to instrument.
+fn instrument_filename(args: &[String]) -> Result<String, ExitCode> {
+    let Some(first) = args.first() else {
         eprintln!("error: instrument requires a file argument");
         print_instrument_usage();
         return Err(ExitCode::FAILURE);
-    }
+    };
 
-    if args[0] == "--help" || args[0] == "-h" {
+    if first == "--help" || first == "-h" {
         print_instrument_usage();
         return Err(ExitCode::SUCCESS);
     }
-    if args[0] == "--version" || args[0] == "-V" {
+    if first == "--version" || first == "-V" {
         print_version();
         return Err(ExitCode::SUCCESS);
     }
-    if args[0].starts_with('-') {
-        eprintln!("error: unknown option: {}", args[0]);
+    if first.starts_with('-') {
+        eprintln!("error: unknown option: {first}");
         print_instrument_usage();
         return Err(ExitCode::FAILURE);
     }
 
+    Ok(first.clone())
+}
+
+fn parse_instrument_args(args: &[String]) -> Result<InstrumentArgs, ExitCode> {
+    let filename = instrument_filename(args)?;
+
     let mut cli = InstrumentArgs {
-        filename: args[0].clone(),
+        filename,
         output_file: None,
         coverage_map_only: false,
         source_map: false,

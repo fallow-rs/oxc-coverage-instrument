@@ -62,20 +62,7 @@ pub(crate) fn build_file_coverage(maps: CoverageMaps) -> FileCoverage {
     let f = fn_map.keys().map(|k| (k.clone(), 0)).collect();
     let b =
         branch_map.iter().map(|(k, entry)| (k.clone(), vec![0; entry.locations.len()])).collect();
-    let b_t = if logical_branch_ids.is_empty() {
-        None
-    } else {
-        Some(
-            logical_branch_ids
-                .iter()
-                .filter_map(|&id| {
-                    let key = id.to_string();
-                    let len = branch_map.get(&key)?.locations.len();
-                    Some((key, vec![0; len]))
-                })
-                .collect(),
-        )
-    };
+    let b_t = build_truthy_hit_map(&branch_map, &logical_branch_ids);
 
     FileCoverage {
         path,
@@ -89,6 +76,29 @@ pub(crate) fn build_file_coverage(maps: CoverageMaps) -> FileCoverage {
         input_source_map: None,
         x_fallow_function_map: None,
     }
+}
+
+/// Build the optional truthy (`bT`) hit map: one zeroed hit Vec per logical
+/// branch id, sized to that branch's surviving arm count. Returns `None` when
+/// no logical branches were tracked (the common case, `report_logic` off) so
+/// the field is omitted from the serialized map.
+fn build_truthy_hit_map(
+    branch_map: &BTreeMap<String, BranchEntry>,
+    logical_branch_ids: &[usize],
+) -> Option<BTreeMap<String, Vec<u32>>> {
+    if logical_branch_ids.is_empty() {
+        return None;
+    }
+    Some(
+        logical_branch_ids
+            .iter()
+            .filter_map(|&id| {
+                let key = id.to_string();
+                let len = branch_map.get(&key)?.locations.len();
+                Some((key, vec![0; len]))
+            })
+            .collect(),
+    )
 }
 
 /// Compute the optional `x_fallow_functionMap` overlay from a populated
