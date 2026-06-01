@@ -1022,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_instrument"
-version = "0.7.5"
+version = "0.7.6"
 dependencies = [
  "criterion",
  "insta",
@@ -1083,7 +1083,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_source_maps"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "oxc_coverage_types",
  "serde_json",
@@ -1722,15 +1722,15 @@ checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
 
 [[package]]
 name = "srcmap-codec"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb59e0dc99488e5df4228114213cc2cfc1fa6071ab1b90706ba999fba866bee8"
+checksum = "3055ba823d3081f805f5313d265475f34d1506d350f1f1bf4e9b15a47a5ddabd"
 
 [[package]]
 name = "srcmap-generator"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "217a648dc740bafed246c92226fbbffde1d9ee1ab1cb7c7f7dd4d3f4a140a725"
+checksum = "44cf229a462ea05040d2b9d4eec8134055888721b657c4c5752edbdb65fafdf8"
 dependencies = [
  "rustc-hash",
  "srcmap-codec",
@@ -1740,9 +1740,9 @@ dependencies = [
 
 [[package]]
 name = "srcmap-remapping"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54bfd3f72f8d61b4992eac122212a6afc60388d4df703ca027379244bae7daab"
+checksum = "e4e547cb651c93a5af5cf78223ad176d912c905db4423a3bed3bd680bd990f9a"
 dependencies = [
  "srcmap-generator",
  "srcmap-sourcemap",
@@ -1750,18 +1750,18 @@ dependencies = [
 
 [[package]]
 name = "srcmap-scopes"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45412ac7dcc91d43395072a2aa2480022963895c9791e52b519ab922e03c401a"
+checksum = "a59173df4412d58131fdf2dcf29e2a2ddd19dd2a37a4ac47e5f4eb46822545a4"
 dependencies = [
  "srcmap-codec",
 ]
 
 [[package]]
 name = "srcmap-sourcemap"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cfb6ac3ef26caf22443bda4db17468e936a4adeaf073ac5235d9d367d98115d"
+checksum = "b0cc3738fff4071fcfc3c74e33fca910fa14de9c183d5fe60264e35d61bb076d"
 dependencies = [
  "serde",
  "serde_json",

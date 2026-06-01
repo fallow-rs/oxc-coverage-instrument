@@ -1,6 +1,6 @@
 [package]
 name = "oxc_coverage_instrument"
-version = "0.7.5"
+version = "0.7.6"
 authors.workspace = true
 edition.workspace = true
 description = "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST"
@@ -19,7 +19,7 @@ workspace = true
 # Suite crates. Path + version: path for workspace builds, version for
 # `cargo publish` so the lib crate can publish standalone from crates.io.
 oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.2.0" }
-oxc_coverage_source_maps = { path = "../oxc-coverage-source-maps", version = "0.3.0" }
+oxc_coverage_source_maps = { path = "../oxc-coverage-source-maps", version = "0.3.1" }
 oxc_coverage_v8 = { path = "../oxc-coverage-v8", version = "0.2.0" }
 oxc_allocator = "0.126"
 oxc_ast = "0.126"
@@ -39,8 +39,8 @@ serde_json = "1"
 sha2 = "0.11"
 # Companion source map crates (fallow-rs/srcmap). Exact-pinned because srcmap is pre-1.0
 # and only the parse + composition APIs are stable; bump these explicitly.
-srcmap-remapping = "=0.3.6"
-srcmap-sourcemap = "=0.3.6"
+srcmap-remapping = "=0.3.7"
+srcmap-sourcemap = "=0.3.7"
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
