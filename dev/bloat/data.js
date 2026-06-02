@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780404434583,
+  "lastUpdate": 1780405161911,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -777,6 +777,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/5417025677c72b4642468351243c9fe6454fe04f"
         },
         "date": 1780404433607,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 85528128,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "8e642d633bf4f4875c01bc35bd034d6fc284aa2c",
+          "message": "ci: commit napi package-lock.json and add fetch-retry .npmrc\n\nThe napi package-lock.json had been gitignored since the #45 workspace\nrestructure (lumped in with the napi dir's genuinely-generated artifacts\nlike index.js / *.wasi.cjs). With no committed lockfile, the release\nmatrix's `npm ci || npm install` always fell through to `npm install`,\nwhich hits the live registry for resolution + download on all seven\nplatform runners. v0.7.8's musl build failed on a transient ECONNRESET\nthere, which skipped the npm publish (recovered via rerun).\n\nCommit the lockfile so `npm ci` takes the deterministic fast path\n(fewer network round-trips), and add an .npmrc with fetch retries +\nbackoff so a transient registry blip is retried instead of failing the\nbuild. The .npmrc carries only fetch tuning; registry auth / OIDC\ntrusted-publishing config stays in the release workflow. The existing\n`npm ci || npm install` steps are unchanged: npm ci now succeeds, with\nnpm install kept as a last-resort fallback.",
+          "timestamp": "2026-06-02T14:57:25+02:00",
+          "tree_id": "43ef871abf8a00d6b7b89ddbf7aad8a616250d66",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/8e642d633bf4f4875c01bc35bd034d6fc284aa2c"
+        },
+        "date": 1780405161518,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
