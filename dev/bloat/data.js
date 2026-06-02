@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780333266961,
+  "lastUpdate": 1780392402943,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -608,6 +608,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 85492616,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "67f4958f4a4e4980bdffedb6be197492ef770d93",
+          "message": "fix: composeInputSourceMap drops unmapped positions\n\nThe eager composeInputSourceMap path folded the input source map into the\ncoverage map via the no-drop remap_coverage, so positions with no mapping\nwere stranded at generated coordinates and re-keyed past the end of the\noriginal file (e.g. Vue SFC compiler boilerplate with no mapping back to\nthe .vue, ~20% of .vue statements past EOF in a real Vite + Playwright\nrun). The eager path bakes positions into the runtime __coverage__ literal\nwith no later remap opportunity, so those entries can never be recovered.\n\nRoute eager compose through remap_coverage_with_options with\ndrop_unmapped: true so it agrees with the lazy remapCoverageMap path's\ndropUnmapped behavior and never emits past-EOF entries. No new public\nflag: an entry with no original position is never meaningful on the eager\npath. The unusable-map back-off is unchanged.\n\nAlso keep the x_fallow_functionMap overlay 1:1 with fnMap when a function\nis dropped (prune_functions now removes the matching overlay entry), a\nlatent orphan-key issue on both the lazy and eager drop paths.\n\nCloses #105",
+          "timestamp": "2026-06-02T11:24:47+02:00",
+          "tree_id": "52b32473723b4d24fa53246896452caa6870a727",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/67f4958f4a4e4980bdffedb6be197492ef770d93"
+        },
+        "date": 1780392402519,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86531824,
             "unit": "bytes"
           }
         ]
