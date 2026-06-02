@@ -576,6 +576,57 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] composeInputSourceMap folds the input map in eagerly');
 }
 
+// Test 14c: composeInputSourceMap drops unmapped positions (issue #105)
+{
+  // The input map only carries a mapping for generated line 1 ('AAAA'); the
+  // line 2+ statements have no original position. The original source is a
+  // single line, so keeping them would strand entries past end-of-file (the
+  // Vue-SFC compiler-boilerplate case from the issue).
+  const originalTs = 'export const a = 1;\n'; // one line
+  const intermediateJs = 'const a = 1;\nconst b = 2;\nconst c = 3;\n';
+  const inputSourceMap = {
+    version: 3,
+    sources: ['src/app.ts'],
+    sourcesContent: [originalTs],
+    mappings: 'AAAA',
+    names: [],
+  };
+
+  const eager = JSON.parse(
+    instrument(intermediateJs, 'intermediate.js', {
+      inputSourceMap: JSON.stringify(inputSourceMap),
+      composeInputSourceMap: true,
+    }).coverageMap,
+  );
+  assert.equal(eager.path, 'src/app.ts');
+  assert.equal(
+    Object.keys(eager.statementMap).length,
+    1,
+    'eager compose drops the two unmapped statements',
+  );
+  assert(
+    Object.values(eager.statementMap).every((loc) => loc.start.line <= 1),
+    'no surviving statement lands past the end of the original file',
+  );
+
+  // Parity with the lazy path: remapCoverageMap with dropUnmapped on the plain
+  // (non-composed) instrumented map produces the same single-statement result.
+  const plain = JSON.parse(
+    instrument(intermediateJs, 'intermediate.js', {
+      inputSourceMap: JSON.stringify(inputSourceMap),
+    }).coverageMap,
+  );
+  const lazyDropped = JSON.parse(
+    remapCoverageMap(JSON.stringify({ [plain.path]: plain }), { dropUnmapped: true }),
+  );
+  assert.equal(
+    Object.keys(lazyDropped['src/app.ts'].statementMap).length,
+    1,
+    'lazy dropUnmapped agrees with eager compose',
+  );
+  console.log('  [PASS] composeInputSourceMap drops unmapped positions (issue #105)');
+}
+
 // Test 15: ignoreClassMethods drops fnMap entries for matching methods
 {
   const source = `

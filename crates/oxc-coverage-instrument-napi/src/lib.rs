@@ -151,8 +151,16 @@ pub struct InstrumentOptions {
     /// no `inputSourceMap` embedded; `remapCoverageMap` on the result is a
     /// no-op. Useful for E2E collectors (Playwright et al.) that dump
     /// `window.__coverage__` directly and want original-source positions without
-    /// a downstream remap round-trip. Has no effect when `inputSourceMap` is
-    /// unset. Default false.
+    /// a downstream remap round-trip.
+    ///
+    /// Entries whose positions have no mapping in `inputSourceMap` are dropped,
+    /// matching `remapCoverageMap(json, { dropUnmapped: true })`. The eager path
+    /// bakes positions into the runtime literal with no later remap opportunity,
+    /// so an unmapped entry would otherwise be stranded at generated coordinates
+    /// and re-keyed past the end of the original file (e.g. compiler boilerplate
+    /// in a Vue SFC chunk with no mapping back to the `.vue`). If `inputSourceMap`
+    /// is unusable, composition backs off and the embedded map is retained for
+    /// the lazy path. Has no effect when `inputSourceMap` is unset. Default false.
     pub compose_input_source_map: Option<bool>,
     /// When true, adds truthy-value tracking (bT) for logical expression operands.
     pub report_logic: Option<bool>,
@@ -216,9 +224,10 @@ pub struct RemapOptions {
     ///
     /// Drop semantics mirror `istanbul-lib-source-maps`'s `transformer.js`:
     /// statements drop when start or end fails to remap; functions drop when
-    /// any of `decl` / `loc` start or end fails; branch arms drop per arm,
-    /// and the whole branch drops when no arms survive or when the umbrella
-    /// `loc` start/end fails to remap.
+    /// any of `decl` / `loc` start or end fails (a matching
+    /// `x_fallow_functionMap` overlay entry drops with the function); branch
+    /// arms drop per arm, and the whole branch drops when no arms survive or
+    /// when the umbrella `loc` start/end fails to remap.
     ///
     /// Defaults to `false`.
     pub drop_unmapped: Option<bool>,

@@ -8,8 +8,9 @@
 use std::collections::BTreeMap;
 
 use oxc_coverage_instrument::{
-    FileCoverage, InstrumentOptions, SourceMapStore, instrument, parse_coverage_map,
+    FileCoverage, InstrumentOptions, RemapOptions, SourceMapStore, instrument, parse_coverage_map,
     remap_coverage, remap_coverage_map, remap_coverage_map_with_loader, remap_coverage_with_loader,
+    remap_coverage_with_options,
 };
 
 /// Three-line TypeScript file post type-strip, with an identity-line source map.
@@ -370,8 +371,13 @@ fn compose_input_source_map_rewrites_path_and_positions() {
 #[test]
 fn compose_input_source_map_equals_instrument_then_remap() {
     // The whole contract: eager compose must be bit-for-bit equal to
-    // instrument-without-compose followed by `remap_coverage`. If this holds,
-    // `remapCoverageMap` on the eager result is provably a no-op.
+    // instrument-without-compose followed by `remap_coverage_with_options` with
+    // `drop_unmapped: true` (issue #105: the eager path drops unmapped positions
+    // unconditionally because there is no later remap opportunity). If this
+    // holds, `remapCoverageMap` on the eager result is provably a no-op. Note
+    // every position in `three_line_inputs` maps cleanly, so no entry is
+    // actually dropped here; the drop behaviour is exercised by
+    // `compose_input_source_map_drops_unmapped_positions` below.
     let (_, intermediate, input_sm) = three_line_inputs();
 
     let eager = instrument(
@@ -391,13 +397,117 @@ fn compose_input_source_map_equals_instrument_then_remap() {
         &InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() },
     )
     .unwrap();
-    let lazy = remap_coverage(&lazy_instrumented.coverage_map).expect("lazy remap succeeds");
+    let lazy = remap_coverage_with_options(
+        &lazy_instrumented.coverage_map,
+        RemapOptions { drop_unmapped: true },
+    )
+    .expect("lazy remap succeeds");
 
     assert_eq!(
         serde_json::to_value(&eager.coverage_map).unwrap(),
         serde_json::to_value(&lazy).unwrap(),
-        "eager compose must equal instrument-then-remap_coverage"
+        "eager compose must equal instrument-then-remap with drop_unmapped"
     );
+}
+
+/// Intermediate JS whose first statement maps back to `src/app.ts` but whose
+/// remaining statements have no mapping (the source map only carries a `mappings`
+/// segment for generated line 1, mirroring `one_line_identity_map` in the
+/// source-maps edge tests). The original source is a single line, so any entry
+/// kept at its generated line 2+ coordinate would land past end-of-file. This is
+/// the minimal stand-in for the Vue-SFC case in issue #105 where compiler
+/// boilerplate at the tail of the chunk has no mapping back to the `.vue`.
+fn partial_map_inputs() -> (String, String) {
+    let original_ts = "export const a = 1;\n"; // one line
+    let intermediate_js = "const a = 1;\nconst b = 2;\nconst c = 3;\n"; // three statements
+    let input_sm = format!(
+        r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{original_ts:?}],"mappings":"AAAA","names":[]}}"#,
+    );
+    (intermediate_js.to_string(), input_sm)
+}
+
+#[test]
+fn compose_input_source_map_drops_unmapped_positions() {
+    // Issue #105: the eager compose path must drop entries whose positions have
+    // no mapping, instead of stranding them at generated coordinates past the
+    // end of the original file. This is the non-vacuous counterpart to
+    // `compose_input_source_map_equals_instrument_then_remap`: here the input map
+    // only maps generated line 1, so the line 2+ statements have no original
+    // position and must be pruned.
+    let (intermediate, input_sm) = partial_map_inputs();
+    let original_line_count = 1; // src/app.ts is a single line.
+
+    // Baseline: plain generated map has all three statements.
+    let plain =
+        instrument(&intermediate, "intermediate.js", &InstrumentOptions::default()).unwrap();
+    assert_eq!(
+        plain.coverage_map.statement_map.len(),
+        3,
+        "the generated map has a statement per line before composition"
+    );
+
+    // Eager compose drops the two unmapped statements.
+    let eager = instrument(
+        &intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm.clone()),
+            compose_input_source_map: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(eager.coverage_map.path, "src/app.ts");
+    assert_eq!(
+        eager.coverage_map.statement_map.len(),
+        1,
+        "eager compose drops the unmapped line 2+ statements"
+    );
+    assert!(
+        eager.coverage_map.statement_map.values().all(|loc| loc.start.line <= original_line_count),
+        "no surviving statement lands past the end of the original file"
+    );
+    // The matching hit-count slots drop with their statements.
+    assert_eq!(eager.coverage_map.s.len(), 1, "the `s` slots realign to the kept statement");
+
+    // The bug shape, made explicit: WITHOUT dropping (the lazy default), the
+    // unmapped statements are kept at their generated line numbers, which exceed
+    // the original file's line count.
+    let lazy_kept =
+        remap_coverage(&plain_with_map(&intermediate, &input_sm)).expect("lazy remap succeeds");
+    assert!(
+        lazy_kept.statement_map.values().any(|loc| loc.start.line > original_line_count),
+        "lazy keep-default strands unmapped statements past end-of-file (the #105 bug)"
+    );
+
+    // And the eager result equals the lazy path WITH drop_unmapped, proving the
+    // two paths now agree on the drop policy.
+    let lazy_dropped = remap_coverage_with_options(
+        &plain_with_map(&intermediate, &input_sm),
+        RemapOptions { drop_unmapped: true },
+    )
+    .expect("lazy drop remap succeeds");
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map).unwrap(),
+        serde_json::to_value(&lazy_dropped).unwrap(),
+        "eager compose must equal instrument-then-remap with drop_unmapped"
+    );
+}
+
+/// Instrument `intermediate` with `input_sm` embedded but without eager compose,
+/// returning the `FileCoverage` that still carries its `inputSourceMap` so the
+/// lazy remap helpers can be exercised against it.
+fn plain_with_map(intermediate: &str, input_sm: &str) -> FileCoverage {
+    instrument(
+        intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm.to_string()),
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap()
+    .coverage_map
 }
 
 #[test]
@@ -484,7 +594,10 @@ fn compose_input_source_map_preserves_function_identity_overlay() {
     // The function-identity overlay is built before composition and the remap
     // pipeline does not rewrite it, so the eager overlay must equal the overlay
     // produced by instrument-then-remap. This keeps the `fallow:fn:<hex>` join
-    // keys stable across the eager and lazy paths.
+    // keys stable across the eager and lazy paths. The lazy side uses the same
+    // `drop_unmapped: true` policy the eager path now applies (issue #105) so
+    // the parity assertion stays symmetric; the identity map here maps every
+    // position, so nothing is actually dropped on either side.
     let intermediate = "function add(a, b) {\n  return a + b;\n}\n";
     let original_ts = "function add(a: number, b: number): number {\n  return a + b;\n}\n";
     let input_sm = format!(
@@ -513,13 +626,53 @@ fn compose_input_source_map_preserves_function_identity_overlay() {
         },
     )
     .unwrap();
-    let lazy = remap_coverage(&lazy_instrumented.coverage_map).expect("lazy remap succeeds");
+    let lazy = remap_coverage_with_options(
+        &lazy_instrumented.coverage_map,
+        RemapOptions { drop_unmapped: true },
+    )
+    .expect("lazy remap succeeds");
 
     assert!(eager.coverage_map.x_fallow_function_map.is_some(), "overlay survives eager compose");
     assert_eq!(
         serde_json::to_value(&eager.coverage_map.x_fallow_function_map).unwrap(),
         serde_json::to_value(&lazy.x_fallow_function_map).unwrap(),
         "overlay must be identical across eager and lazy paths"
+    );
+}
+
+#[test]
+fn compose_input_source_map_prunes_overlay_for_dropped_functions() {
+    // Issue #105 + the function-identity overlay: when eager compose drops an
+    // unmapped function, its `x_fallow_functionMap` overlay entry must drop with
+    // it so the overlay stays 1:1 with `fnMap` (no orphan identity for a
+    // function that no longer exists). The input map only maps generated line 1,
+    // so `drop` (declared on line 2) is pruned while `keep` (line 1) survives.
+    let intermediate = "function keep() { return 1; }\nfunction drop() { return 2; }\n";
+    let original_ts = "export function keep() { return 1; }\n"; // one line
+    let input_sm = format!(
+        r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{original_ts:?}],"mappings":"AAAA","names":[]}}"#,
+    );
+
+    let eager = instrument(
+        intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm),
+            compose_input_source_map: true,
+            function_identity_overlay: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+
+    let fn_names: Vec<&str> = eager.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
+    assert_eq!(fn_names, vec!["keep"], "the unmapped function is dropped from fnMap");
+
+    let overlay = eager.coverage_map.x_fallow_function_map.expect("overlay survives eager compose");
+    assert_eq!(
+        overlay.keys().collect::<Vec<_>>(),
+        eager.coverage_map.fn_map.keys().collect::<Vec<_>>(),
+        "overlay stays 1:1 with fnMap; the dropped function leaves no orphan entry",
     );
 }
 

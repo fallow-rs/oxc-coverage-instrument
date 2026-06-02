@@ -15,7 +15,7 @@ use oxc_coverage_source_maps::{
     remap_coverage_map_with_options, remap_coverage_with_loader, remap_coverage_with_options,
 };
 use oxc_coverage_types::{
-    BranchEntry, FileCoverage, FnEntry, Location, Position, parse_coverage_map,
+    BranchEntry, FileCoverage, FnEntry, FunctionIdentity, Location, Position, parse_coverage_map,
 };
 
 const SRC_PATH: &str = "src/app.ts";
@@ -365,6 +365,42 @@ fn drop_unmapped_prunes_functions_when_decl_or_loc_fails() {
     assert!(!remapped.f.contains_key("drop"));
     let kept = &remapped.fn_map["keep"];
     assert_eq!(kept.line, kept.loc.start.line, "FnEntry.line tracks loc.start.line after remap");
+}
+
+#[test]
+fn drop_unmapped_prunes_function_identity_overlay_with_its_function() {
+    // When a function is dropped, its `x_fallow_functionMap` overlay entry (if
+    // present, sharing the fn-id keyspace) must drop too, so the overlay stays
+    // 1:1 with `fnMap`. Otherwise a consumer joining on `fnMap` keys finds an
+    // orphan identity for a function that no longer exists.
+    let pos = |line: u32, col: u32| Position { line, column: col };
+    let loc =
+        |sl: u32, sc: u32, el: u32, ec: u32| Location { start: pos(sl, sc), end: pos(el, ec) };
+    let identity = |id: &str, name: &str, l: u32| FunctionIdentity {
+        id: id.to_string(),
+        name: name.to_string(),
+        path: "src/app.ts".to_string(),
+        decl: loc(l, 0, l, 1),
+        loc: loc(l, 0, l, 10),
+    };
+
+    let mut fc = mixed_mapped_file_coverage();
+    let mut overlay = BTreeMap::new();
+    overlay.insert("keep".to_string(), identity("fallow:fn:keep", "k", 1));
+    overlay.insert("drop".to_string(), identity("fallow:fn:drop", "d", 1));
+    fc.x_fallow_function_map = Some(overlay);
+
+    let opts = RemapOptions { drop_unmapped: true };
+    let remapped = remap_coverage_with_options(&fc, opts).expect("drop_unmapped remap succeeds");
+
+    let overlay = remapped.x_fallow_function_map.expect("overlay survives drop_unmapped");
+    assert!(overlay.contains_key("keep"), "kept function retains its overlay entry");
+    assert!(!overlay.contains_key("drop"), "dropped function's overlay entry is pruned");
+    assert_eq!(
+        overlay.keys().collect::<Vec<_>>(),
+        remapped.fn_map.keys().collect::<Vec<_>>(),
+        "overlay stays 1:1 with fnMap after drop",
+    );
 }
 
 #[test]

@@ -50,12 +50,20 @@ pub struct InstrumentOptions {
     /// al.) that dump `window.__coverage__` directly and want original-source
     /// positions without a normalization pass.
     ///
-    /// Composition uses the default keep-generated-position semantics for
-    /// positions whose source-map lookup fails (matching `remap_coverage` /
-    /// `remapCoverageMap` called without options). If the input map is unusable
-    /// (declares no source, fails to parse), composition backs off and the
-    /// embedded `inputSourceMap` is left in place so the lazy remap path still
-    /// works. Has no effect when `input_source_map` is `None`.
+    /// Composition drops entries whose source-map lookup fails, matching
+    /// `remap_coverage_with_options` / `remapCoverageMap` called with
+    /// [`crate::RemapOptions::drop_unmapped`] set. Because the eager path bakes
+    /// positions into the runtime `__coverage__` literal with no later remap
+    /// opportunity, an entry with no original position would otherwise be
+    /// stranded at generated coordinates and re-keyed to the original source,
+    /// landing past the end of the file (e.g. compiler boilerplate in a Vue SFC
+    /// chunk that has no mapping back to the `.vue`). Dropping unconditionally
+    /// keeps the eager path bit-for-bit equal to instrument-then-`remap_coverage`
+    /// with `drop_unmapped: true`. If the input map is unusable (declares no
+    /// source, fails to parse), composition backs off and the embedded
+    /// `inputSourceMap` is left in place so the lazy remap path still works (and
+    /// can apply its own drop policy). Has no effect when `input_source_map` is
+    /// `None`.
     ///
     /// Defaults to false.
     pub compose_input_source_map: bool,
@@ -305,13 +313,25 @@ pub fn instrument(
     // then ships original-source positions/path and `remap_coverage` on the
     // result is a no-op. Run AFTER the function-identity overlay attaches so
     // the overlay's ids stay derived from the pre-remap positions, keeping the
-    // eager path bit-for-bit equal to instrument-then-`remap_coverage` (the
-    // remap pipeline intentionally does not rewrite the overlay). When the
-    // input map is unusable, `remap_coverage` returns `None` and we leave the
-    // embedded map in place so the lazy remap path remains available.
+    // eager path bit-for-bit equal to instrument-then-remap (the remap pipeline
+    // intentionally does not rewrite the overlay). When the input map is
+    // unusable, the remap returns `None` and we leave the embedded map in place
+    // so the lazy remap path remains available.
+    //
+    // `drop_unmapped: true` (issue #105): unlike the lazy path, the eager path
+    // bakes positions into the runtime literal with no later remap opportunity,
+    // so a position with no source-map mapping cannot be recovered downstream.
+    // Keeping it would strand the entry at generated coordinates and re-key it
+    // to the original source past the end of the file (Vue SFC compiler
+    // boilerplate is the canonical case). Drop unconditionally so the eager
+    // path never emits past-EOF entries; this matches what the lazy path
+    // produces with `drop_unmapped: true`.
     if options.compose_input_source_map
         && options.input_source_map.is_some()
-        && let Some(composed) = oxc_coverage_source_maps::remap_coverage(&coverage_map)
+        && let Some(composed) = oxc_coverage_source_maps::remap_coverage_with_options(
+            &coverage_map,
+            oxc_coverage_source_maps::RemapOptions { drop_unmapped: true },
+        )
     {
         coverage_map = composed;
     }

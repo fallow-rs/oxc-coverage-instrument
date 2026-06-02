@@ -45,7 +45,9 @@ pub struct RemapOptions {
     /// `transformer.js`:
     /// - **statement**: dropped when either `start` or `end` fails to remap.
     /// - **function**: dropped when any of `decl.start`, `decl.end`,
-    ///   `loc.start`, `loc.end` fails to remap.
+    ///   `loc.start`, `loc.end` fails to remap. A matching
+    ///   `x_fallow_functionMap` overlay entry, if present, drops with it so the
+    ///   overlay stays 1:1 with `fnMap`.
     /// - **branch**: per-arm prune when either arm endpoint fails to remap;
     ///   the whole branch is dropped when no arms survive, or when the
     ///   umbrella `loc` start/end fails to remap.
@@ -246,6 +248,13 @@ fn prune_functions(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap
     });
     for key in &dropped_fns {
         coverage.f.remove(key);
+        // Keep the `x_fallow_functionMap` overlay 1:1 with `fnMap`: a dropped
+        // function must not leave an orphan identity entry that consumers
+        // joining on `fnMap` keys would never resolve. The overlay shares the
+        // fn-id keyspace with `fnMap` (see `build_function_identity_map`).
+        if let Some(fallow_map) = coverage.x_fallow_function_map.as_mut() {
+            fallow_map.remove(key);
+        }
     }
 }
 
