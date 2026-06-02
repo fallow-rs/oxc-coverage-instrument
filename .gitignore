@@ -40,7 +40,6 @@ crates/oxc-coverage-instrument-napi/npm/*/coverage-instrument.wasi-browser.js
 crates/oxc-coverage-instrument-napi/npm/*/wasi-worker.mjs
 crates/oxc-coverage-instrument-napi/npm/*/wasi-worker-browser.mjs
 crates/oxc-coverage-instrument-napi/node_modules/
-crates/oxc-coverage-instrument-napi/package-lock.json
 
 # CLI crash handover files
 HANDOVER-CRASH-*.md
