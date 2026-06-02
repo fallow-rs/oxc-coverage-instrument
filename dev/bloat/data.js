@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780392685536,
+  "lastUpdate": 1780395041850,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -661,6 +661,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/1d0f441149fd8dc4ce58e8eb4665e223a5049907"
         },
         "date": 1780392684915,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86539512,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "7754d97cadb6a39c73f0d7f3ae0ed741ad86397f",
+          "message": "chore: bump oxc-coverage-reports source_maps pin to 0.3.2\n\nAlign the declared pin with the version published this release. Caret\nsemantics already resolved it (Cargo.lock unchanged); this keeps the\nmanifest honest for the next time reports is republished.",
+          "timestamp": "2026-06-02T12:08:56+02:00",
+          "tree_id": "673ac0573110c3818cafb8f8909a44fbe6bfd460",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/7754d97cadb6a39c73f0d7f3ae0ed741ad86397f"
+        },
+        "date": 1780395041215,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
