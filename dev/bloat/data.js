@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780395041850,
+  "lastUpdate": 1780395734505,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -695,6 +695,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 86539512,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "935539412783f9cf34db4d0312b2214eea301ada",
+          "message": "chore: bump oxc_coverage_types to 0.2.1 to resync published docstring\n\ncheck-version-sync.sh --mode=published flagged that types' local src/\ndiverged from the published 0.2.0: commit 8debd7f refined the\nFunctionIdentity docstring (to describe the SHA-256 id formula) without\nbumping types, so docs.rs for 0.2.0 carries the old, inaccurate\nderivation. Bump types 0.2.0 -> 0.2.1 and cascade the five internal\npins so the corrected docstring publishes on the next release.",
+          "timestamp": "2026-06-02T12:19:57+02:00",
+          "tree_id": "df90ccece6b21f4c4fc6c058d5828e2ffefd5786",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/935539412783f9cf34db4d0312b2214eea301ada"
+        },
+        "date": 1780395733861,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86535976,
             "unit": "bytes"
           }
         ]
