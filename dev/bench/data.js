@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780333482534,
+  "lastUpdate": 1780392648546,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -3167,6 +3167,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 765376,
             "range": "± 2994",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "67f4958f4a4e4980bdffedb6be197492ef770d93",
+          "message": "fix: composeInputSourceMap drops unmapped positions\n\nThe eager composeInputSourceMap path folded the input source map into the\ncoverage map via the no-drop remap_coverage, so positions with no mapping\nwere stranded at generated coordinates and re-keyed past the end of the\noriginal file (e.g. Vue SFC compiler boilerplate with no mapping back to\nthe .vue, ~20% of .vue statements past EOF in a real Vite + Playwright\nrun). The eager path bakes positions into the runtime __coverage__ literal\nwith no later remap opportunity, so those entries can never be recovered.\n\nRoute eager compose through remap_coverage_with_options with\ndrop_unmapped: true so it agrees with the lazy remapCoverageMap path's\ndropUnmapped behavior and never emits past-EOF entries. No new public\nflag: an entry with no original position is never meaningful on the eager\npath. The unusable-map back-off is unchanged.\n\nAlso keep the x_fallow_functionMap overlay 1:1 with fnMap when a function\nis dropped (prune_functions now removes the matching overlay entry), a\nlatent orphan-key issue on both the lazy and eager drop paths.\n\nCloses #105",
+          "timestamp": "2026-06-02T11:24:47+02:00",
+          "tree_id": "52b32473723b4d24fa53246896452caa6870a727",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/67f4958f4a4e4980bdffedb6be197492ef770d93"
+        },
+        "date": 1780392647541,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 22916,
+            "range": "± 586",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 51584,
+            "range": "± 269",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 150225,
+            "range": "± 718",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 309332,
+            "range": "± 1926",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 128633,
+            "range": "± 654",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 528978,
+            "range": "± 3453",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 315077,
+            "range": "± 11091",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 473869,
+            "range": "± 3250",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 58462,
+            "range": "± 243",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 285712,
+            "range": "± 1830",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 560334,
+            "range": "± 2909",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2855352,
+            "range": "± 21091",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 42247,
+            "range": "± 780",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 37974,
+            "range": "± 416",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 521576,
+            "range": "± 2780",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 480477,
+            "range": "± 1966",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 196611,
+            "range": "± 1272",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 181512,
+            "range": "± 1866",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 873082,
+            "range": "± 7619",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 792391,
+            "range": "± 2984",
             "unit": "ns/iter"
           }
         ]
