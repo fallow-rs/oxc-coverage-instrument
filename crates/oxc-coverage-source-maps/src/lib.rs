@@ -62,7 +62,7 @@ pub struct RemapOptions {
 /// point's positions remap through the input source map, without depending on
 /// `srcmap-sourcemap` internals. The predicate exists exactly when eager
 /// composition would succeed: [`PositionRemapper::from_json`] returns `None`
-/// under the same conditions that make `apply_source_map` bail (unparseable
+/// under the same conditions that make `apply_source_map` bail (unparsable
 /// map, or a map that declares no usable source), so a gated transform and the
 /// later compose agree by construction.
 pub struct PositionRemapper {

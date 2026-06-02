@@ -159,13 +159,13 @@ runOnce('mapped head + unmapped boilerplate tail', {
 // 7. Positive control: fully-mapped file - branch/fn/stmt all kept, runs,
 //    and counts are correct (both ternary arms exercised).
 {
-  const generated = "const pick = (x) => (x > 0 ? 'p' : 'n');\nglobalThis.r = pick(1) + pick(-1);\n";
+  const generated = "const pick = (x) => (x > 0 ? 'pos' : 'neg');\nglobalThis.r = pick(1) + pick(-1);\n";
   const { map, g, r } = runOnce('fully-mapped file (control)', {
     generated,
     mappedLines: 2,
     originalLines: 2,
     expectVar: 'r',
-    expectVal: 'pn',
+    expectVal: 'posneg',
   });
   check('control: branch kept with 2 arms', map.branchMap['0'] && map.branchMap['0'].locations.length === 2);
   const fc = g.__c['original.ts'];
