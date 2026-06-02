@@ -22,6 +22,6 @@ test = false
 doctest = false
 
 [dependencies]
-oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.2.0" }
+oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.2.1" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
