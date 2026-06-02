@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780392968084,
+  "lastUpdate": 1780395355515,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -3455,6 +3455,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 777075,
             "range": "± 9745",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "7754d97cadb6a39c73f0d7f3ae0ed741ad86397f",
+          "message": "chore: bump oxc-coverage-reports source_maps pin to 0.3.2\n\nAlign the declared pin with the version published this release. Caret\nsemantics already resolved it (Cargo.lock unchanged); this keeps the\nmanifest honest for the next time reports is republished.",
+          "timestamp": "2026-06-02T12:08:56+02:00",
+          "tree_id": "673ac0573110c3818cafb8f8909a44fbe6bfd460",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/7754d97cadb6a39c73f0d7f3ae0ed741ad86397f"
+        },
+        "date": 1780395355113,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 20917,
+            "range": "± 1099",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 45292,
+            "range": "± 701",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 124544,
+            "range": "± 6042",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 273615,
+            "range": "± 3751",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 96145,
+            "range": "± 506",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 482343,
+            "range": "± 2930",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 277194,
+            "range": "± 3363",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 424823,
+            "range": "± 4682",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 55956,
+            "range": "± 1239",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 275368,
+            "range": "± 1025",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 548999,
+            "range": "± 8288",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2831979,
+            "range": "± 21167",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 36643,
+            "range": "± 482",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 33132,
+            "range": "± 965",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 482747,
+            "range": "± 4154",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 430488,
+            "range": "± 4330",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 163014,
+            "range": "± 4371",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 149265,
+            "range": "± 3824",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 872883,
+            "range": "± 14946",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 785110,
+            "range": "± 3435",
             "unit": "ns/iter"
           }
         ]
