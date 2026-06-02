@@ -62,7 +62,11 @@ pub struct CoverageTransform<'src, 'arena> {
     pending_stmts: Vec<PendingInsertion>,
     /// Stack of pending function entry counters. Supports nested functions/arrows
     /// where an inner function is entered before the outer's body is visited.
-    pending_fn_counters: Vec<usize>,
+    /// Entries are `Option<usize>`: `None` is pushed when the function was
+    /// skipped (eager-compose gate returned `None`, issue #106) so the
+    /// push/pop balance with the traversal nesting is preserved; the body hook
+    /// emits a counter only for `Some` entries.
+    pending_fn_counters: Vec<Option<usize>>,
     /// Per-frame record of whether the current function or arrow is being ignored
     /// (i.e. its subtree should not be instrumented). Mirrors Istanbul's `path.skip()`:
     /// when true at any ancestor frame, statements in the body are not counted.
@@ -115,6 +119,13 @@ pub struct CoverageTransform<'src, 'arena> {
     /// sibling fields, so `field = function () {}` keeps Function.name
     /// inference instead of getting wrapped in a sequence expression.
     pending_class_field_hoists: Vec<Vec<ClassFieldHoist>>,
+    /// Eager-compose gate (issue #106). When `Some`, a coverage point whose
+    /// positions do not remap through the input source map is NOT instrumented
+    /// at the AST level: no map entry is registered and no counter is emitted,
+    /// so the runtime coverage object and the emitted counters agree. When
+    /// `None` (the only state for every non-eager caller) gating is a strict
+    /// no-op and output is byte-identical to before.
+    eager_remapper: Option<oxc_coverage_source_maps::PositionRemapper>,
 }
 
 struct ClassFieldHoist {
@@ -156,12 +167,22 @@ pub struct TransformInit<'src, 'arena> {
     /// Class method and named-function-expression identifiers to skip,
     /// matching Istanbul's `ignoreClassMethods` semantics.
     pub ignore_class_methods: Vec<String>,
+    /// Eager-compose position-remap gate (issue #106). `Some` only in eager
+    /// mode (`compose_input_source_map == true` with an input map present);
+    /// `None` for every other caller, where gating is a strict no-op.
+    pub eager_remapper: Option<oxc_coverage_source_maps::PositionRemapper>,
 }
 
 impl<'src, 'arena> CoverageTransform<'src, 'arena> {
     pub fn new(init: TransformInit<'src, 'arena>) -> Self {
-        let TransformInit { allocator, source, cov_fn_name, report_logic, ignore_class_methods } =
-            init;
+        let TransformInit {
+            allocator,
+            source,
+            cov_fn_name,
+            report_logic,
+            ignore_class_methods,
+            eager_remapper,
+        } = init;
         let cov_fn_name = allocator.alloc_str(cov_fn_name);
         Self {
             source,
@@ -191,7 +212,18 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             ignore_class_methods,
             logical_branch_ids: Vec::new(),
             pending_class_field_hoists: Vec::new(),
+            eager_remapper,
         }
+    }
+
+    /// Whether both endpoints of an istanbul `Location` remap through the
+    /// eager-compose input source map. Returns `true` when no remapper is set
+    /// (the non-eager safety net), so gating is a strict no-op outside eager
+    /// mode.
+    fn location_maps(&self, loc: &Location) -> bool {
+        self.eager_remapper.as_ref().is_none_or(|r| {
+            r.maps(loc.start.line, loc.start.column) && r.maps(loc.end.line, loc.end.column)
+        })
     }
 
     fn span_to_location(&self, span: Span) -> Location {
@@ -229,27 +261,47 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         Position { line: (line + 1) as u32, column }
     }
 
-    fn add_function(&mut self, name: String, decl_span: Span, body_span: Span) -> usize {
+    /// Register a function entry. In eager mode (issue #106) returns `None`
+    /// when any of the four endpoints (decl.start, decl.end, loc.start,
+    /// loc.end) fails to remap, mirroring `prune_functions`; the entry is then
+    /// not pushed and the caller must skip the function counter. Outside eager
+    /// mode this always returns `Some` (the gate is a no-op).
+    fn add_function(&mut self, name: String, decl_span: Span, body_span: Span) -> Option<usize> {
+        let decl = self.span_to_location(decl_span);
+        let loc = self.span_to_location(body_span);
+        if !self.location_maps(&decl) || !self.location_maps(&loc) {
+            return None;
+        }
         let id_num = self.fn_map.len();
-        let line = self.offset_to_position(decl_span.start).line;
-        self.fn_map.push(FnEntry {
-            name,
-            line,
-            decl: self.span_to_location(decl_span),
-            loc: self.span_to_location(body_span),
-        });
-        id_num
+        let line = decl.start.line;
+        self.fn_map.push(FnEntry { name, line, decl, loc });
+        Some(id_num)
     }
 
-    fn add_statement(&mut self, span: Span) -> usize {
-        let id_num = self.statement_map.len();
-        self.statement_map.push(self.span_to_location(span));
-        id_num
-    }
-
-    fn add_branch(&mut self, branch_type: &str, span: Span) -> usize {
-        let id_num = self.branch_map.len();
+    /// Register a statement location. In eager mode returns `None` when either
+    /// endpoint fails to remap (mirrors `prune_statements`); the location is
+    /// then not pushed and the caller must skip the statement counter. Outside
+    /// eager mode this always returns `Some`.
+    fn add_statement(&mut self, span: Span) -> Option<usize> {
         let loc = self.span_to_location(span);
+        if !self.location_maps(&loc) {
+            return None;
+        }
+        let id_num = self.statement_map.len();
+        self.statement_map.push(loc);
+        Some(id_num)
+    }
+
+    /// Register a branch umbrella entry. In eager mode returns `None` when the
+    /// umbrella `loc` start/end fails to remap (mirrors the `prune_branches`
+    /// outer-loc rule); nothing is pushed and the caller must skip all of this
+    /// branch's counters. Outside eager mode this always returns `Some`.
+    fn add_branch(&mut self, branch_type: &str, span: Span) -> Option<usize> {
+        let loc = self.span_to_location(span);
+        if !self.location_maps(&loc) {
+            return None;
+        }
+        let id_num = self.branch_map.len();
         let line = loc.start.line;
         self.branch_map.push(BranchEntry {
             loc,
@@ -258,25 +310,37 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             locations: Vec::new(),
         });
         self.branch_arm_body_byte_spans.push(Vec::new());
-        id_num
+        Some(id_num)
     }
 
-    fn add_branch_path(&mut self, branch_id: usize, span: Span) -> usize {
+    /// Register a branch arm. In eager mode returns `None` when the location
+    /// span's start/end fails to remap; the arm is then not pushed, so a
+    /// partially-unmapped branch keeps only its mapped arms with contiguous
+    /// indices. The caller must skip the arm's counter on `None`. Outside eager
+    /// mode this always returns `Some`.
+    fn add_branch_path(&mut self, branch_id: usize, span: Span) -> Option<usize> {
         let location = self.span_to_location(span);
-        self.add_branch_path_location(branch_id, location, (span.start, span.end))
+        if !self.location_maps(&location) {
+            return None;
+        }
+        Some(self.add_branch_path_location(branch_id, location, (span.start, span.end)))
     }
 
     /// Record a branch arm whose istanbul-reported location and the underlying
     /// AST body span differ. Today this is only the if-arm 0 case (istanbul
     /// reports the whole `IfStatement`; the body is the consequent statement).
+    /// Gating mirrors [`Self::add_branch_path`] (on the location span).
     fn add_branch_path_with_body(
         &mut self,
         branch_id: usize,
         location_span: Span,
         body_span: Span,
-    ) -> usize {
+    ) -> Option<usize> {
         let location = self.span_to_location(location_span);
-        self.add_branch_path_location(branch_id, location, (body_span.start, body_span.end))
+        if !self.location_maps(&location) {
+            return None;
+        }
+        Some(self.add_branch_path_location(branch_id, location, (body_span.start, body_span.end)))
     }
 
     // Track which arm spans of an `if` are pragma-ignored so nested statements
@@ -311,6 +375,20 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         synthetic_anchor: u32,
         ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
+        // Resolve the else arm's location span WITHOUT mutating the AST yet: a
+        // real else uses its own span; a missing (or already zero-width
+        // synthetic) else anchors at the consequent's end.
+        let arm_span = match &stmt.alternate {
+            Some(alt) if !(alt.span().start == 0 && alt.span().end == 0) => alt.span(),
+            _ => Span::new(synthetic_anchor, synthetic_anchor),
+        };
+        // Eager gate: if the else arm does not remap, skip it entirely. Resolved
+        // BEFORE synthesizing the empty block so an unmapped synthetic else does
+        // not leave a spurious `else {}` in the output. Outside eager mode
+        // `add_branch_path` always returns `Some`, so behavior is unchanged.
+        let Some(path_idx) = self.add_branch_path(branch_id, arm_span) else {
+            return;
+        };
         if stmt.alternate.is_none() {
             let scope_id =
                 ctx.create_child_scope_of_current(oxc_syntax::scope::ScopeFlags::empty());
@@ -318,11 +396,6 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
                 Some(ctx.ast.statement_block_with_scope_id(SPAN, ctx.ast.vec(), scope_id));
         }
         if let Some(alt) = &mut stmt.alternate {
-            let path_idx = if alt.span().start == 0 && alt.span().end == 0 {
-                self.add_branch_path(branch_id, Span::new(synthetic_anchor, synthetic_anchor))
-            } else {
-                self.add_branch_path(branch_id, alt.span())
-            };
             inject_branch_counter_into_statement(
                 alt,
                 CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
@@ -417,10 +490,19 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         link_span: Span,
         ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
-        let branch_id = self.add_branch("optional-chain", link_span);
+        // Eager gate (issue #106): gate ONLY at the whole-branch level. The
+        // `cov_fn_oc` helper references fixed arm indices 0/1, so the two arms
+        // must always be registered together when the branch is kept; skip the
+        // whole link wrap (no counter) when the umbrella loc does not remap.
+        let Some(branch_id) = self.add_branch("optional-chain", link_span) else {
+            return;
+        };
         let anchor = Span::new(link_span.start, link_span.start);
-        self.add_branch_path(branch_id, anchor);
-        self.add_branch_path(branch_id, link_span);
+        // Bypass the per-arm gate deliberately (see comment above).
+        let anchor_loc = self.span_to_location(anchor);
+        self.add_branch_path_location(branch_id, anchor_loc, (anchor.start, anchor.end));
+        let link_loc = self.span_to_location(link_span);
+        self.add_branch_path_location(branch_id, link_loc, (link_span.start, link_span.end));
 
         // Build `cov_fn_oc(<original>, <branch_id>)`. The helper observes
         // the value, increments b[id][0] or b[id][1] based on nullishness,
@@ -1008,6 +1090,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             Span::new(func.span.start, func.span.start + 1)
         };
         if let Some(body) = &func.body {
+            // Push for every function with a body so the stack stays balanced
+            // with `enter_function_body`'s pop. `None` (eager gate skipped this
+            // function) emits no counter; `Some(id)` emits the function counter.
             let fn_id = self.add_function(name, decl_span, body.span);
             self.pending_fn_counters.push(fn_id);
         }
@@ -1029,7 +1114,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         if self.in_ignored_subtree() {
             return;
         }
-        if let Some(fn_id) = self.pending_fn_counters.pop() {
+        // Pop always (balanced with `enter_function`); emit only when the
+        // function was registered (`Some`). A skipped function (`None`, eager
+        // gate) pops without emitting.
+        if let Some(Some(fn_id)) = self.pending_fn_counters.pop() {
             let cov_fn = self.cov_fn_name;
             let counter = build_counter_stmt(CounterKind::func(cov_fn, fn_id), ctx);
             body.statements.insert(0, counter);
@@ -1065,7 +1153,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // DON'T modify body here — it breaks scope tracking in the traverse.
         // Set pending_fn_counter for enter_function_body to insert the counter.
         // For expression-bodied arrows, exit_arrow_function_expression converts
-        // the body to a block with return after traversal completes.
+        // the body to a block with return after traversal completes. Push
+        // unconditionally (Some or None) to stay balanced with the body hook's
+        // pop; a None (eager gate skipped this arrow) emits no counter.
         self.pending_fn_counters.push(fn_id);
     }
 
@@ -1183,17 +1273,21 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         if is_named_initializer
             && let Some(hoist_target_start) = enclosing_var_decl_hoist_target(ctx)
         {
-            let stmt_id = self.add_statement(init_span);
-            self.pending_stmts.push(PendingInsertion {
-                target_start: hoist_target_start,
-                counter_id: stmt_id,
-                counter_type: CounterType::Statement,
-            });
+            // Eager gate: skip the hoisted counter if the init does not remap.
+            if let Some(stmt_id) = self.add_statement(init_span) {
+                self.pending_stmts.push(PendingInsertion {
+                    target_start: hoist_target_start,
+                    counter_id: stmt_id,
+                    counter_type: CounterType::Statement,
+                });
+            }
             return;
         }
 
-        let stmt_id = self.add_statement(init_span);
-        prepend_counter(init, CounterKind::stmt(self.cov_fn_name, stmt_id), ctx);
+        // Eager gate: leave the init bare (no wrap) if it does not remap.
+        if let Some(stmt_id) = self.add_statement(init_span) {
+            prepend_counter(init, CounterKind::stmt(self.cov_fn_name, stmt_id), ctx);
+        }
     }
 
     fn exit_variable_declarator(
@@ -1329,17 +1423,22 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             if let Some(name) = property_key_to_name(&prop.key, self.source) {
                 self.pending_name = Some(name);
             }
-            let stmt_id = self.add_statement(span);
-            let target_start = prop.span.start;
-            let is_static = prop.r#static;
-            if let Some(top) = self.pending_class_field_hoists.last_mut() {
-                top.push(ClassFieldHoist { target_start, counter_id: stmt_id, is_static });
+            // Eager gate: skip the hoisted field counter if the value does not
+            // remap.
+            if let Some(stmt_id) = self.add_statement(span) {
+                let target_start = prop.span.start;
+                let is_static = prop.r#static;
+                if let Some(top) = self.pending_class_field_hoists.last_mut() {
+                    top.push(ClassFieldHoist { target_start, counter_id: stmt_id, is_static });
+                }
             }
             return;
         }
 
-        let stmt_id = self.add_statement(span);
-        prepend_counter(value, CounterKind::stmt(self.cov_fn_name, stmt_id), ctx);
+        // Eager gate: leave the value bare if it does not remap.
+        if let Some(stmt_id) = self.add_statement(span) {
+            prepend_counter(value, CounterKind::stmt(self.cov_fn_name, stmt_id), ctx);
+        }
     }
 
     fn enter_class_body(
@@ -1485,12 +1584,16 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             self.skip_next = false;
             return;
         }
-        let stmt_id = self.add_statement(span);
-        self.pending_stmts.push(PendingInsertion {
-            target_start: span.start,
-            counter_id: stmt_id,
-            counter_type: CounterType::Statement,
-        });
+        // Eager gate: only register a pending counter for a statement that
+        // remaps. A skipped statement still recursed into (handled above), only
+        // its own counter is dropped.
+        if let Some(stmt_id) = self.add_statement(span) {
+            self.pending_stmts.push(PendingInsertion {
+                target_start: span.start,
+                counter_id: stmt_id,
+                counter_type: CounterType::Statement,
+            });
+        }
     }
 
     fn exit_statement(
@@ -1573,12 +1676,18 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // whole-IfStatement convention).
         let consequent_span = stmt.span;
         let consequent_body_span = stmt.consequent.span();
-        let branch_id = self.add_branch("if", stmt.span);
+        // Eager gate: if the umbrella branch loc does not remap, skip all of
+        // this branch's counters but still recurse (the pragma-arm bookkeeping
+        // above and `exit_if_statement`'s pop stay balanced regardless).
+        let Some(branch_id) = self.add_branch("if", stmt.span) else {
+            return;
+        };
         let cov_fn = self.cov_fn_name;
 
-        if pragma != Some(IgnoreType::If) {
-            let path_idx =
-                self.add_branch_path_with_body(branch_id, consequent_span, consequent_body_span);
+        if pragma != Some(IgnoreType::If)
+            && let Some(path_idx) =
+                self.add_branch_path_with_body(branch_id, consequent_span, consequent_body_span)
+        {
             inject_branch_counter_into_statement(
                 &mut stmt.consequent,
                 CounterKind::branch(cov_fn, branch_id, path_idx),
@@ -1621,22 +1730,28 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             return;
         }
 
-        let branch_id = self.add_branch("cond-expr", expr.span);
+        // Eager gate: if the umbrella branch loc does not remap, skip the whole
+        // ternary branch.
+        let Some(branch_id) = self.add_branch("cond-expr", expr.span) else {
+            return;
+        };
 
         // Per istanbul, `/* istanbul ignore next */` before a single ternary
         // arm drops just that location from the branch map (the other arm
         // still tracks coverage), so the branch entry survives with one
         // remaining location.
-        if !ignore_consequent {
-            let path_idx = self.add_branch_path(branch_id, expr.consequent.span());
+        if !ignore_consequent
+            && let Some(path_idx) = self.add_branch_path(branch_id, expr.consequent.span())
+        {
             prepend_counter(
                 &mut expr.consequent,
                 CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
                 ctx,
             );
         }
-        if !ignore_alternate {
-            let path_idx = self.add_branch_path(branch_id, expr.alternate.span());
+        if !ignore_alternate
+            && let Some(path_idx) = self.add_branch_path(branch_id, expr.alternate.span())
+        {
             prepend_counter(
                 &mut expr.alternate,
                 CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
@@ -1653,14 +1768,21 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         if self.in_ignored_subtree() {
             return;
         }
-        let branch_id = self.add_branch("switch", stmt.span);
+        // Eager gate: if the umbrella branch loc does not remap, skip the whole
+        // switch branch.
+        let Some(branch_id) = self.add_branch("switch", stmt.span) else {
+            return;
+        };
 
         let cov_fn = self.cov_fn_name;
         for case in &mut stmt.cases {
             if is_ignored_case(case, &ctx.state.pragmas) {
                 continue;
             }
-            let path_idx = self.add_branch_path(branch_id, case.span);
+            // Eager gate: skip just this case's counter if it does not remap.
+            let Some(path_idx) = self.add_branch_path(branch_id, case.span) else {
+                continue;
+            };
             let branch_stmt =
                 build_counter_stmt(CounterKind::branch(cov_fn, branch_id, path_idx), ctx);
             case.consequent.insert(0, branch_stmt);
@@ -1776,9 +1898,20 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                     return;
                 }
 
-                let branch_id = self.add_branch("binary-expr", expr.span);
+                // Eager gate (issue #106): gate ONLY at the whole-branch level.
+                // The logical-leaf wrapping advances `path_idx` per leaf and
+                // expects `b[id]` length == number of wrapped leaves, so we must
+                // not gate individual leaves (that would desync `path_idx` from
+                // the arm vec). Either the branch is kept and ALL leaves are
+                // wrapped + registered, or the umbrella is skipped and NONE are.
+                let Some(branch_id) = self.add_branch("binary-expr", expr.span) else {
+                    return;
+                };
                 for span in leaf_spans {
-                    self.add_branch_path(branch_id, span);
+                    // Bypass the per-arm gate deliberately (see comment above):
+                    // register every leaf so arm count == wrapped-leaf count.
+                    let location = self.span_to_location(span);
+                    self.add_branch_path_location(branch_id, location, (span.start, span.end));
                 }
 
                 if self.report_logic {
@@ -1888,10 +2021,14 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                 self.pending_name = Some(id.name.to_string());
             }
             let init_span = init.span();
-            let branch_id = self.add_branch("default-arg", param.span);
-            self.add_branch_path(branch_id, init_span);
-            let state = LogicalWrapState::new(self.cov_fn_name, None, branch_id, false);
-            wrap_expression_with_branch_counter(init, &state, ctx);
+            // Eager gate: skip the default-arg branch if it does not remap.
+            let Some(branch_id) = self.add_branch("default-arg", param.span) else {
+                return;
+            };
+            if self.add_branch_path(branch_id, init_span).is_some() {
+                let state = LogicalWrapState::new(self.cov_fn_name, None, branch_id, false);
+                wrap_expression_with_branch_counter(init, &state, ctx);
+            }
         }
     }
 
@@ -1957,10 +2094,14 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // Destructuring defaults: const { x = 1 } = obj;
         // Istanbul also creates 'default-arg' for these.
         let right_span = pattern.right.span();
-        let branch_id = self.add_branch("default-arg", pattern.span);
-        self.add_branch_path(branch_id, right_span);
-        let state = LogicalWrapState::new(self.cov_fn_name, None, branch_id, false);
-        wrap_expression_with_branch_counter(&mut pattern.right, &state, ctx);
+        // Eager gate: skip the default-arg branch if it does not remap.
+        let Some(branch_id) = self.add_branch("default-arg", pattern.span) else {
+            return;
+        };
+        if self.add_branch_path(branch_id, right_span).is_some() {
+            let state = LogicalWrapState::new(self.cov_fn_name, None, branch_id, false);
+            wrap_expression_with_branch_counter(&mut pattern.right, &state, ctx);
+        }
     }
 
     fn enter_assignment_expression(
@@ -2009,9 +2150,19 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         ) {
             let left_span = expr.left.span();
             let right_span = expr.right.span();
-            let branch_id = self.add_branch("binary-expr", expr.span);
-            self.add_branch_path(branch_id, left_span);
-            self.add_branch_path(branch_id, right_span);
+            // Eager gate (issue #106): gate ONLY at the whole-branch level. The
+            // counters below reference fixed arm indices 0 (BranchLeft pending)
+            // and 1, so gating individual arms would desync those indices.
+            // Either the branch is kept with both arms or it is skipped whole.
+            let Some(branch_id) = self.add_branch("binary-expr", expr.span) else {
+                return;
+            };
+            // Bypass the per-arm gate deliberately (see comment above) to keep
+            // arm indices 0/1 aligned with the counters emitted below.
+            let left_loc = self.span_to_location(left_span);
+            self.add_branch_path_location(branch_id, left_loc, (left_span.start, left_span.end));
+            let right_loc = self.span_to_location(right_span);
+            self.add_branch_path_location(branch_id, right_loc, (right_span.start, right_span.end));
 
             // The left branch (no assignment) is always entered, increment before
             // the assignment. The right branch (assignment happens) is conditional.

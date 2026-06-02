@@ -50,20 +50,18 @@ pub struct InstrumentOptions {
     /// al.) that dump `window.__coverage__` directly and want original-source
     /// positions without a normalization pass.
     ///
-    /// Composition drops entries whose source-map lookup fails, matching
-    /// `remap_coverage_with_options` / `remapCoverageMap` called with
-    /// [`crate::RemapOptions::drop_unmapped`] set. Because the eager path bakes
-    /// positions into the runtime `__coverage__` literal with no later remap
-    /// opportunity, an entry with no original position would otherwise be
-    /// stranded at generated coordinates and re-keyed to the original source,
-    /// landing past the end of the file (e.g. compiler boilerplate in a Vue SFC
-    /// chunk that has no mapping back to the `.vue`). Dropping unconditionally
-    /// keeps the eager path bit-for-bit equal to instrument-then-`remap_coverage`
-    /// with `drop_unmapped: true`. If the input map is unusable (declares no
-    /// source, fails to parse), composition backs off and the embedded
-    /// `inputSourceMap` is left in place so the lazy remap path still works (and
-    /// can apply its own drop policy). Has no effect when `input_source_map` is
-    /// `None`.
+    /// In eager mode a coverage point whose positions do not remap through the
+    /// input source map is NOT instrumented at all: it gets no `statementMap` /
+    /// `fnMap` / `branchMap` entry AND no counter in the emitted code. The
+    /// runtime `__coverage__` object and the emitted counters therefore always
+    /// agree (no dangling `++cov.b[id][...]` against a pruned slot). Composition
+    /// itself is then a pure remap of the surviving positions to original
+    /// coordinates, so it never emits past-EOF entries (e.g. compiler
+    /// boilerplate in a Vue SFC chunk that has no mapping back to the `.vue` is
+    /// simply never instrumented). If the input map is unusable (declares no
+    /// source, fails to parse), the gate is off and the embedded
+    /// `inputSourceMap` is left in place so the lazy remap path still works. Has
+    /// no effect when `input_source_map` is `None`.
     ///
     /// Defaults to false.
     pub compose_input_source_map: bool,
@@ -290,12 +288,29 @@ pub fn instrument(
 
     let cov_fn_name = generate_cov_fn_name(filename);
 
+    // Eager-compose gate (issue #106): when eager composition is requested with
+    // a usable input map, build a position-remap predicate and hand it to the
+    // transform so unmappable coverage points are never instrumented (no map
+    // entry, no counter). This keeps the runtime coverage object and the
+    // emitted counters consistent by construction. Built before the transform
+    // so it can be moved into it; `None` for every non-eager caller, where the
+    // gate is a strict no-op.
+    let eager_remapper = if options.compose_input_source_map {
+        options
+            .input_source_map
+            .as_deref()
+            .and_then(oxc_coverage_source_maps::PositionRemapper::from_json)
+    } else {
+        None
+    };
+
     let mut transform = CoverageTransform::new(TransformInit {
         allocator: &allocator,
         source,
         cov_fn_name: &cov_fn_name,
         report_logic: options.report_logic,
         ignore_class_methods: options.ignore_class_methods.clone(),
+        eager_remapper,
     });
     let state = CoverageState { pragmas };
     let scoping = traverse_mut(&mut transform, &allocator, &mut parsed.program, scoping, state);
@@ -318,20 +333,19 @@ pub fn instrument(
     // unusable, the remap returns `None` and we leave the embedded map in place
     // so the lazy remap path remains available.
     //
-    // `drop_unmapped: true` (issue #105): unlike the lazy path, the eager path
-    // bakes positions into the runtime literal with no later remap opportunity,
-    // so a position with no source-map mapping cannot be recovered downstream.
-    // Keeping it would strand the entry at generated coordinates and re-key it
-    // to the original source past the end of the file (Vue SFC compiler
-    // boilerplate is the canonical case). Drop unconditionally so the eager
-    // path never emits past-EOF entries; this matches what the lazy path
-    // produces with `drop_unmapped: true`.
+    // Drop-at-the-AST-level (issue #106): the transform above was given the same
+    // `inputSourceMap`-backed position-remap predicate (`eager_remapper`), so
+    // unmappable statement / function / branch points were never instrumented
+    // (no map entry, no counter). The instrumented CODE and the coverage DATA
+    // are therefore derived from the same decision and consistent by
+    // construction. Compose is then a pure NO-DROP remap: it only rewrites the
+    // surviving positions to original coordinates, re-keys to the original
+    // source path, and clears `inputSourceMap`. No-drop is also the safer
+    // default: a hypothetical transform/compose disagreement degrades to a
+    // kept-but-remapped position rather than a dangling counter (the #106 bug).
     if options.compose_input_source_map
         && options.input_source_map.is_some()
-        && let Some(composed) = oxc_coverage_source_maps::remap_coverage_with_options(
-            &coverage_map,
-            oxc_coverage_source_maps::RemapOptions { drop_unmapped: true },
-        )
+        && let Some(composed) = oxc_coverage_source_maps::remap_coverage(&coverage_map)
     {
         coverage_map = composed;
     }
@@ -527,6 +541,8 @@ pub(crate) fn collect_for_v8_to_istanbul(
         cov_fn_name: &cov_fn_name,
         report_logic: false,
         ignore_class_methods: Vec::new(),
+        // V8-collect never composes an input source map; gate is a no-op.
+        eager_remapper: None,
     });
     let state = CoverageState { pragmas };
     let _scoping = traverse_mut(&mut transform, &allocator, &mut parsed.program, scoping, state);

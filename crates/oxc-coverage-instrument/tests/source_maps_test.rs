@@ -510,6 +510,117 @@ fn plain_with_map(intermediate: &str, input_sm: &str) -> FileCoverage {
     .coverage_map
 }
 
+/// Collect the distinct numeric ids referenced as `<cov>.<kind>[<id>]` in the
+/// emitted code, for kind in `s` / `f` / `b`. This is the runtime address space
+/// the counter increments touch; every id here must have a matching slot in the
+/// baked coverage data or the code crashes at runtime (issue #106).
+fn counter_ids_in_code(code: &str, kind: char) -> std::collections::BTreeSet<usize> {
+    let needle = format!(".{kind}[");
+    let mut ids = std::collections::BTreeSet::new();
+    let mut rest = code;
+    while let Some(pos) = rest.find(&needle) {
+        let after = &rest[pos + needle.len()..];
+        let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+        if let Ok(id) = digits.parse::<usize>() {
+            ids.insert(id);
+        }
+        rest = &after[digits.len()..];
+    }
+    ids
+}
+
+#[test]
+fn compose_input_source_map_emits_no_dangling_counters() {
+    // Issue #106: the eager path must never emit a counter increment whose slot
+    // was dropped from the baked coverage data. At runtime that is
+    // `++cov.b[id][..]` against an `undefined` slot, which throws. The fix skips
+    // instrumenting unmapped points at the AST level, so the emitted counter ids
+    // and the coverage-map ids stay identical by construction.
+    //
+    // The unmapped tail line carries a ternary (a branch) plus a statement, the
+    // exact #106 repro shape: a dropped branch counter is what crashes.
+    let intermediate = [
+        "const a = 1;",
+        "const b = 2;",
+        "const c = 3;",
+        "const w = a > 0 ? 'pos' : 'neg';", // line 4: unmapped, contains a branch
+        "",
+    ]
+    .join("\n");
+    // Lines 1-3 map to a 3-line original; line 4 is unmapped (trailing `;;`).
+    let original_ts = "const a = 1;\nconst b = 2;\nconst c = 3;\n";
+    let input_sm = format!(
+        r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{original_ts:?}],"mappings":"AAAA;AACA;AACA;;","names":[]}}"#,
+    );
+
+    let eager = instrument(
+        &intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm),
+            compose_input_source_map: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+
+    // Every counter id referenced in the emitted code must exist in the map.
+    let stmt_ids: std::collections::BTreeSet<usize> =
+        eager.coverage_map.statement_map.keys().map(|k| k.parse().unwrap()).collect();
+    let branch_ids: std::collections::BTreeSet<usize> =
+        eager.coverage_map.branch_map.keys().map(|k| k.parse().unwrap()).collect();
+    let fn_ids: std::collections::BTreeSet<usize> =
+        eager.coverage_map.fn_map.keys().map(|k| k.parse().unwrap()).collect();
+
+    let dangling_s: Vec<_> =
+        counter_ids_in_code(&eager.code, 's').difference(&stmt_ids).copied().collect();
+    let dangling_b: Vec<_> =
+        counter_ids_in_code(&eager.code, 'b').difference(&branch_ids).copied().collect();
+    let dangling_f: Vec<_> =
+        counter_ids_in_code(&eager.code, 'f').difference(&fn_ids).copied().collect();
+    assert!(dangling_s.is_empty(), "dangling statement counters in code: {dangling_s:?}");
+    assert!(dangling_b.is_empty(), "dangling branch counters in code: {dangling_b:?}");
+    assert!(dangling_f.is_empty(), "dangling function counters in code: {dangling_f:?}");
+
+    // The unmapped ternary branch must be entirely absent (not instrumented).
+    assert!(eager.coverage_map.branch_map.is_empty(), "unmapped branch must not be instrumented");
+    // The three mapped statements survive; none past the 3-line original.
+    assert_eq!(eager.coverage_map.statement_map.len(), 3);
+    assert!(
+        eager.coverage_map.statement_map.values().all(|loc| loc.start.line <= 3),
+        "no surviving statement past end-of-file"
+    );
+}
+
+#[test]
+fn compose_input_source_map_keeps_mapped_branch_consistent() {
+    // Positive control: when the branch line DOES map, the branch is kept and
+    // its counters remain consistent with the data (the gate is not over-eager).
+    let intermediate = "const w = (1 > 0) ? 'pos' : 'neg';\n";
+    let original_ts = "const w = (1 > 0) ? 'pos' : 'neg';\n";
+    let input_sm = format!(
+        r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{original_ts:?}],"mappings":"AAAA","names":[]}}"#,
+    );
+    let eager = instrument(
+        intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm),
+            compose_input_source_map: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(eager.coverage_map.branch_map.len(), 1, "mapped branch is kept");
+    let branch_ids: std::collections::BTreeSet<usize> =
+        eager.coverage_map.branch_map.keys().map(|k| k.parse().unwrap()).collect();
+    let dangling_b: Vec<_> =
+        counter_ids_in_code(&eager.code, 'b').difference(&branch_ids).copied().collect();
+    assert!(dangling_b.is_empty(), "mapped branch counters must be consistent: {dangling_b:?}");
+    // Both arms survive (line maps), so the kept branch has 2 arm locations.
+    assert_eq!(eager.coverage_map.branch_map["0"].locations.len(), 2);
+}
+
 #[test]
 fn compose_input_source_map_bakes_original_positions_into_preamble() {
     // The point of composing eagerly is that the runtime `__coverage__` (the

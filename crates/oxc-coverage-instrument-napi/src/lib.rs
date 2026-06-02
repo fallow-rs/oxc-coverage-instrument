@@ -153,14 +153,16 @@ pub struct InstrumentOptions {
     /// `window.__coverage__` directly and want original-source positions without
     /// a downstream remap round-trip.
     ///
-    /// Entries whose positions have no mapping in `inputSourceMap` are dropped,
-    /// matching `remapCoverageMap(json, { dropUnmapped: true })`. The eager path
-    /// bakes positions into the runtime literal with no later remap opportunity,
-    /// so an unmapped entry would otherwise be stranded at generated coordinates
-    /// and re-keyed past the end of the original file (e.g. compiler boilerplate
-    /// in a Vue SFC chunk with no mapping back to the `.vue`). If `inputSourceMap`
-    /// is unusable, composition backs off and the embedded map is retained for
-    /// the lazy path. Has no effect when `inputSourceMap` is unset. Default false.
+    /// In eager mode a coverage point whose positions have no mapping in
+    /// `inputSourceMap` is NOT instrumented at all: it gets no `statementMap` /
+    /// `fnMap` / `branchMap` entry AND no counter in the emitted `code`, so the
+    /// runtime `__coverage__` object and the emitted counters always agree (no
+    /// dangling counter against a pruned slot). Composition itself is then a
+    /// pure remap of the surviving positions, so it never emits past-EOF entries
+    /// (e.g. compiler boilerplate in a Vue SFC chunk with no mapping back to the
+    /// `.vue` is simply never instrumented). If `inputSourceMap` is unusable, the
+    /// gate is off and the embedded map is retained for the lazy path. Has no
+    /// effect when `inputSourceMap` is unset. Default false.
     pub compose_input_source_map: Option<bool>,
     /// When true, adds truthy-value tracking (bT) for logical expression operands.
     pub report_logic: Option<bool>,

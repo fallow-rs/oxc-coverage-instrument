@@ -627,6 +627,87 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] composeInputSourceMap drops unmapped positions (issue #105)');
 }
 
+// Test 14d: composeInputSourceMap-emitted code RUNS without crashing when a
+// branch on an unmapped line is dropped (issue #106). This is the regression
+// the shape-only tests above missed: the map was trimmed but the code still
+// incremented the dropped branch counter -> `cov.b[id]` undefined -> TypeError.
+{
+  const generated = [
+    'const a = 1;',
+    'const b = 2;',
+    'const c = 3;',
+    "const w = a > 0 ? 'pos' : 'neg';", // line 4: unmapped, contains a branch
+    'globalThis.__ran = (a + b + c + w.length);',
+    '',
+  ].join('\n');
+  // Lines 1-3 map to a 3-line original; lines 4-5 are unmapped.
+  const inputSourceMap = JSON.stringify({
+    version: 3,
+    sources: ['original.ts'],
+    names: [],
+    mappings: 'AAAA;AACA;AACA;;;',
+    sourcesContent: ['const a = 1;\nconst b = 2;\nconst c = 3;\n'],
+  });
+
+  const r = instrument(generated, 'mod.ts', {
+    coverageVariable: '__cov106',
+    inputSourceMap,
+    composeInputSourceMap: true,
+  });
+  const map = JSON.parse(r.coverageMap);
+
+  // No counter reference in the code may point at a missing branch slot.
+  const bRefs = [...new Set([...r.code.matchAll(/\.b\[(\d+)\]/g)].map((m) => m[1]))];
+  const dangling = bRefs.filter((id) => !(id in map.b));
+  assert.deepEqual(dangling, [], `emitted code must have no dangling branch counters, got ${dangling}`);
+  assert.equal(Object.keys(map.branchMap).length, 0, 'the unmapped ternary branch must not be instrumented');
+
+  // Execute the instrumented code: it must NOT throw.
+  const sharedGlobal = {};
+  assert.doesNotThrow(() => {
+    new Function('globalThis', r.code)(sharedGlobal);
+  }, 'instrumented eager-composed code must run without TypeError (issue #106)');
+  assert.equal(sharedGlobal.__ran, 1 + 2 + 3 + 3, 'the program logic still executes correctly');
+
+  // The mapped statement counters incremented (numbers, not NaN/undefined).
+  const fc = sharedGlobal.__cov106['original.ts'];
+  for (const [id, count] of Object.entries(fc.s)) {
+    assert.ok(Number.isFinite(count), `statement counter ${id} must be a finite number, got ${count}`);
+  }
+  console.log('  [PASS] composeInputSourceMap-emitted code runs without crashing (issue #106)');
+}
+
+// Test 14e: positive control - when the branch line maps, the branch is kept,
+// the emitted code runs, and both arms are executable/countable.
+{
+  const generated = "const pick = (x) => (x > 0 ? 'pos' : 'neg');\nglobalThis.__r = pick(1) + pick(-1);\n";
+  const inputSourceMap = JSON.stringify({
+    version: 3,
+    sources: ['original.ts'],
+    names: [],
+    mappings: 'AAAA;AACA',
+    sourcesContent: ["const pick = (x) => (x > 0 ? 'pos' : 'neg');\nglobalThis.__r = pick(1) + pick(-1);\n"],
+  });
+  const r = instrument(generated, 'mod.ts', {
+    coverageVariable: '__cov106b',
+    inputSourceMap,
+    composeInputSourceMap: true,
+  });
+  const map = JSON.parse(r.coverageMap);
+  assert.equal(Object.keys(map.branchMap).length, 1, 'mapped branch is kept');
+  assert.equal(map.branchMap['0'].locations.length, 2, 'both ternary arms survive when the line maps');
+
+  const sharedGlobal = {};
+  assert.doesNotThrow(() => {
+    new Function('globalThis', r.code)(sharedGlobal);
+  }, 'mapped-branch eager-composed code must run');
+  assert.equal(sharedGlobal.__r, 'posneg', 'both arms executed');
+  const fc = sharedGlobal.__cov106b['original.ts'];
+  // Each arm taken once: b[0] = [1, 1].
+  assert.deepEqual(fc.b['0'], [1, 1], 'both branch arms counted exactly once');
+  console.log('  [PASS] composeInputSourceMap keeps mapped branch runnable (issue #106 control)');
+}
+
 // Test 15: ignoreClassMethods drops fnMap entries for matching methods
 {
   const source = `

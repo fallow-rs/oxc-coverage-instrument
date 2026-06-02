@@ -56,6 +56,43 @@ pub struct RemapOptions {
     pub drop_unmapped: bool,
 }
 
+/// A position-remap predicate over a parsed `inputSourceMap`.
+///
+/// Lets the instrument crate decide, at AST-transform time, whether a coverage
+/// point's positions remap through the input source map, without depending on
+/// `srcmap-sourcemap` internals. The predicate exists exactly when eager
+/// composition would succeed: [`PositionRemapper::from_json`] returns `None`
+/// under the same conditions that make `apply_source_map` bail (unparseable
+/// map, or a map that declares no usable source), so a gated transform and the
+/// later compose agree by construction.
+pub struct PositionRemapper {
+    sm: srcmap_sourcemap::SourceMap,
+}
+
+impl PositionRemapper {
+    /// Parse a source map from JSON. Returns `None` when the JSON fails to
+    /// parse or when the map declares no usable source (mirrors the
+    /// `resolve_primary_source` bail in `apply_source_map`), so the predicate
+    /// exists exactly when eager compose would succeed.
+    #[must_use]
+    pub fn from_json(input_sm_json: &str) -> Option<Self> {
+        let sm = srcmap_sourcemap::SourceMap::from_json(input_sm_json).ok()?;
+        resolve_primary_source(&sm)?;
+        Some(Self { sm })
+    }
+
+    /// Whether the istanbul position (`line` is 1-based, `column` is 0-based
+    /// UTF-16) remaps through the source map. Returns `true` for the `line == 0`
+    /// "unknown" sentinel, matching `try_remap_position` exactly.
+    #[must_use]
+    pub fn maps(&self, line: u32, column: u32) -> bool {
+        if line == 0 {
+            return true;
+        }
+        self.sm.original_position_for(line - 1, column).is_some()
+    }
+}
+
 /// Remap a single `FileCoverage` through its embedded `inputSourceMap`.
 ///
 /// Returns `None` when the entry has no `inputSourceMap`, when that map fails
