@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780395929335,
+  "lastUpdate": 1780404428411,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -3743,6 +3743,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 778559,
             "range": "± 9515",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "5800d27e132992701747c44857ee1ed1580747b1",
+          "message": "fix: composeInputSourceMap no longer emits dangling counters (issue #106)\n\nv0.7.7 made eager composeInputSourceMap drop coverage entries whose\npositions have no source-map mapping (the #105 fix), but only trimmed the\ncoverage data: the instrumented code still incremented those dropped\ncounters. At runtime that ran ++cov.b[id][..] against a pruned slot\n(undefined), throwing TypeError and crashing any app using\ncomposeInputSourceMap (e.g. Vue 3 + Vite E2E).\n\nFix at the AST level (issue #106): in eager mode a coverage point whose\npositions do not remap through the input source map is never instrumented,\nno map entry and no counter, so the runtime coverage object and the\nemitted counters are derived from the same decision and agree by\nconstruction. add_function/add_statement/add_branch/add_branch_path now\nreturn Option and register nothing when a point does not remap; callers\nskip only the counter and continue traversing (nested mappable statements\nare still instrumented). Branches with fixed arm indices (logical /\nbinary / optional-chain / logical-assign) gate at the whole-branch level;\nif / ternary / switch gate per arm with contiguous indices. Compose\nreverts to a plain no-drop remap since the transform now owns the drop.\n\nThe gate is a strict no-op unless composeInputSourceMap is set with a\nusable input map, so all non-eager output is byte-identical.\n\nCompanion oxc_coverage_source_maps gains a public PositionRemapper used by\nthe gate; its predicate mirrors try_remap_position exactly.\n\nCloses #106",
+          "timestamp": "2026-06-02T14:41:17+02:00",
+          "tree_id": "70876e186768e54131f227a755814201ec04b8aa",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/5800d27e132992701747c44857ee1ed1580747b1"
+        },
+        "date": 1780404428005,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 20911,
+            "range": "± 290",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 45051,
+            "range": "± 742",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 123080,
+            "range": "± 1814",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 274635,
+            "range": "± 1705",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 96843,
+            "range": "± 1195",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 496422,
+            "range": "± 2356",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 277202,
+            "range": "± 2365",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 430529,
+            "range": "± 4717",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 56142,
+            "range": "± 410",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 277356,
+            "range": "± 880",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 550502,
+            "range": "± 2001",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2841318,
+            "range": "± 23456",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 36948,
+            "range": "± 224",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 33579,
+            "range": "± 206",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 485625,
+            "range": "± 9079",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 436380,
+            "range": "± 14716",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 166497,
+            "range": "± 1460",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 153967,
+            "range": "± 1852",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 874749,
+            "range": "± 7832",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 787244,
+            "range": "± 9511",
             "unit": "ns/iter"
           }
         ]
