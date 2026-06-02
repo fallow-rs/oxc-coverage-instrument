@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780404747338,
+  "lastUpdate": 1780405364548,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -4031,6 +4031,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 768695,
             "range": "± 9178",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "8e642d633bf4f4875c01bc35bd034d6fc284aa2c",
+          "message": "ci: commit napi package-lock.json and add fetch-retry .npmrc\n\nThe napi package-lock.json had been gitignored since the #45 workspace\nrestructure (lumped in with the napi dir's genuinely-generated artifacts\nlike index.js / *.wasi.cjs). With no committed lockfile, the release\nmatrix's `npm ci || npm install` always fell through to `npm install`,\nwhich hits the live registry for resolution + download on all seven\nplatform runners. v0.7.8's musl build failed on a transient ECONNRESET\nthere, which skipped the npm publish (recovered via rerun).\n\nCommit the lockfile so `npm ci` takes the deterministic fast path\n(fewer network round-trips), and add an .npmrc with fetch retries +\nbackoff so a transient registry blip is retried instead of failing the\nbuild. The .npmrc carries only fetch tuning; registry auth / OIDC\ntrusted-publishing config stays in the release workflow. The existing\n`npm ci || npm install` steps are unchanged: npm ci now succeeds, with\nnpm install kept as a last-resort fallback.",
+          "timestamp": "2026-06-02T14:57:25+02:00",
+          "tree_id": "43ef871abf8a00d6b7b89ddbf7aad8a616250d66",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/8e642d633bf4f4875c01bc35bd034d6fc284aa2c"
+        },
+        "date": 1780405364155,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 22860,
+            "range": "± 275",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 50923,
+            "range": "± 401",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 147459,
+            "range": "± 3831",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 306140,
+            "range": "± 3174",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 125527,
+            "range": "± 1399",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 518275,
+            "range": "± 3265",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 306568,
+            "range": "± 1867",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 459793,
+            "range": "± 2241",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 58496,
+            "range": "± 701",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 278508,
+            "range": "± 2730",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 553353,
+            "range": "± 1708",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2811204,
+            "range": "± 13344",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 42611,
+            "range": "± 219",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 38134,
+            "range": "± 251",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 511764,
+            "range": "± 7728",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 464719,
+            "range": "± 3438",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 195192,
+            "range": "± 947",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 181137,
+            "range": "± 1073",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 867059,
+            "range": "± 14554",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 776823,
+            "range": "± 7678",
             "unit": "ns/iter"
           }
         ]
