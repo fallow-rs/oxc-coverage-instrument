@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780395355515,
+  "lastUpdate": 1780395929335,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -3599,6 +3599,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 785110,
             "range": "± 3435",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "935539412783f9cf34db4d0312b2214eea301ada",
+          "message": "chore: bump oxc_coverage_types to 0.2.1 to resync published docstring\n\ncheck-version-sync.sh --mode=published flagged that types' local src/\ndiverged from the published 0.2.0: commit 8debd7f refined the\nFunctionIdentity docstring (to describe the SHA-256 id formula) without\nbumping types, so docs.rs for 0.2.0 carries the old, inaccurate\nderivation. Bump types 0.2.0 -> 0.2.1 and cascade the five internal\npins so the corrected docstring publishes on the next release.",
+          "timestamp": "2026-06-02T12:19:57+02:00",
+          "tree_id": "df90ccece6b21f4c4fc6c058d5828e2ffefd5786",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/935539412783f9cf34db4d0312b2214eea301ada"
+        },
+        "date": 1780395928877,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 22948,
+            "range": "± 135",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 52408,
+            "range": "± 466",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 147417,
+            "range": "± 1157",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 310204,
+            "range": "± 2129",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 126168,
+            "range": "± 2280",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 524818,
+            "range": "± 5844",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 310455,
+            "range": "± 1217",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 466940,
+            "range": "± 1884",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 58990,
+            "range": "± 453",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 283793,
+            "range": "± 3044",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 554554,
+            "range": "± 3630",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2804823,
+            "range": "± 21837",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 42131,
+            "range": "± 348",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 37600,
+            "range": "± 723",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 518427,
+            "range": "± 8167",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 470155,
+            "range": "± 8146",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 193666,
+            "range": "± 748",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 179483,
+            "range": "± 1246",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 862279,
+            "range": "± 2877",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 778559,
+            "range": "± 9515",
             "unit": "ns/iter"
           }
         ]
