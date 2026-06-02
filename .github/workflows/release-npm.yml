@@ -180,6 +180,16 @@ jobs:
         with:
           cache-key: release-publish-crate
 
+      # Guard against the lagged-delta publish trap before any publish runs:
+      # for each publishable crate whose local version is ALREADY on crates.io,
+      # diff local src/ against the published .crate. Drift means the crate
+      # changed without a version bump (the source_maps regression that stalled
+      # crates.io at 0.7.2, and again on the already-published 0.3.1 at 0.7.6).
+      # Fails the job loudly so the missing bump is fixed instead of silently
+      # shipping mismatched code or skipping the crate.
+      - name: Verify no unbumped src drift on published crates
+        run: ./scripts/check-version-sync.sh --mode=published
+
       # Publish in topological order:
       #   oxc_coverage_types          (no internal deps)
       #   oxc_coverage_source_maps    (depends on types)

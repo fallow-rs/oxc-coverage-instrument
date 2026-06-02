@@ -102,6 +102,21 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: crate-ci/typos@aca895bf05aec0cb7dffa6f94495e923224d9f17 # v1
 
+  version-sync:
+    name: Version Sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # Deterministic, no network: every internal version pin must equal the
+      # dependency crate's local version, and every publishable crate must be
+      # in the release-npm.yml publish-crate job. Catches pin drift (e.g. a
+      # consumer pinning source_maps "0.3.0" while it is locally 0.3.2) before
+      # it reaches a release.
+      - run: ./scripts/check-version-sync.sh --mode=pins
+
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
