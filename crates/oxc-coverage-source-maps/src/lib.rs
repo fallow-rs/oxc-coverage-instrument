@@ -102,6 +102,11 @@ impl PositionRemapper {
 /// When the input map declares a `sourceRoot`, the resolved `path` is the
 /// `sourceRoot` joined with the first entry in `sources` (matching
 /// `istanbul-lib-source-maps` semantics).
+///
+/// The returned coverage always satisfies the Istanbul merge invariant
+/// `keys(s) ⊆ keys(statementMap)` (and `f`/`fnMap`, `b`/`bT`/`branchMap`):
+/// orphan counter slots that would crash `istanbul-lib-coverage`'s merge are
+/// dropped via [`FileCoverage::prune_orphan_counters`] (issue #107).
 pub fn remap_coverage(coverage: &FileCoverage) -> Option<FileCoverage> {
     remap_coverage_with_loader_and_options(coverage, |_| None, RemapOptions::default())
 }
@@ -203,7 +208,14 @@ where
                 out.insert(remapped.path.clone(), remapped);
             }
             None => {
-                out.insert(path.clone(), fc.clone());
+                // Entry has no usable map (no embedded `inputSourceMap`, or an
+                // unparsable one): it passes through under its original key. Still
+                // enforce the Istanbul merge invariant (issue #107) so an
+                // already-composed entry carrying a runtime orphan counter does not
+                // slip through unchanged and crash a downstream `nyc` merge.
+                let mut passthrough = fc.clone();
+                passthrough.prune_orphan_counters();
+                out.insert(path.clone(), passthrough);
             }
         }
     }
@@ -236,6 +248,17 @@ fn apply_source_map(
             remap_branch_entry(branch_entry, sm);
         }
     }
+
+    // Enforce the Istanbul merge invariant on every coverage object we emit
+    // (issue #107): drop any `s`/`f`/`b`/`bT` counter whose location-map entry
+    // is absent. `prune_unmapped` already removes the counters it drops in
+    // lockstep, so this is a no-op for the drop path; the no-drop path never
+    // removes location entries, so a counter is only orphaned here if the INPUT
+    // coverage already carried one (a runtime-collected `++cov.s[id]` against a
+    // slot a prior tool pruned, which deserializes back as a `null`-valued
+    // orphan). Passing such an orphan through unchanged would crash any
+    // `istanbul-lib-coverage` / `nyc` consumer that merges the result.
+    out.prune_orphan_counters();
 
     Some(out)
 }
@@ -434,6 +457,12 @@ impl SourceMapStore {
     /// Like [`SourceMapStore::transform_coverage`], but with a
     /// [`RemapOptions`] argument. See [`RemapOptions::drop_unmapped`] for the
     /// pruning semantics.
+    ///
+    /// A `Some` result is reconciled to the Istanbul merge invariant (orphan
+    /// counters dropped, issue #107). A `None` result means "no usable map":
+    /// the caller keeps the original `FileCoverage` and owns reconciliation in
+    /// that case. The map-level [`SourceMapStore::transform_coverage_map`]
+    /// reconciles its `None` passthrough entries for you.
     #[must_use]
     pub fn transform_coverage_with_options(
         &self,
@@ -475,7 +504,12 @@ impl SourceMapStore {
                     out.insert(remapped.path.clone(), remapped);
                 }
                 None => {
-                    out.insert(path.clone(), fc.clone());
+                    // Same invariant pass as the standalone map helper: an
+                    // entry with no store/embedded map still gets its orphan
+                    // counters dropped (issue #107) before passing through.
+                    let mut passthrough = fc.clone();
+                    passthrough.prune_orphan_counters();
+                    out.insert(path.clone(), passthrough);
                 }
             }
         }

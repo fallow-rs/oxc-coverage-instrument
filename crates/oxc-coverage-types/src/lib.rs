@@ -297,4 +297,59 @@ impl FileCoverage {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
+
+    /// Drop counter slots that have no matching location-map entry, enforcing
+    /// the Istanbul invariant that every counter key is also a key of its
+    /// location map: `keys(s) ⊆ keys(statementMap)`, `keys(f) ⊆ keys(fnMap)`,
+    /// and `keys(b)` / `keys(bT) ⊆ keys(branchMap)`. Returns the number of
+    /// orphan counter keys removed (the `s`/`f`/`b`/`bT` maps only); the
+    /// `x_fallow_functionMap` overlay is kept 1:1 with `fnMap` as a side effect
+    /// but its prunes are not included in the returned count.
+    ///
+    /// An orphan counter (an `s`/`f`/`b` key whose location-map entry is
+    /// missing) is fatal to `istanbul-lib-coverage`'s `CoverageMap.merge`,
+    /// which `nyc` calls to merge sharded coverage: `mergeProp` looks up
+    /// `statementMap[key]` for every `s` key and passes it to `keyFromLoc`,
+    /// which destructures `{ start }` of the `undefined` entry and throws
+    /// `TypeError: Cannot destructure property 'start' of 'undefined'`. A
+    /// single orphan anywhere aborts the whole `nyc report` step (issue #107).
+    ///
+    /// Orphans cannot arise from this crate's own instrumenter output (the
+    /// counter maps are built from the location-map keys), but a coverage
+    /// object collected at runtime can pick one up when an upstream
+    /// instrumenter emitted a counter increment for a location that was later
+    /// pruned from the map: `++cov.s[id]` against an absent slot evaluates
+    /// `undefined + 1 = NaN`, which serializes back as `null` and reappears as
+    /// an orphan key. Removing the orphan counter is the only valid
+    /// reconciliation: its location cannot be reconstructed, and Istanbul
+    /// consumers cannot merge it.
+    pub fn prune_orphan_counters(&mut self) -> usize {
+        let Self { statement_map, fn_map, branch_map, s, f, b, b_t, x_fallow_function_map, .. } =
+            self;
+        let mut removed = 0;
+        removed += retain_known_keys(s, |k| statement_map.contains_key(k));
+        removed += retain_known_keys(f, |k| fn_map.contains_key(k));
+        removed += retain_known_keys(b, |k| branch_map.contains_key(k));
+        if let Some(b_t) = b_t.as_mut() {
+            removed += retain_known_keys(b_t, |k| branch_map.contains_key(k));
+        }
+        // Keep the `x_fallow_functionMap` overlay 1:1 with `fnMap` (the same
+        // invariant `prune_functions` upholds in the source-maps crate): a
+        // function id that has no `fnMap` entry must not survive in the overlay,
+        // or downstream tools joining on `fnMap` keys carry a dangling identity.
+        if let Some(overlay) = x_fallow_function_map.as_mut() {
+            overlay.retain(|key, _| fn_map.contains_key(key));
+        }
+        removed
+    }
+}
+
+/// Retain only the map entries whose key passes `keep`, returning how many
+/// were removed. Shared by [`FileCoverage::prune_orphan_counters`] across the
+/// statement / function / branch counter maps (which have different value
+/// types) so the orphan-drop rule lives in one place.
+fn retain_known_keys<V>(map: &mut BTreeMap<String, V>, keep: impl Fn(&str) -> bool) -> usize {
+    let before = map.len();
+    map.retain(|key, _| keep(key));
+    before - map.len()
 }

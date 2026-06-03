@@ -1348,4 +1348,112 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] remapCoverageMapWithLoader respects dropUnmapped');
 }
 
+// Test 22: remapCoverageMap drops a pre-existing orphan counter so the result
+// merges cleanly in istanbul-lib-coverage / nyc (issue #107). An orphan is an
+// `s`/`f`/`b` key with no matching location-map entry; it crashes
+// `CoverageMap.merge` with "Cannot destructure property 'start' of 'undefined'".
+// Such orphans can reach a coverage object at runtime when an upstream
+// instrumenter incremented `cov.s[id]` against a slot later pruned from the map
+// (NaN serializes back as `null`, re-ingested as an orphan key).
+{
+  const libCoverage = (await import('istanbul-lib-coverage')).default;
+
+  // The exact malformed shape from the issue: statementMap is missing "1", but
+  // s has key "1" (value null, the NaN a dangling `++cov.s[1]` produced).
+  const orphanFile = () => ({
+    path: '/x/mod.ts',
+    statementMap: { 0: { start: { line: 1, column: 0 }, end: { line: 1, column: 12 } } },
+    fnMap: {},
+    branchMap: {},
+    s: { 0: 1, 1: null },
+    f: {},
+    b: {},
+  });
+
+  // Control: the raw orphan crashes istanbul-lib-coverage's merge (the issue).
+  assert.throws(
+    () => {
+      const m = libCoverage.createCoverageMap({});
+      m.addFileCoverage(orphanFile());
+      m.addFileCoverage(orphanFile());
+    },
+    /Cannot destructure property 'start'/,
+    'control: a raw orphan must crash istanbul-lib-coverage merge',
+  );
+
+  // Routing the same coverage through remapCoverageMap reconciles the invariant.
+  // The entry has no inputSourceMap, so it takes the passthrough branch, which
+  // still drops the orphan.
+  const cleaned = JSON.parse(remapCoverageMap(JSON.stringify({ '/x/mod.ts': orphanFile() })));
+  const fc = cleaned['/x/mod.ts'];
+  const orphans = Object.keys(fc.s).filter((k) => !(k in fc.statementMap));
+  assert.deepEqual(orphans, [], `remapCoverageMap must drop orphan s keys, found ${orphans}`);
+  assert.deepEqual(Object.keys(fc.s), ['0'], 'only the mapped statement counter survives');
+
+  // The cleaned coverage now merges without throwing.
+  assert.doesNotThrow(() => {
+    const m = libCoverage.createCoverageMap({});
+    m.addFileCoverage(cleaned['/x/mod.ts']);
+    m.addFileCoverage(JSON.parse(remapCoverageMap(JSON.stringify({ '/x/mod.ts': orphanFile() })))['/x/mod.ts']);
+  }, 'reconciled coverage must merge cleanly in istanbul-lib-coverage (issue #107)');
+
+  console.log('  [PASS] remapCoverageMap drops orphan counters so nyc merge succeeds (issue #107)');
+}
+
+// Test 23: composeInputSourceMap-emitted code emits NO dangling statement or
+// function counter when a line is unmapped (issue #107 producer guard). Test
+// 14d covers branches; this generalizes the same scan to `s` and `f` so a
+// future regression that prunes a statement/function from the map but keeps its
+// counter in the code (the pre-#106 shape, whose runtime `++cov.s[id]` against a
+// missing slot produced the issue's null orphan) is caught here.
+{
+  const generated = [
+    'const a = 1;',
+    'const b = 2;',
+    'function used(x) { return x + 1; }', // line 3: maps
+    'function dropped(y) { return y * 2; }', // line 4: UNMAPPED, must not be instrumented
+    'const c = used(a) + dropped(b);', // line 5: maps
+    'globalThis.__ran = a + b + c;',
+    '',
+  ].join('\n');
+  // Lines 1,2,3 and 5,6 map; line 4 is unmapped (empty mapping segment).
+  const inputSourceMap = JSON.stringify({
+    version: 3,
+    sources: ['original.ts'],
+    names: [],
+    mappings: 'AAAA;AACA;AACA;;AAEA;AACA',
+    sourcesContent: ['x'.repeat(200)],
+  });
+
+  const r = instrument(generated, 'mod.ts', {
+    coverageVariable: '__cov107s',
+    inputSourceMap,
+    composeInputSourceMap: true,
+  });
+  const map = JSON.parse(r.coverageMap);
+
+  const sRefs = [...new Set([...r.code.matchAll(/\.s\[(\d+)\]/g)].map((m) => m[1]))];
+  const fRefs = [...new Set([...r.code.matchAll(/\.f\[(\d+)\]/g)].map((m) => m[1]))];
+  const sDangling = sRefs.filter((id) => !(id in map.statementMap));
+  const fDangling = fRefs.filter((id) => !(id in map.fnMap));
+  assert.deepEqual(sDangling, [], `no dangling statement counter in emitted code, got ${sDangling}`);
+  assert.deepEqual(fDangling, [], `no dangling function counter in emitted code, got ${fDangling}`);
+
+  // Execute: no orphan s/f keys appear at runtime (the null-orphan failure mode).
+  const g = {};
+  assert.doesNotThrow(() => {
+    new Function('globalThis', r.code)(g);
+  }, 'instrumented eager-composed code must run without TypeError (issue #107)');
+  const fc = g.__cov107s['original.ts'];
+  const sOrphans = Object.keys(fc.s).filter((k) => !(k in fc.statementMap));
+  const fOrphans = Object.keys(fc.f).filter((k) => !(k in fc.fnMap));
+  assert.deepEqual(sOrphans, [], `runtime produced orphan s keys: ${sOrphans}`);
+  assert.deepEqual(fOrphans, [], `runtime produced orphan f keys: ${fOrphans}`);
+  for (const [id, count] of Object.entries(fc.s)) {
+    assert.ok(Number.isFinite(count), `statement counter ${id} must be finite (no NaN/null), got ${count}`);
+  }
+
+  console.log('  [PASS] composeInputSourceMap emits no dangling statement/function counters (issue #107)');
+}
+
 console.log('\nAll tests passed!');
