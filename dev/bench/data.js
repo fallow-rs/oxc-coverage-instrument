@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780475829164,
+  "lastUpdate": 1780480235254,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -4463,6 +4463,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 783808,
             "range": "± 11375",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b413f49faab74e18f21d67862b35062ee685867",
+          "message": "feat(source-maps): resolve remap positions via istanbul getMapping semantics (#112)\n\nremapCoverageMap and instrument(..., { composeInputSourceMap: true }) now\nresolve surviving coverage positions through an istanbul getMapping-equivalent\nrange remap instead of a direct original_position_for lookup, finishing the\ndocumented createSourceMapStore().transformCoverage equivalence the drop\nsemantics already claim.\n\nSource maps carry segments only at token starts, so the old direct lookup (1)\ntruncated exclusive ends backward to the previous segment (a statement covering\nstate.someVeryLongPropertyName1 came back covering only state.) and (2) never\nballooned a span smaller than its enclosing segment (a 1-char arrow decl stayed\n1 char). Both are one root cause: starts now resolve with greatest-lower-bound\nand ends resolve to the next original segment via originalEndPositionFor (or the\nend of the original line). The end-of-line case (istanbul's column: Infinity)\nclamps to the original line's UTF-16 length from sourcesContent, falling back to\nthe rightmost mapped column when content is absent. The degenerate-span branch\nis ported so zero-width spans cannot corrupt keyFromLoc merge dedup.\n\nBehavior change: ends widen to the full token and 1-char decls balloon to their\nenclosing span. Line numbers and coverage percentages are unchanged. Because\nistanbul-lib-coverage keyFromLoc includes columns, pre-upgrade coverage caches\nor artifacts must be flushed before merging with post-upgrade runs, and snapshot\nassertions on exact columns will diff. oxc_coverage_source_maps is bumped to\n0.4.0 to signal the position-shape change to semver-range pinners.\n\nAdds an end-to-end byte-parity test against istanbul-lib-source-maps@5.0.6\n(createSourceMapStore().transformCoverage), the reporter's two concrete cases as\nfixtures, and Rust unit tests for end widening, the 1-char balloon, the\nend-of-line clamp, and the degenerate-span guard.\n\nCloses #111",
+          "timestamp": "2026-06-03T11:45:10+02:00",
+          "tree_id": "7b266f23bc69e21584414fc8233924b7aabd675d",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/5b413f49faab74e18f21d67862b35062ee685867"
+        },
+        "date": 1780480234765,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 22886,
+            "range": "± 332",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 51827,
+            "range": "± 1561",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 149120,
+            "range": "± 2736",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 319084,
+            "range": "± 3849",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 131266,
+            "range": "± 890",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 538097,
+            "range": "± 3046",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 316047,
+            "range": "± 3312",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 469842,
+            "range": "± 3678",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 58274,
+            "range": "± 543",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 284597,
+            "range": "± 4497",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 556199,
+            "range": "± 2595",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2834021,
+            "range": "± 15214",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 42330,
+            "range": "± 1276",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 37486,
+            "range": "± 524",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 521390,
+            "range": "± 2411",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 475221,
+            "range": "± 4002",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 199928,
+            "range": "± 2130",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 187866,
+            "range": "± 2423",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 871419,
+            "range": "± 10425",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 787549,
+            "range": "± 3974",
             "unit": "ns/iter"
           }
         ]
