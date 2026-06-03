@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780482154272,
+  "lastUpdate": 1780483900530,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -922,6 +922,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/bc7b890a5fef41e17bb7f85ea9f290aa57deab8e"
         },
         "date": 1780482153244,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86445200,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f4740f757b3fcefe4ce5f63ee124d4cd8a2f70c",
+          "message": "test(napi): real @babel/core-emitted map in getMapping parity harness (#113)\n\nThe #111 byte-parity test previously remapped only hand-built (@jridgewell/gen-mapping)\nmaps through both istanbul-lib-source-maps and us. Hand-built maps do not reproduce the\nsegment density, column shifts, and sourcesContent shape a real transpiler emits, which\nis exactly where the truncation #111 fixed bites.\n\nAdds a case that runs a real @babel/core transform (an inline rename plugin shortens long\nidentifiers, collapsing member chains and shifting columns so exclusive ends land between\nsegments), emits a real source map with sourcesContent, instruments the output, and remaps\nthrough both istanbul transformCoverage and remapCoverageMap, asserting the surviving spans\nmatch column-by-column plus at least one widened multi-column statement span. parityCheck is\nrefactored to share a compareRemap core with the new case. @babel/core is promoted from a\ntransitive to a declared devDependency.",
+          "timestamp": "2026-06-03T12:48:38+02:00",
+          "tree_id": "45c7a363d61bbb2bdfadf0aa5f0d7418ab185de3",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/2f4740f757b3fcefe4ce5f63ee124d4cd8a2f70c"
+        },
+        "date": 1780483899518,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
