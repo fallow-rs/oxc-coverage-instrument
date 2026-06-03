@@ -107,8 +107,10 @@ pub struct CoverageTransform<'src, 'arena> {
     cov_fn_bt_name: Option<&'arena str>,
     /// `${cov_fn_name}_oc` optional-chain link observer, pre-interned. Used
     /// every time we wrap a `?.` link; one allocation per file rather than
-    /// one per link.
-    cov_fn_oc_name: &'arena str,
+    /// one per link. `None` when `track_optional_chain` is off (mirrors
+    /// `cov_fn_bt_name`'s allocate-only-when-needed shape), since no link is
+    /// ever wrapped in that mode.
+    cov_fn_oc_name: Option<&'arena str>,
     /// When true, adds truthy-value tracking (`bT`) for logical expression operands.
     report_logic: bool,
     /// When true (the default), each optional-chaining (`?.`) link is wrapped in
@@ -217,7 +219,8 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             skip_current_var_decl: false,
             cov_fn_name,
             cov_fn_bt_name: report_logic.then(|| allocator.alloc_str(&format!("{cov_fn_name}_bt"))),
-            cov_fn_oc_name: allocator.alloc_str(&format!("{cov_fn_name}_oc")),
+            cov_fn_oc_name: track_optional_chain
+                .then(|| allocator.alloc_str(&format!("{cov_fn_name}_oc")) as &str),
             report_logic,
             track_optional_chain,
             ignore_class_methods,
@@ -518,7 +521,12 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         // Build `cov_fn_oc(<original>, <branch_id>)`. The helper observes
         // the value, increments b[id][0] or b[id][1] based on nullishness,
         // and returns the value unchanged so native `?.` semantics fire.
-        let callee = ctx.ast.expression_identifier(SPAN, self.cov_fn_oc_name);
+        // Reaching here means an optional link was wrapped, which the three
+        // dispatch points gate behind `track_optional_chain`, so the name is set.
+        let oc_name = self
+            .cov_fn_oc_name
+            .expect("wrap_optional_chain_link runs only when track_optional_chain is on");
+        let callee = ctx.ast.expression_identifier(SPAN, oc_name);
         let original = mem::replace(object, dummy_expr(ctx));
         let mut args = ctx.ast.vec();
         args.push(Argument::from(original));
