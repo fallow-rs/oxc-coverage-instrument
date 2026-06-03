@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780482387881,
+  "lastUpdate": 1780484065955,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -4751,6 +4751,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 813687,
             "range": "± 9824",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f4740f757b3fcefe4ce5f63ee124d4cd8a2f70c",
+          "message": "test(napi): real @babel/core-emitted map in getMapping parity harness (#113)\n\nThe #111 byte-parity test previously remapped only hand-built (@jridgewell/gen-mapping)\nmaps through both istanbul-lib-source-maps and us. Hand-built maps do not reproduce the\nsegment density, column shifts, and sourcesContent shape a real transpiler emits, which\nis exactly where the truncation #111 fixed bites.\n\nAdds a case that runs a real @babel/core transform (an inline rename plugin shortens long\nidentifiers, collapsing member chains and shifting columns so exclusive ends land between\nsegments), emits a real source map with sourcesContent, instruments the output, and remaps\nthrough both istanbul transformCoverage and remapCoverageMap, asserting the surviving spans\nmatch column-by-column plus at least one widened multi-column statement span. parityCheck is\nrefactored to share a compareRemap core with the new case. @babel/core is promoted from a\ntransitive to a declared devDependency.",
+          "timestamp": "2026-06-03T12:48:38+02:00",
+          "tree_id": "45c7a363d61bbb2bdfadf0aa5f0d7418ab185de3",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/2f4740f757b3fcefe4ce5f63ee124d4cd8a2f70c"
+        },
+        "date": 1780484065576,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 23058,
+            "range": "± 371",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 53276,
+            "range": "± 568",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 149706,
+            "range": "± 1205",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 319649,
+            "range": "± 3491",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 132711,
+            "range": "± 2210",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 539962,
+            "range": "± 18256",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 316763,
+            "range": "± 1762",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 481323,
+            "range": "± 3002",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 59317,
+            "range": "± 344",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 286430,
+            "range": "± 8536",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 557424,
+            "range": "± 2175",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2821199,
+            "range": "± 19248",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 42620,
+            "range": "± 232",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 38182,
+            "range": "± 477",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 527694,
+            "range": "± 2353",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 480951,
+            "range": "± 2883",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 200835,
+            "range": "± 1058",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 185478,
+            "range": "± 2365",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 875449,
+            "range": "± 12250",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 793042,
+            "range": "± 53292",
             "unit": "ns/iter"
           }
         ]
