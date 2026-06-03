@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780483900530,
+  "lastUpdate": 1780495872399,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -951,6 +951,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/2f4740f757b3fcefe4ce5f63ee124d4cd8a2f70c"
         },
         "date": 1780483899518,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86445200,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "f043c9af7efb52b42cb80d290361db68a607d891",
+          "message": "perf: optimize coverage remap and v8 hot paths",
+          "timestamp": "2026-06-03T15:39:05+02:00",
+          "tree_id": "56d1bab29387ab94f801f28d55e3aa30ab738717",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/f043c9af7efb52b42cb80d290361db68a607d891"
+        },
+        "date": 1780495871263,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
