@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780405161911,
+  "lastUpdate": 1780475273502,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -811,6 +811,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 85528128,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1111d69a28fb54f41352df23fb1cc986e0b537bc",
+          "message": "fix: reconcile orphan counters in remap so nyc merge never crashes (#107)\n\n* fix: drop orphan counters in remap so nyc merge never crashes (issue #107)\n\nAn orphan counter, an s/f/b key with no matching statementMap/fnMap/branchMap\nentry, is fatal to istanbul-lib-coverage's CoverageMap.merge: mergeProp iterates\nevery s key, looks up statementMap[key], and keyFromLoc destructures start of the\nundefined entry, throwing \"Cannot destructure property 'start' of 'undefined'\".\nA single orphan anywhere aborts the whole nyc report step.\n\nThe v0.7.8 composeInputSourceMap path cannot itself emit an orphan: the #106\nAST-level gate makes the emitted code, the embedded literal (s = statementMap\nkeys), and the location maps consistent by construction, and compose is a\nno-drop remap (verified by code review plus fuzzing multi-segment and NO_SOURCE\nmaps). A null-valued orphan is the runtime signature of a dangling cov.s[id]++\nagainst a pruned slot (undefined + 1 = NaN, serialized back as null), the\npre-#106 shape, so it reaches our pipeline only via runtime-collected coverage\nfrom an upstream/older instrumenter.\n\nThe remap helpers previously propagated such an orphan unchanged. Now every\nremap exit point reconciles to the Istanbul merge invariant:\n\n- New FileCoverage::prune_orphan_counters() drops s/f/b/bT keys absent from\n  their location maps and keeps the x_fallow_functionMap overlay 1:1 with fnMap.\n- Wired into apply_source_map (after remap/prune) and both map-level None\n  passthrough branches (remap_coverage_map* and SourceMapStore variants), so an\n  already-composed entry with no embedded map is reconciled too.\n\nA no-op on already-consistent coverage; s deserializes null to 0, so a coverage\nobject carrying the exact issue-107 shape ingests and cleans rather than\ncrashing the consumer.\n\nCloses #107\n\n* refactor: count overlay prunes in prune_orphan_counters return (review)\n\nReview CONCERN: the returned count excluded x_fallow_functionMap overlay\nprunes, so a caller using removed>0 as a was-this-dirty signal could get a\nfalse negative when an orphan lived only in the overlay. Count overlay removals\ntoo, so the return is the total orphan entries removed across every map.\n\n* test: add verbatim issue #107 FileCoverage as a regression fixture\n\nThe reporter shared the exact malformed coverage object (names mocked, shape\nverbatim) straight from window.__coverage__: statementMap jumps 2 -> 4 with\ns[\"3\"] = null, while fnMap/branchMap stay consistent. Capture it as a fixture\nand assert (a) the raw shape crashes istanbul-lib-coverage merge, (b)\nremapCoverageMap reconciles it via the passthrough branch (drops only the single\norphan, preserves the other 35 statement counters), and (c) the cleaned object\nmerges without throwing. This is the real-world consumer crash, not a synthetic\nconstruction.",
+          "timestamp": "2026-06-03T10:26:08+02:00",
+          "tree_id": "4374282c6747dba6b6b6db0e9f72656689c5abf8",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/1111d69a28fb54f41352df23fb1cc986e0b537bc"
+        },
+        "date": 1780475272468,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86069448,
             "unit": "bytes"
           }
         ]
