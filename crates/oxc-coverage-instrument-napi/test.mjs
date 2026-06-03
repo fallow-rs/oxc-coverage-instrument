@@ -1572,4 +1572,224 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] createOxcInstrumenter forwards/validates trackOptionalChainBranches');
 }
 
+// Test: istanbul-lib-source-maps getMapping byte-parity (issue #111)
+//
+// The remap path now resolves surviving positions through an istanbul
+// `getMapping`-equivalent range remap (start = greatest-lower-bound, end = next
+// original segment or end-of-line) instead of a direct per-position lookup. This
+// harness instruments a fixture, embeds a known input source map, and remaps it
+// through BOTH `istanbul-lib-source-maps@5`'s `createSourceMapStore().transformCoverage`
+// AND our `remapCoverageMap(..., { dropUnmapped: true })`, then asserts the
+// surviving spans are byte-for-byte equal. It is the only check that catches the
+// exact-match-vs-least-upper-bound gap in the next-segment reverse lookup.
+{
+  // istanbul-lib-coverage / -source-maps are CommonJS: named exports surface on
+  // the dynamic-import `default` namespace, not the top level.
+  const { createCoverageMap } = (await import('istanbul-lib-coverage')).default;
+  const { createSourceMapStore } = (await import('istanbul-lib-source-maps')).default;
+  const { GenMapping, addMapping, setSourceContent, toEncodedMap } = await import(
+    '@jridgewell/gen-mapping'
+  );
+
+  const utf16LineLength = (content, line1) => {
+    const raw = content.split('\n')[line1 - 1] ?? '';
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    return line.length; // JS string length is the UTF-16 code-unit count
+  };
+
+  // istanbul stores the end-of-line sentinel as `Infinity`; our `u32` clamps it
+  // to the original line's UTF-16 length. Normalize istanbul to the same value
+  // so the comparison is apples-to-apples. Finite columns pass through.
+  const normEndColumn = (col, line, content) =>
+    col === Infinity || col === null || col === undefined ? utf16LineLength(content, line) : col;
+
+  const spanKey = (loc, content) => {
+    const sl = loc.start.line ?? 0;
+    const sc = loc.start.column ?? 0;
+    const el = loc.end.line ?? 0;
+    const ec = normEndColumn(loc.end.column, el, content);
+    return `${sl}:${sc}:${el}:${ec}`;
+  };
+
+  const statementSet = (data, content) =>
+    new Set(Object.values(data.statementMap).map((loc) => spanKey(loc, content)));
+  const functionSet = (data, content) =>
+    new Set(
+      Object.values(data.fnMap).map(
+        (fn) => `${fn.name}|${spanKey(fn.decl, content)}|${spanKey(fn.loc, content)}`,
+      ),
+    );
+  const branchSet = (data, content) =>
+    new Set(
+      Object.values(data.branchMap).map(
+        (b) =>
+          `${b.type}|${spanKey(b.loc, content)}|${b.locations
+            .map((l) => spanKey(l, content))
+            .join(',')}`,
+      ),
+    );
+
+  const sortedArray = (set) => [...set].sort();
+
+  // Build an input source map from explicit token mappings, instrument the
+  // intermediate JS with it embedded, then remap through istanbul and through us
+  // and assert the surviving spans match. Single-source maps only (cross-source
+  // arm/decl source-equality is istanbul drop-semantics territory, out of #111
+  // scope).
+  const parityCheck = async (label, sourcePath, sourceContent, intermediateJs, mappings) => {
+    const gm = new GenMapping({ file: 'intermediate.js' });
+    setSourceContent(gm, sourcePath, sourceContent);
+    for (const m of mappings) {
+      addMapping(gm, { generated: m.gen, source: sourcePath, original: m.orig });
+    }
+    const inputMap = toEncodedMap(gm);
+
+    const result = instrument(intermediateJs, 'intermediate.js', {
+      inputSourceMap: JSON.stringify(inputMap),
+    });
+    const coverageData = JSON.parse(result.coverageMap);
+
+    // istanbul path: createSourceMapStore().transformCoverage reads the embedded
+    // inputSourceMap and drops unmappable entries (transformer.js semantics).
+    const istanbulMap = createSourceMapStore().transformCoverage(
+      createCoverageMap({ 'intermediate.js': coverageData }),
+    );
+    const transformed = await istanbulMap;
+
+    // our path: drop_unmapped mirrors istanbul's drop semantics.
+    const ours = JSON.parse(
+      remapCoverageMap(JSON.stringify({ 'intermediate.js': coverageData }), {
+        dropUnmapped: true,
+      }),
+    );
+
+    // istanbul keys the surviving file by `pathutils.relativeTo` (which can
+    // absolutize the source), while we keep the source path verbatim. The keys
+    // differ by path-resolution policy, not span correctness, so compare the
+    // span sets pairwise. These fixtures are single-source, so there is exactly
+    // one surviving file on each side.
+    const istanbulFiles = transformed.files().sort();
+    const ourFiles = Object.keys(ours).sort();
+    assert.equal(
+      ourFiles.length,
+      istanbulFiles.length,
+      `${label}: same surviving file count (ours=${ourFiles}, istanbul=${istanbulFiles})`,
+    );
+
+    for (let i = 0; i < istanbulFiles.length; i++) {
+      const istanbulCov = transformed.fileCoverageFor(istanbulFiles[i]).data;
+      const ourCov = ours[ourFiles[i]];
+      assert.deepEqual(
+        sortedArray(statementSet(ourCov, sourceContent)),
+        sortedArray(statementSet(istanbulCov, sourceContent)),
+        `${label}: statement spans match istanbul`,
+      );
+      assert.deepEqual(
+        sortedArray(functionSet(ourCov, sourceContent)),
+        sortedArray(functionSet(istanbulCov, sourceContent)),
+        `${label}: function spans match istanbul`,
+      );
+      assert.deepEqual(
+        sortedArray(branchSet(ourCov, sourceContent)),
+        sortedArray(branchSet(istanbulCov, sourceContent)),
+        `${label}: branch spans match istanbul`,
+      );
+    }
+    return ours;
+  };
+
+  // Reporter case 1: an exclusive end that falls past the last segment. Direct
+  // lookup truncated `state.someVeryLongPropertyName1` back to `state.`; getMapping
+  // widens it to the end of the original line.
+  {
+    const content = 'state.someVeryLongPropertyName1;\n';
+    const ours = await parityCheck(
+      'reporter case 1 (end widening)',
+      'src/app.ts',
+      content,
+      'state.someVeryLongPropertyName1;\n',
+      [
+        { gen: { line: 1, column: 0 }, orig: { line: 1, column: 0 } }, // `state`
+        { gen: { line: 1, column: 6 }, orig: { line: 1, column: 6 } }, // property start
+      ],
+    );
+    const stmt = Object.values(ours['src/app.ts'].statementMap).find((l) => l.start.column === 0);
+    assert.equal(
+      stmt.end.column,
+      'state.someVeryLongPropertyName1;'.length,
+      'statement end widens to the end of the original line, not back to `state.` (col 6)',
+    );
+  }
+
+  // Reporter case 1b: end widens to the NEXT original segment (a Mapped end, not
+  // end-of-line) -- the case the exact-match reverse lookup gets wrong.
+  {
+    const ours = await parityCheck(
+      'reporter case 1b (widen to next segment)',
+      'src/app.ts',
+      'a.b; c.d;\n',
+      'a.b; c.d;\n',
+      [
+        { gen: { line: 1, column: 0 }, orig: { line: 1, column: 0 } }, // a
+        { gen: { line: 1, column: 2 }, orig: { line: 1, column: 2 } }, // b
+        { gen: { line: 1, column: 5 }, orig: { line: 1, column: 10 } }, // c
+        { gen: { line: 1, column: 7 }, orig: { line: 1, column: 12 } }, // d
+      ],
+    );
+    const stmt = Object.values(ours['src/app.ts'].statementMap).find(
+      (l) => l.start.line === 1 && l.start.column === 0,
+    );
+    assert.equal(
+      stmt.end.column,
+      10,
+      'first statement end widens to the next original segment (col 10), not the truncated col 2',
+    );
+  }
+
+  // Reporter case 2: a 1-char arrow declaration that balloons to its enclosing
+  // span. istanbul-lib-instrument and oxc both record a 1-char decl; the remap is
+  // what widens it.
+  {
+    await parityCheck(
+      'reporter case 2 (arrow decl balloon)',
+      'src/app.ts',
+      'const make = defineAsyncComponent(() => import("./X.vue"));\n',
+      'const make = defineAsyncComponent(() => import("./X.vue"));\n',
+      [
+        { gen: { line: 1, column: 0 }, orig: { line: 1, column: 0 } }, // const
+        { gen: { line: 1, column: 6 }, orig: { line: 1, column: 6 } }, // make
+        { gen: { line: 1, column: 13 }, orig: { line: 1, column: 13 } }, // defineAsyncComponent
+        { gen: { line: 1, column: 34 }, orig: { line: 1, column: 34 } }, // () => arrow
+        { gen: { line: 1, column: 40 }, orig: { line: 1, column: 40 } }, // import(...)
+      ],
+    );
+  }
+
+  // Multi-line fixture exercising functions, statements, and a ternary branch
+  // across several mapped lines.
+  {
+    const content = [
+      'export function classify(value) {', // line 1
+      '  const label = value > 0 ? "pos" : "neg";', // line 2
+      '  return label;', // line 3
+      '}', // line 4
+      '',
+    ].join('\n');
+    await parityCheck('multi-line functions + branch', 'src/classify.ts', content, content, [
+      { gen: { line: 1, column: 0 }, orig: { line: 1, column: 0 } },
+      { gen: { line: 1, column: 16 }, orig: { line: 1, column: 16 } },
+      { gen: { line: 1, column: 25 }, orig: { line: 1, column: 25 } },
+      { gen: { line: 2, column: 2 }, orig: { line: 2, column: 2 } },
+      { gen: { line: 2, column: 17 }, orig: { line: 2, column: 17 } },
+      { gen: { line: 2, column: 25 }, orig: { line: 2, column: 25 } },
+      { gen: { line: 2, column: 36 }, orig: { line: 2, column: 36 } },
+      { gen: { line: 3, column: 2 }, orig: { line: 3, column: 2 } },
+      { gen: { line: 3, column: 9 }, orig: { line: 3, column: 9 } },
+      { gen: { line: 4, column: 0 }, orig: { line: 4, column: 0 } },
+    ]);
+  }
+
+  console.log('  [PASS] istanbul-lib-source-maps getMapping byte-parity (issue #111)');
+}
+
 console.log('\nAll tests passed!');
