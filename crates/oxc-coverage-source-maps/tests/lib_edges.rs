@@ -600,7 +600,10 @@ fn prune_orphan_counters_matches_issue_107_shape() {
     assert_eq!(fc.s.get("1"), Some(&0), "null `s` value ingests as 0 before reconciliation");
 
     let removed = fc.prune_orphan_counters();
-    assert_eq!(removed, 4, "the four orphan counters (s.1, f.2, b.4, bT.5) are all removed");
+    assert_eq!(
+        removed, 5,
+        "all five orphan entries removed: counters s.1, f.2, b.4, bT.5 plus the overlay entry 2",
+    );
     assert_eq!(fc.s.keys().collect::<Vec<_>>(), vec!["0"], "only the mapped statement survives");
     assert!(fc.f.is_empty() && fc.b.is_empty(), "orphan function/branch counters removed");
     assert!(fc.b_t.as_ref().is_none_or(BTreeMap::is_empty), "orphan bT counter removed");

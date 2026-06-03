@@ -301,10 +301,11 @@ impl FileCoverage {
     /// Drop counter slots that have no matching location-map entry, enforcing
     /// the Istanbul invariant that every counter key is also a key of its
     /// location map: `keys(s) ⊆ keys(statementMap)`, `keys(f) ⊆ keys(fnMap)`,
-    /// and `keys(b)` / `keys(bT) ⊆ keys(branchMap)`. Returns the number of
-    /// orphan counter keys removed (the `s`/`f`/`b`/`bT` maps only); the
-    /// `x_fallow_functionMap` overlay is kept 1:1 with `fnMap` as a side effect
-    /// but its prunes are not included in the returned count.
+    /// and `keys(b)` / `keys(bT) ⊆ keys(branchMap)`. The `x_fallow_functionMap`
+    /// overlay is kept 1:1 with `fnMap` under the same rule. Returns the total
+    /// number of orphan entries removed across every map (counter slots plus
+    /// any orphaned overlay entries), so a non-zero result reliably means the
+    /// input violated the invariant.
     ///
     /// An orphan counter (an `s`/`f`/`b` key whose location-map entry is
     /// missing) is fatal to `istanbul-lib-coverage`'s `CoverageMap.merge`,
@@ -338,7 +339,7 @@ impl FileCoverage {
         // function id that has no `fnMap` entry must not survive in the overlay,
         // or downstream tools joining on `fnMap` keys carry a dangling identity.
         if let Some(overlay) = x_fallow_function_map.as_mut() {
-            overlay.retain(|key, _| fn_map.contains_key(key));
+            removed += retain_known_keys(overlay, |k| fn_map.contains_key(k));
         }
         removed
     }
