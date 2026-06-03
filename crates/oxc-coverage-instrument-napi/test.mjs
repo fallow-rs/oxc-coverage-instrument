@@ -7,7 +7,7 @@ import {
   v8ToIstanbulWithLoader,
 } from './index.js';
 import { strict as assert } from 'node:assert';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -1454,6 +1454,51 @@ function runInstrumented(result, filename, callExpression) {
   }
 
   console.log('  [PASS] composeInputSourceMap emits no dangling statement/function counters (issue #107)');
+}
+
+// Test 24: the verbatim real-world FileCoverage from issue #107 (statementMap
+// jumps 2 -> 4, s["3"] is null) is reconciled by remapCoverageMap so the
+// downstream istanbul-lib-coverage merge that nyc runs no longer crashes. This
+// is the reporter's exact shape (names mocked) captured from window.__coverage__.
+{
+  const libCoverage = (await import('istanbul-lib-coverage')).default;
+  const raw = JSON.parse(
+    readFileSync(join(__dirname, '__fixtures__', 'issue-107-orphan-statement.json'), 'utf8'),
+  );
+
+  // Confirm the fixture really carries the orphan the issue describes.
+  assert.ok(!('3' in raw.statementMap), 'fixture precondition: statementMap has no key "3"');
+  assert.equal(raw.s['3'], null, 'fixture precondition: s["3"] is the null orphan');
+
+  // Control: the raw shape crashes istanbul-lib-coverage merge (the reporter's stack).
+  assert.throws(
+    () => {
+      const m = libCoverage.createCoverageMap({});
+      m.addFileCoverage(structuredClone(raw));
+      m.addFileCoverage(structuredClone(raw));
+    },
+    /Cannot destructure property 'start'/,
+    'control: the raw issue-107 coverage must crash istanbul-lib-coverage merge',
+  );
+
+  // The fixture is already composed (no inputSourceMap), so it takes the
+  // passthrough branch of remapCoverageMap, which still reconciles the orphan.
+  const cleaned = JSON.parse(remapCoverageMap(JSON.stringify({ [raw.path]: raw })));
+  const fc = cleaned[raw.path];
+  const orphans = Object.keys(fc.s).filter((k) => !(k in fc.statementMap));
+  assert.deepEqual(orphans, [], `reconciled coverage must have no orphan s keys, found ${orphans}`);
+  // Every other surviving statement counter is preserved (35 of 36 keys; only "3" drops).
+  assert.equal(Object.keys(fc.s).length, 35, 'only the single orphan statement counter is dropped');
+  assert.ok('0' in fc.s && '35' in fc.s, 'legitimate statement counters are preserved');
+
+  // The cleaned coverage now merges without throwing.
+  assert.doesNotThrow(() => {
+    const m = libCoverage.createCoverageMap({});
+    m.addFileCoverage(structuredClone(fc));
+    m.addFileCoverage(structuredClone(fc));
+  }, 'reconciled issue-107 coverage must merge cleanly in istanbul-lib-coverage');
+
+  console.log('  [PASS] verbatim issue #107 FileCoverage is reconciled and merges (regression fixture)');
 }
 
 console.log('\nAll tests passed!');
