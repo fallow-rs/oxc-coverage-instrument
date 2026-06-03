@@ -69,6 +69,21 @@ pub struct InstrumentOptions {
     /// This enables nyc-style logic coverage that tracks not just which branch was
     /// taken, but whether each operand evaluated to a truthy value.
     pub report_logic: bool,
+    /// When true (the default), each optional-chaining (`?.`) link is tracked as
+    /// an `optional-chain` branch: its operand is wrapped in a `cov_fn_oc`
+    /// helper call that records whether the value was nullish. This is more
+    /// complete than `istanbul-lib-instrument`, which does not track `?.` as a
+    /// branch.
+    ///
+    /// Set to false to leave optional chains native: no `cov_fn_oc` helper is
+    /// emitted and no `optional-chain` branch is registered. This matches
+    /// `istanbul-lib-instrument` byte-for-byte on `?.` and avoids the
+    /// per-operand helper-call overhead in optional-chain-dense hot paths
+    /// (issue #108). Statement, function, and other branch coverage are
+    /// unaffected.
+    ///
+    /// Defaults to true so existing behavior is unchanged.
+    pub track_optional_chain: bool,
     /// Class method names to exclude from coverage instrumentation.
     /// Matches Istanbul's `ignoreClassMethods` behavior for class methods and
     /// named function expressions with a matching id.
@@ -187,6 +202,7 @@ impl Default for InstrumentOptions {
             input_source_map: None,
             compose_input_source_map: false,
             report_logic: false,
+            track_optional_chain: true,
             ignore_class_methods: Vec::new(),
             strip_typescript: false,
             decorator_mode: DecoratorMode::PassThrough,
@@ -309,6 +325,7 @@ pub fn instrument(
         source,
         cov_fn_name: &cov_fn_name,
         report_logic: options.report_logic,
+        track_optional_chain: options.track_optional_chain,
         ignore_class_methods: options.ignore_class_methods.clone(),
         eager_remapper,
     });
@@ -540,6 +557,10 @@ pub(crate) fn collect_for_v8_to_istanbul(
         source,
         cov_fn_name: &cov_fn_name,
         report_logic: false,
+        // V8-collect builds the location maps that V8 byte ranges intersect
+        // against, so optional-chain branches stay tracked (the default); this
+        // path emits no runtime helper, only the maps.
+        track_optional_chain: true,
         ignore_class_methods: Vec::new(),
         // V8-collect never composes an input source map; gate is a no-op.
         eager_remapper: None,

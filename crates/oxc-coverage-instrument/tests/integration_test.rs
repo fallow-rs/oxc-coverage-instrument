@@ -176,6 +176,53 @@ fn optional_call_tracked_as_branch() {
 }
 
 #[test]
+fn track_optional_chain_false_leaves_chain_native() {
+    // issue #108: with tracking off, member/computed/call optional links emit
+    // no `optional-chain` branch and no `_oc` helper, matching
+    // istanbul-lib-instrument.
+    let source = "function f(e, cb) { return e?.stderr?.['k']?.replace(/x/, 'y') ?? cb?.(1); }";
+    let opts = InstrumentOptions { track_optional_chain: false, ..InstrumentOptions::default() };
+    let r = instrument(source, "test.js", &opts).unwrap();
+
+    let oc_count =
+        r.coverage_map.branch_map.values().filter(|e| e.branch_type == "optional-chain").count();
+    assert_eq!(oc_count, 0, "no optional-chain branches when tracking is disabled");
+    assert!(!r.code.contains("_oc("), "the `_oc` helper must not be emitted:\n{}", r.code);
+    // The `??` is still a logical branch: only `?.` tracking is suppressed.
+    assert!(
+        r.coverage_map.branch_map.values().any(|e| e.branch_type == "binary-expr"),
+        "non-optional-chain branches (the `??`) are still tracked",
+    );
+}
+
+#[test]
+fn track_optional_chain_default_on_matches_existing_behavior() {
+    // The default (true) is unchanged: the same source tracked produces
+    // optional-chain branches and the helper.
+    let source = "function f(e) { return e?.stderr?.replace(/x/, 'y'); }";
+    let tracked = instrument_js(source);
+    let oc_count = tracked
+        .coverage_map
+        .branch_map
+        .values()
+        .filter(|e| e.branch_type == "optional-chain")
+        .count();
+    assert_eq!(oc_count, 2, "default still tracks each `?.` link");
+    assert!(tracked.code.contains("_oc(val, id)"), "default still emits the helper");
+
+    // Statement/function counts are identical with and without tracking; only
+    // the optional-chain branches differ.
+    let opts = InstrumentOptions { track_optional_chain: false, ..InstrumentOptions::default() };
+    let untracked = instrument(source, "test.js", &opts).unwrap();
+    assert_eq!(
+        tracked.coverage_map.statement_map.len(),
+        untracked.coverage_map.statement_map.len(),
+        "statement coverage is unaffected by the optional-chain toggle",
+    );
+    assert_eq!(tracked.coverage_map.fn_map.len(), untracked.coverage_map.fn_map.len());
+}
+
+#[test]
 fn class_field_initializer_keeps_function_name() {
     // `field = function () {}` previously wrapped the value as
     // `(++cov.s[N], function () {})`, which broke NamedEvaluation and

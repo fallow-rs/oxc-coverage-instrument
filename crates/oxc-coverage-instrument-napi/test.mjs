@@ -1501,4 +1501,75 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] verbatim issue #107 FileCoverage is reconciled and merges (regression fixture)');
 }
 
+// Test: trackOptionalChainBranches gates optional-chain (?.) instrumentation (issue #108)
+{
+  const source = 'function f(e, cb) { return e?.stderr?.replace(/x/, "y") ?? cb?.(1); }';
+
+  // Default (flag omitted): each ?. link is a branch and the _oc helper is emitted.
+  const tracked = instrument(source, 'oc.js', { coverageVariable: '__ocOn' });
+  const trackedMap = JSON.parse(tracked.coverageMap);
+  const trackedOc = Object.values(trackedMap.branchMap).filter((e) => e.type === 'optional-chain');
+  assert.equal(trackedOc.length, 3, 'default tracks all three ?. links (two member, one call)');
+  assert.ok(tracked.code.includes('_oc('), 'default emits the _oc helper');
+
+  // trackOptionalChainBranches: false leaves the chain native.
+  const native = instrument(source, 'oc.js', {
+    coverageVariable: '__ocOff',
+    trackOptionalChainBranches: false,
+  });
+  const nativeMap = JSON.parse(native.coverageMap);
+  const nativeOc = Object.values(nativeMap.branchMap).filter((e) => e.type === 'optional-chain');
+  assert.equal(nativeOc.length, 0, 'no optional-chain branches when tracking is off');
+  assert.ok(!native.code.includes('_oc('), 'the _oc helper must not be emitted when off');
+  // The ?? is still a logical branch; only ?. tracking is suppressed.
+  assert.ok(
+    Object.values(nativeMap.branchMap).some((e) => e.type === 'binary-expr'),
+    'non-optional-chain branches are still tracked',
+  );
+  // Statement coverage is unaffected by the toggle.
+  assert.equal(
+    Object.keys(nativeMap.statementMap).length,
+    Object.keys(trackedMap.statementMap).length,
+    'statement coverage is identical with and without optional-chain tracking',
+  );
+
+  // The native-mode code still runs and preserves ?. semantics.
+  const g = {};
+  assert.doesNotThrow(() => {
+    new Function('globalThis', `${native.code}\nglobalThis.__r = eval('f')(null, null);`)(g);
+  }, 'native optional-chain code runs without throwing');
+  assert.equal(g.__r, undefined, 'e?.stderr on null short-circuits to undefined, ?? cb?.(1) on null cb stays undefined');
+
+  console.log('  [PASS] trackOptionalChainBranches gates optional-chain instrumentation (issue #108)');
+}
+
+// Test: createOxcInstrumenter forwards trackOptionalChainBranches and validates it
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const source = 'export function f(e) { return e?.a?.b; }';
+
+  const on = createOxcInstrumenter();
+  on.instrumentSync(source, 'oc.ts');
+  const onOc = Object.values(on.lastFileCoverage().branchMap).filter(
+    (e) => e.type === 'optional-chain',
+  );
+  assert.equal(onOc.length, 2, 'adapter defaults to tracking ?. links');
+
+  const off = createOxcInstrumenter({ trackOptionalChainBranches: false });
+  const offCode = off.instrumentSync(source, 'oc.ts');
+  const offOc = Object.values(off.lastFileCoverage().branchMap).filter(
+    (e) => e.type === 'optional-chain',
+  );
+  assert.equal(offOc.length, 0, 'adapter honors trackOptionalChainBranches: false');
+  assert.ok(!offCode.includes('_oc('), 'adapter emits no _oc helper when off');
+
+  assert.throws(
+    () => createOxcInstrumenter({ trackOptionalChainBranches: 'no' }),
+    /trackOptionalChainBranches.*must be a boolean/,
+    'non-boolean trackOptionalChainBranches throws TypeError',
+  );
+
+  console.log('  [PASS] createOxcInstrumenter forwards/validates trackOptionalChainBranches');
+}
+
 console.log('\nAll tests passed!');

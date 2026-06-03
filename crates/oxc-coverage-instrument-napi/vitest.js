@@ -39,6 +39,11 @@ const TS_EXTENSION_REGEX = /\.([mc]ts|tsx?)$/i;
  *   Vitest passes its internal `__VITEST_COVERAGE__`; defaults to `__coverage__`.
  * @param {string[]} [options.ignoreClassMethods] Class method names to skip.
  * @param {boolean} [options.reportLogic] Enable truthy-value tracking (bT).
+ * @param {boolean} [options.trackOptionalChainBranches] Track each optional
+ *   chaining (`?.`) link as a branch (default: true). Set to false to leave
+ *   optional chains native (no `_oc` helper, no `optional-chain` branch),
+ *   matching `istanbul-lib-instrument` and avoiding the per-operand helper-call
+ *   overhead in `?.`-dense hot paths.
  * @param {boolean} [options.stripTypescript] Run the TypeScript-strip pass
  *   before instrumentation. When omitted (default), the adapter auto-detects:
  *   it strips when the filename matches `/\.([mc]ts|tsx?)$/i` AND no
@@ -76,6 +81,19 @@ function createOxcInstrumenter(options) {
   const coverageVariable = options.coverageVariable || '__coverage__';
   const ignoreClassMethods = options.ignoreClassMethods || [];
   const reportLogic = options.reportLogic || false;
+  // Defaults to true (track), so a bare `|| true` would wrongly coerce an
+  // explicit `false` back to `true`. Treat only `undefined` as "use the
+  // default" and validate everything else as a strict boolean.
+  const trackOptionalChainBranchesRaw = options.trackOptionalChainBranches;
+  if (
+    trackOptionalChainBranchesRaw !== undefined &&
+    typeof trackOptionalChainBranchesRaw !== 'boolean'
+  ) {
+    throw new TypeError(
+      `oxc-coverage-instrument: createOxcInstrumenter({ trackOptionalChainBranches }) must be a boolean or undefined, got ${typeof options.trackOptionalChainBranches}`,
+    );
+  }
+  const trackOptionalChainBranches = trackOptionalChainBranchesRaw ?? true;
   const functionIdentityOverlay = options.functionIdentityOverlay || false;
   if (typeof functionIdentityOverlay !== 'boolean') {
     throw new TypeError(
@@ -142,6 +160,7 @@ function createOxcInstrumenter(options) {
         sourceMap: true,
         inputSourceMap: inputSourceMap ? JSON.stringify(inputSourceMap) : undefined,
         reportLogic,
+        trackOptionalChainBranches,
         ignoreClassMethods,
         stripTypescript,
         experimentalDecorators,
