@@ -21,7 +21,7 @@ workspace = true
 test = false
 
 [dependencies]
-oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.2.1" }
+oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.2.2" }
 serde_json = "1"
 # Exact-pinned (pre-1.0): bump together with the rest of the srcmap suite.
 srcmap-sourcemap = "=0.3.7"
