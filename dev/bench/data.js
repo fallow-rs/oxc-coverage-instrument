@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780475499826,
+  "lastUpdate": 1780475829164,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -4319,6 +4319,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 788757,
             "range": "± 3802",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d122c107d4465ffbffc1778bea170431976452cf",
+          "message": "feat: add trackOptionalChainBranches option to disable optional-chain branch tracking (#108)\n\n* feat: add trackOptionalChainBranches option to disable ?. branch tracking (issue #108)\n\nin a runtime _oc helper call. That is more complete than istanbul-lib-instrument\n(which leaves ?. native), but it is unconditional and adds per-operand call\noverhead in optional-chain-dense hot paths, and it diverges from istanbul for\nprojects that want byte-comparable reports or gate only on line coverage.\n\nAdd a boolean to opt out, defaulting to true so existing behavior is unchanged:\n\n- Rust: InstrumentOptions::track_optional_chain (default true).\n- napi: InstrumentOptions.trackOptionalChainBranches (default true).\n- vitest adapter: createOxcInstrumenter({ trackOptionalChainBranches }), validated\n  as a strict boolean (an explicit false is honored, not coerced).\n\nWhen false, the three optional-link dispatch points (static member, computed\nmember, call) skip wrap_optional_chain_link, so no optional-chain branch is\nregistered and the _oc helper append self-disables. The chain is left native,\nmatching istanbul: item?.a?.b?.c ?? 0 instruments only the surrounding ??.\nStatement, function, and other branch coverage are unaffected. The flag mirrors\nthe existing report_logic plumbing through TransformInit / CoverageTransform;\nthe v8-collect path keeps tracking on (it only builds location maps).\n\nCloses #108\n\n* refactor: only intern cov_fn_oc_name when optional-chain tracking is on (review)\n\nReview CONCERN: cov_fn_oc_name was interned unconditionally, unlike its sibling\ncov_fn_bt_name which allocates only when report_logic is on. With\ntrack_optional_chain off the string was never referenced. Make it\nOption<&str> gated on track_optional_chain, matching cov_fn_bt_name; the single\nuse site in wrap_optional_chain_link is only reached when tracking is on (gated\nat the three dispatch points), so it expects Some.",
+          "timestamp": "2026-06-03T10:29:38+02:00",
+          "tree_id": "d2cae01ea53b9986a27c8f90ac21c0cc5d76b226",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/d122c107d4465ffbffc1778bea170431976452cf"
+        },
+        "date": 1780475828643,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 23297,
+            "range": "± 160",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 51390,
+            "range": "± 342",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 147440,
+            "range": "± 6171",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 312283,
+            "range": "± 2085",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 125832,
+            "range": "± 562",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 528879,
+            "range": "± 2508",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 308838,
+            "range": "± 3800",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 462794,
+            "range": "± 2870",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 58520,
+            "range": "± 261",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 282719,
+            "range": "± 3017",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 557759,
+            "range": "± 2617",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2822564,
+            "range": "± 22710",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 42950,
+            "range": "± 277",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 38157,
+            "range": "± 132",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 518778,
+            "range": "± 5236",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 471779,
+            "range": "± 1919",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 197047,
+            "range": "± 3907",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 180737,
+            "range": "± 1255",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 863813,
+            "range": "± 9502",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 783808,
+            "range": "± 11375",
             "unit": "ns/iter"
           }
         ]
