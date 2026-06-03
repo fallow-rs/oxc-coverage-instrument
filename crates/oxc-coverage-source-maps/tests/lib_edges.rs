@@ -528,6 +528,136 @@ fn parse_coverage_map_round_trips_through_remap() {
     assert_eq!(remapped.path, SRC_PATH);
 }
 
+// --- Issue #111: getMapping range-remap semantics ---------------------------
+//
+// A two-segment generated line over `src/app.ts`:
+//   gen(line1,col0)  -> orig(line1,col0)
+//   gen(line1,col6)  -> orig(line1,col10)
+// Original line 1 is `state.someVeryLongPropertyName1;` (UTF-16 length 32).
+// This lets the tests exercise: an exclusive end that falls *between* segments
+// (direct lookup truncates backward; getMapping widens to the next segment),
+// a 1-char span that balloons to its enclosing segment, and the end-of-line
+// clamp for an end past the last segment.
+fn two_segment_map(with_content: bool) -> serde_json::Value {
+    let content = if with_content {
+        r#","sourcesContent":["state.someVeryLongPropertyName1;\n"]"#
+    } else {
+        ""
+    };
+    serde_json::from_str(&format!(
+        r#"{{"version":3,"sources":["{SRC_PATH}"],"mappings":"AAAA,MAAU","names":[]{content}}}"#,
+    ))
+    .unwrap()
+}
+
+/// A single-statement `FileCoverage` over `intermediate.js` whose one statement
+/// spans the given generated coordinates, used to read back the remapped span.
+fn single_statement_coverage(
+    map: serde_json::Value,
+    sl: u32,
+    sc: u32,
+    el: u32,
+    ec: u32,
+) -> FileCoverage {
+    let mut statement_map = BTreeMap::new();
+    statement_map.insert(
+        "0".to_string(),
+        Location {
+            start: Position { line: sl, column: sc },
+            end: Position { line: el, column: ec },
+        },
+    );
+    let mut s = BTreeMap::new();
+    s.insert("0".to_string(), 1);
+    FileCoverage {
+        path: "intermediate.js".to_string(),
+        statement_map,
+        fn_map: BTreeMap::new(),
+        branch_map: BTreeMap::new(),
+        s,
+        f: BTreeMap::new(),
+        b: BTreeMap::new(),
+        b_t: None,
+        input_source_map: Some(map),
+        x_fallow_function_map: None,
+    }
+}
+
+#[test]
+fn get_mapping_widens_end_that_falls_between_segments() {
+    // Generated end col 4 sits between segment starts 0 and 6. A direct lookup
+    // snaps it backward to the previous segment (orig col 0); getMapping widens
+    // it to the next original segment (orig col 10).
+    let fc = single_statement_coverage(two_segment_map(true), 1, 0, 1, 4);
+    let remapped = remap_coverage(&fc).expect("remap succeeds");
+    let loc = &remapped.statement_map["0"];
+    assert_eq!((loc.start.line, loc.start.column), (1, 0), "start resolves to orig (1,0)");
+    assert_eq!(
+        (loc.end.line, loc.end.column),
+        (1, 10),
+        "end widens to the next original segment, not the truncated previous one",
+    );
+}
+
+#[test]
+fn get_mapping_balloons_one_char_span_to_enclosing_segment() {
+    // A 1-char generated span (col 6..7) on the second segment. getMapping
+    // resolves the start with greatest-lower-bound (orig col 10) and the end to
+    // end-of-line (no segment follows), ballooning the marker to its enclosing
+    // span rather than leaving a 1-char span.
+    let fc = single_statement_coverage(two_segment_map(true), 1, 6, 1, 7);
+    let remapped = remap_coverage(&fc).expect("remap succeeds");
+    let loc = &remapped.statement_map["0"];
+    assert_eq!((loc.start.line, loc.start.column), (1, 10), "start snaps to enclosing segment");
+    assert_eq!(loc.end.column, 32, "end balloons to the original line's UTF-16 length");
+}
+
+#[test]
+fn get_mapping_clamps_end_of_line_from_sources_content() {
+    // End col 20 is past the last segment with nothing after it: istanbul returns
+    // column Infinity, which we clamp to the original line's UTF-16 length (32).
+    let fc = single_statement_coverage(two_segment_map(true), 1, 6, 1, 20);
+    let remapped = remap_coverage(&fc).expect("remap succeeds");
+    let loc = &remapped.statement_map["0"];
+    assert_eq!((loc.start.line, loc.start.column), (1, 10));
+    assert_eq!(loc.end.column, 32, "Infinity end clamps to the line's UTF-16 length");
+}
+
+#[test]
+fn get_mapping_end_of_line_without_content_falls_back_to_last_segment() {
+    // Same map without sourcesContent: the Infinity end clamps to the rightmost
+    // original column mapped on the line (10) instead of the true line length.
+    let fc = single_statement_coverage(two_segment_map(false), 1, 0, 1, 20);
+    let remapped = remap_coverage(&fc).expect("remap succeeds");
+    let loc = &remapped.statement_map["0"];
+    assert_eq!((loc.start.line, loc.start.column), (1, 0));
+    assert_eq!(
+        loc.end.column, 10,
+        "without sourcesContent the end clamps to the last mapped original column",
+    );
+}
+
+#[test]
+fn get_mapping_degenerate_span_recomputes_end() {
+    // A map whose generated line maps gen(0,0)->orig(0,0) and gen(0,2)->orig(0,5).
+    // A backwards generated span (start col 2, end col 1) resolves to start
+    // (1,5) and a Mapped end that also lands on (1,5): the degenerate-span guard
+    // recomputes the end via LUB(genEnd) then steps one column left (col 4).
+    let map: serde_json::Value = serde_json::from_str(&format!(
+        r#"{{"version":3,"sources":["{SRC_PATH}"],"mappings":"AAAA,EAAK","names":[],"sourcesContent":["abcdefghij\n"]}}"#,
+    ))
+    .unwrap();
+    let fc = single_statement_coverage(map, 1, 2, 1, 1);
+    let remapped = remap_coverage(&fc).expect("remap succeeds");
+    let loc = &remapped.statement_map["0"];
+    assert_eq!((loc.start.line, loc.start.column), (1, 5), "start resolves to orig (1,5)");
+    assert_eq!(
+        (loc.end.line, loc.end.column),
+        (1, 4),
+        "degenerate guard recomputes end as LUB(genEnd) column minus one",
+    );
+}
+
 // Issue #107: a coverage object can reach the remap pipeline already carrying an
 // orphan counter, an `s`/`f`/`b` key whose location-map entry is absent. This
 // happens when an upstream instrumenter emitted `++cov.s[id]` for a slot that
