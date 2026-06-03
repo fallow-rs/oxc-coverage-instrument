@@ -413,7 +413,7 @@ fn realign_arm_vec_map(
 /// ```
 #[derive(Debug, Default, Clone)]
 pub struct SourceMapStore {
-    maps: BTreeMap<String, serde_json::Value>,
+    maps: BTreeMap<String, Option<srcmap_sourcemap::SourceMap>>,
 }
 
 impl SourceMapStore {
@@ -427,7 +427,10 @@ impl SourceMapStore {
     /// same key replaces the earlier entry, matching
     /// `istanbul-lib-source-maps`'s `registerMap` semantics.
     pub fn add_map(&mut self, file: impl Into<String>, source_map: serde_json::Value) {
-        self.maps.insert(file.into(), source_map);
+        let parsed = serde_json::to_string(&source_map)
+            .ok()
+            .and_then(|json| srcmap_sourcemap::SourceMap::from_json(&json).ok());
+        self.maps.insert(file.into(), parsed);
     }
 
     /// Whether the store has a map registered for `file`.
@@ -475,10 +478,9 @@ impl SourceMapStore {
         coverage: &FileCoverage,
         options: RemapOptions,
     ) -> Option<FileCoverage> {
-        if let Some(value) = self.maps.get(&coverage.path) {
-            let json = serde_json::to_string(value).ok()?;
-            let sm = srcmap_sourcemap::SourceMap::from_json(&json).ok()?;
-            return apply_source_map(coverage, &sm, options);
+        if let Some(sm) = self.maps.get(&coverage.path) {
+            let sm = sm.as_ref()?;
+            return apply_source_map(coverage, sm, options);
         }
         remap_coverage_with_options(coverage, options)
     }

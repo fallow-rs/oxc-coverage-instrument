@@ -73,6 +73,7 @@ struct CoverageContext<'a> {
     source: &'a str,
     line_offsets: &'a [u32],
     ranges: &'a [V8CoverageRange],
+    arm_ranges: &'a [V8CoverageRange],
     wrapper_length: u32,
 }
 
@@ -109,10 +110,16 @@ impl CoverageContext<'_> {
         };
 
         let mut best: Option<(V8CoverageRange, u32)> = None;
-        for r in self.ranges {
+        let lower = arm_start.saturating_sub(TOLERANCE);
+        let upper = arm_start.saturating_add(TOLERANCE);
+        let start = self.arm_ranges.partition_point(|r| r.start_offset < lower);
+        for r in &self.arm_ranges[start..] {
+            if r.start_offset > upper {
+                break;
+            }
             let dist_start = r.start_offset.abs_diff(arm_start);
             let dist_end = r.end_offset.abs_diff(arm_end);
-            if dist_start > TOLERANCE || dist_end > TOLERANCE {
+            if dist_end > TOLERANCE {
                 continue;
             }
             let distance = dist_start + dist_end;
@@ -191,12 +198,16 @@ pub fn apply_v8_coverage(
 
 fn apply_v8_coverage_inner(file_coverage: &mut FileCoverage, input: &CoverageInput<'_>) {
     let line_offsets = compute_line_offsets(input.source);
-    let ranges: Vec<V8CoverageRange> =
+    let mut ranges: Vec<V8CoverageRange> =
         input.functions.iter().flat_map(|f| f.ranges.iter().copied()).collect();
+    ranges.sort_by_key(|r| r.end_offset.saturating_sub(r.start_offset));
+    let mut arm_ranges = ranges.clone();
+    arm_ranges.sort_by_key(|r| r.start_offset);
     let context = CoverageContext {
         source: input.source,
         line_offsets: &line_offsets,
         ranges: &ranges,
+        arm_ranges: &arm_ranges,
         wrapper_length: input.wrapper_length,
     };
 
@@ -351,20 +362,10 @@ fn compute_line_offsets(source: &str) -> Vec<u32> {
 /// `r.start <= start && r.end >= end`: a range whose exclusive end is equal
 /// to the statement's exclusive end is the smallest possible exact container.
 fn smallest_containing_range_count(start: u32, end: u32, ranges: &[V8CoverageRange]) -> u32 {
-    let mut best: Option<V8CoverageRange> = None;
     for r in ranges {
         if r.start_offset <= start && r.end_offset >= end {
-            let width = r.end_offset.saturating_sub(r.start_offset);
-            match best {
-                None => best = Some(*r),
-                Some(prev) => {
-                    let prev_width = prev.end_offset.saturating_sub(prev.start_offset);
-                    if width < prev_width {
-                        best = Some(*r);
-                    }
-                }
-            }
+            return r.count;
         }
     }
-    best.map_or(0, |r| r.count)
+    0
 }

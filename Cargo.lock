@@ -1050,11 +1050,13 @@ dependencies = [
 name = "oxc_coverage_instrument_napi"
 version = "0.2.0"
 dependencies = [
+ "criterion",
  "napi",
  "napi-build",
  "napi-derive",
  "oxc_coverage_instrument",
  "serde_json",
+ "srcmap-generator",
 ]
 
 [[package]]
@@ -1068,6 +1070,7 @@ dependencies = [
 name = "oxc_coverage_reports"
 version = "0.3.0"
 dependencies = [
+ "criterion",
  "insta",
  "lcov",
  "oxc_coverage_report",
@@ -1085,8 +1088,10 @@ dependencies = [
 name = "oxc_coverage_source_maps"
 version = "0.4.0"
 dependencies = [
+ "criterion",
  "oxc_coverage_types",
  "serde_json",
+ "srcmap-generator",
  "srcmap-sourcemap",
 ]
 
@@ -1102,6 +1107,7 @@ dependencies = [
 name = "oxc_coverage_v8"
 version = "0.2.0"
 dependencies = [
+ "criterion",
  "oxc_coverage_types",
  "serde",
  "serde_json",

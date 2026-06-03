@@ -1,0 +1,118 @@
+use std::collections::BTreeMap;
+use std::fs;
+
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use oxc_coverage_report::CoverageMap;
+use oxc_coverage_reports::html::{self, HtmlOptions};
+use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
+use tempfile::TempDir;
+
+fn loc(line: u32, start_col: u32, end_col: u32) -> Location {
+    Location {
+        start: Position { line, column: start_col },
+        end: Position { line, column: end_col },
+    }
+}
+
+fn source_for(lines: u32, file_id: usize) -> String {
+    let mut source = String::new();
+    source.push_str(&format!("export function compute{file_id}(input: number): number {{\n"));
+    source.push_str("  let total = input;\n");
+    for line in 2..lines {
+        if line % 9 == 0 {
+            source.push_str(&format!("  total += input > {line} ? {line} : -{line};\n"));
+        } else if line % 5 == 0 {
+            source.push_str(&format!("  total += input && {line};\n"));
+        } else {
+            source.push_str(&format!("  total += {line};\n"));
+        }
+    }
+    source.push_str("  return total;\n}\n");
+    source
+}
+
+fn coverage_for(path: String, lines: u32) -> FileCoverage {
+    let mut statement_map = BTreeMap::new();
+    let mut fn_map = BTreeMap::new();
+    let mut branch_map = BTreeMap::new();
+    let mut s = BTreeMap::new();
+    let mut f = BTreeMap::new();
+    let mut b = BTreeMap::new();
+
+    for line in 1..=lines {
+        let key = (line - 1).to_string();
+        statement_map.insert(key.clone(), loc(line, 2, 18));
+        s.insert(key, if line % 7 == 0 { 0 } else { 1 });
+    }
+
+    fn_map.insert(
+        "0".to_string(),
+        FnEntry { name: "compute".to_string(), line: 1, decl: loc(1, 16, 23), loc: loc(1, 0, 42) },
+    );
+    f.insert("0".to_string(), 1);
+
+    let mut branch_id = 0;
+    for line in (9..=lines).step_by(9) {
+        let key = branch_id.to_string();
+        branch_map.insert(
+            key.clone(),
+            BranchEntry {
+                loc: loc(line, 11, 34),
+                line,
+                branch_type: "cond-expr".to_string(),
+                locations: vec![loc(line, 25, 27), loc(line, 31, 34)],
+            },
+        );
+        b.insert(key, vec![1, u32::from(line % 2 == 0)]);
+        branch_id += 1;
+    }
+
+    FileCoverage {
+        path,
+        statement_map,
+        fn_map,
+        branch_map,
+        s,
+        f,
+        b,
+        b_t: None,
+        input_source_map: None,
+        x_fallow_function_map: None,
+    }
+}
+
+fn fixture(file_count: usize, lines: u32) -> (TempDir, TempDir, CoverageMap) {
+    let root = tempfile::tempdir().expect("fixture root tempdir");
+    let output = tempfile::tempdir().expect("fixture output tempdir");
+    let mut map = BTreeMap::new();
+
+    for file_id in 0..file_count {
+        let relative = format!("src/pkg{}/file{file_id}.ts", file_id % 8);
+        let absolute = root.path().join(&relative);
+        fs::create_dir_all(absolute.parent().expect("source file parent")).expect("mkdir source");
+        fs::write(&absolute, source_for(lines, file_id)).expect("write source");
+        map.insert(relative.clone(), coverage_for(relative, lines));
+    }
+
+    (root, output, map)
+}
+
+fn bench_html(c: &mut Criterion) {
+    let options = HtmlOptions::default();
+    let cases = [("small", 16, 80), ("large", 80, 120)];
+    let mut group = c.benchmark_group("html_report");
+
+    for (label, files, lines) in cases {
+        let (root, output, map) = fixture(files, lines);
+        group.bench_with_input(BenchmarkId::new("write", label), &map, |b, map| {
+            b.iter(|| {
+                html::write(map, root.path(), output.path(), &options).expect("html report writes");
+            });
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_html);
+criterion_main!(benches);

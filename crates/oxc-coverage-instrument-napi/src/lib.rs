@@ -382,11 +382,16 @@ pub fn remap_coverage_map_with_loader(
     let parsed = oxc_coverage_instrument::parse_coverage_map(&coverage_json)
         .map_err(|e| invalid_coverage_json_error(&coverage_json, e))?;
     let core_options = core_remap_options_from(options);
-    let remapped = oxc_coverage_instrument::remap_coverage_map_with_loader_and_options(
-        &parsed,
-        |path| source_maps.get(path).cloned(),
-        core_options,
-    );
+    let mut store = oxc_coverage_instrument::SourceMapStore::new();
+    for (path, coverage) in &parsed {
+        if coverage.input_source_map.is_none()
+            && let Some(json) = source_maps.get(path)
+            && let Ok(value) = serde_json::from_str::<serde_json::Value>(json)
+        {
+            store.add_map(path.clone(), value);
+        }
+    }
+    let remapped = store.transform_coverage_map_with_options(&parsed, core_options);
     serde_json::to_string(&remapped)
         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
 }

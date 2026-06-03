@@ -25,3 +25,11 @@ oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.2.2" }
 serde_json = "1"
 # Exact-pinned (pre-1.0): bump together with the rest of the srcmap suite.
 srcmap-sourcemap = "=0.3.7"
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+srcmap-generator = "=0.3.7"
+
+[[bench]]
+name = "remap"
+harness = false
