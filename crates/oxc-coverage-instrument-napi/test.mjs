@@ -1590,6 +1590,7 @@ function runInstrumented(result, filename, callExpression) {
   const { GenMapping, addMapping, setSourceContent, toEncodedMap } = await import(
     '@jridgewell/gen-mapping'
   );
+  const babel = (await import('@babel/core')).default;
 
   const utf16LineLength = (content, line1) => {
     const raw = content.split('\n')[line1 - 1] ?? '';
@@ -1631,19 +1632,11 @@ function runInstrumented(result, filename, callExpression) {
 
   const sortedArray = (set) => [...set].sort();
 
-  // Build an input source map from explicit token mappings, instrument the
-  // intermediate JS with it embedded, then remap through istanbul and through us
-  // and assert the surviving spans match. Single-source maps only (cross-source
-  // arm/decl source-equality is istanbul drop-semantics territory, out of #111
-  // scope).
-  const parityCheck = async (label, sourcePath, sourceContent, intermediateJs, mappings) => {
-    const gm = new GenMapping({ file: 'intermediate.js' });
-    setSourceContent(gm, sourcePath, sourceContent);
-    for (const m of mappings) {
-      addMapping(gm, { generated: m.gen, source: sourcePath, original: m.orig });
-    }
-    const inputMap = toEncodedMap(gm);
-
+  // Core: instrument the intermediate JS with `inputMap` embedded, remap through
+  // istanbul and through us, and assert the surviving spans match column-by-column.
+  // Single-source maps only (cross-source arm/decl source-equality is istanbul
+  // drop-semantics territory, out of #111 scope).
+  const compareRemap = async (label, intermediateJs, inputMap, sourceContent) => {
     const result = instrument(intermediateJs, 'intermediate.js', {
       inputSourceMap: JSON.stringify(inputMap),
     });
@@ -1696,6 +1689,17 @@ function runInstrumented(result, filename, callExpression) {
       );
     }
     return ours;
+  };
+
+  // Build an input source map from explicit token mappings (via gen-mapping),
+  // then run it through the shared remap+compare core.
+  const parityCheck = async (label, sourcePath, sourceContent, intermediateJs, mappings) => {
+    const gm = new GenMapping({ file: 'intermediate.js' });
+    setSourceContent(gm, sourcePath, sourceContent);
+    for (const m of mappings) {
+      addMapping(gm, { generated: m.gen, source: sourcePath, original: m.orig });
+    }
+    return compareRemap(label, intermediateJs, toEncodedMap(gm), sourceContent);
   };
 
   // Reporter case 1: an exclusive end that falls past the last segment. Direct
@@ -1787,6 +1791,84 @@ function runInstrumented(result, filename, callExpression) {
       { gen: { line: 3, column: 9 }, orig: { line: 3, column: 9 } },
       { gen: { line: 4, column: 0 }, orig: { line: 4, column: 0 } },
     ]);
+  }
+
+  // Real-transpiler case: a REAL @babel/core transform emits the input source
+  // map (real VLQ, segments at token starts, sourcesContent), exercising the
+  // sparse-segment scenario that hand-built maps don't. An inline rename plugin
+  // shortens long identifiers, which collapses member chains and shifts columns
+  // hard, so exclusive ends land between segments (the exact #111 case).
+  {
+    const realSrc = [
+      "import { defineAsyncComponent } from 'vue';",
+      'const state = { someVeryLongPropertyName1: 0, anotherQuiteLongFieldName: 1 };',
+      'function classify(inputValue) {',
+      "  const label = inputValue > 0 ? 'positive' : 'negative';",
+      '  return state.someVeryLongPropertyName1 + label.length;',
+      '}',
+      "const lazyComponentFactory = defineAsyncComponent(() => importHelper('./Widget.vue'));",
+      'const mapped = [1, 2, 3].map((eachNumber) => eachNumber * state.anotherQuiteLongFieldName);',
+      'export { classify, lazyComponentFactory, mapped };',
+      '',
+    ].join('\n');
+
+    // Pass 1: collect a rename table for identifiers longer than 4 chars (skip
+    // import/export specifiers so the module bindings stay resolvable).
+    const renames = new Map();
+    let renameCounter = 0;
+    const collectRenames = () => ({
+      visitor: {
+        Identifier(path) {
+          const name = path.node.name;
+          if (name.length <= 4) return;
+          if (path.parentPath.isImportSpecifier() || path.parentPath.isExportSpecifier()) return;
+          if (!renames.has(name)) renames.set(name, `v${renameCounter++}`);
+        },
+      },
+    });
+    babel.transformSync(realSrc, {
+      filename: 'src/app.js',
+      plugins: [collectRenames],
+      sourceType: 'module',
+    });
+    const applyRenames = () => ({
+      visitor: {
+        Identifier(path) {
+          const renamed = renames.get(path.node.name);
+          if (!renamed) return;
+          if (path.parentPath.isImportSpecifier() || path.parentPath.isExportSpecifier()) return;
+          path.node.name = renamed;
+        },
+      },
+    });
+    const out = babel.transformSync(realSrc, {
+      filename: 'src/app.js',
+      plugins: [applyRenames],
+      sourceType: 'module',
+      sourceMaps: true,
+      compact: false,
+    });
+    const inputMap = out.map;
+    if (!inputMap.sourcesContent) inputMap.sourcesContent = [realSrc];
+
+    const ours = await compareRemap(
+      'real @babel/core-emitted map',
+      out.code,
+      inputMap,
+      realSrc,
+    );
+
+    // Prove the fix is load-bearing on a real map: at least one surviving
+    // single-line statement must span more than one column (ends are widened to
+    // the full token, not truncated back to a previous segment).
+    const file = Object.keys(ours)[0];
+    const widened = Object.values(ours[file].statementMap).filter(
+      (l) => l.start.line === l.end.line && l.end.column - l.start.column > 1,
+    );
+    assert.ok(
+      widened.length > 0,
+      'real-map remap produces widened multi-column statement spans (ends not truncated)',
+    );
   }
 
   console.log('  [PASS] istanbul-lib-source-maps getMapping byte-parity (issue #111)');
