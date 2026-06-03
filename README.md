@@ -318,6 +318,8 @@ The same applies to the surviving arm when `/* istanbul ignore if */` drops the 
 
 Each `?.` link surfaces in `branchMap` as an `optional-chain` entry with two arms: arm 0 when the observed value is `null`/`undefined` (the link short-circuits), arm 1 when the link continues. `istanbul-lib-instrument` does not track these. Reporters that walk `branchMap` by type-agnostic shape pick up the new entries automatically; reporters that hard-code the istanbul type names need to learn the new label.
 
+Set `trackOptionalChainBranches: false` (Rust: `track_optional_chain: false`; vitest adapter: `createOxcInstrumenter({ trackOptionalChainBranches: false })`) to opt out: optional chains are left native, with no `_oc` helper and no `optional-chain` branches. This matches `istanbul-lib-instrument` byte-for-byte on `?.` and removes the per-operand helper-call overhead in optional-chain-dense hot paths. Statement, function, and other branch coverage are unaffected. Defaults to `true`.
+
 **Migration from `@vitest/coverage-istanbul`:** a codebase that uses `??=`/`||=`/`&&=` heavily will see a higher branch-coverage denominator (and so a slightly lower branch %) after switching providers. To rebaseline CI thresholds after the swap:
 
 ```bash

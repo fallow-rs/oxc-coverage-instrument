@@ -166,6 +166,13 @@ pub struct InstrumentOptions {
     pub compose_input_source_map: Option<bool>,
     /// When true, adds truthy-value tracking (bT) for logical expression operands.
     pub report_logic: Option<bool>,
+    /// Track each optional-chaining (`?.`) link as a branch (default: true).
+    /// When false, optional chains are left native: no `_oc` helper is emitted
+    /// and no `optional-chain` branches are registered. Matches
+    /// `istanbul-lib-instrument` (which does not track `?.` as a branch) and
+    /// avoids the per-operand helper-call overhead in optional-chain-dense hot
+    /// paths. Statement and other branch coverage are unaffected.
+    pub track_optional_chain_branches: Option<bool>,
     /// Class method names to exclude from coverage instrumentation.
     pub ignore_class_methods: Option<Vec<String>>,
     /// When true, run the TypeScript-strip pass before instrumentation.
@@ -288,6 +295,7 @@ pub fn instrument(
                 input_source_map: o.input_source_map,
                 compose_input_source_map: o.compose_input_source_map.unwrap_or(false),
                 report_logic: o.report_logic.unwrap_or(false),
+                track_optional_chain: o.track_optional_chain_branches.unwrap_or(true),
                 ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
                 strip_typescript: o.strip_typescript.unwrap_or(false),
                 decorator_mode,
