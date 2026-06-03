@@ -321,6 +321,16 @@ pub fn instrument(
 /// the original source path (with `sourceRoot` joined per
 /// `istanbul-lib-source-maps` semantics). Returns the remapped JSON.
 ///
+/// Every returned entry satisfies the Istanbul merge invariant
+/// `keys(s) ⊆ keys(statementMap)` (and the same for `f`/`fnMap`,
+/// `b`/`bT`/`branchMap`): an orphan counter, an `s`/`f`/`b` key with no
+/// matching location-map entry, is dropped rather than passed through. Such an
+/// orphan crashes `istanbul-lib-coverage`'s `CoverageMap.merge` (and therefore
+/// `nyc report`) with "Cannot destructure property 'start' of 'undefined'"; it
+/// can reach the input when an upstream instrumenter incremented a counter
+/// whose map slot was later pruned (issue #107). Dropping it is a no-op on
+/// already-consistent coverage.
+///
 /// Equivalent to `createSourceMapStore().transformCoverage(coverageMap)` in
 /// the Vitest istanbul reporter path. For nyc's disk-read flow (Mode A
 /// fallback) use [`remap_coverage_map_with_loader`] and supply a
