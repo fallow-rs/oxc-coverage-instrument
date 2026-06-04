@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780558962143,
+  "lastUpdate": 1780559844155,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1009,6 +1009,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/df4c4b8d396abbb8745f9f93dbb470f5c379d8d5"
         },
         "date": 1780558961228,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86433512,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "1416c9a223a6fbcecf1ad724690bad254cfd3411",
+          "message": "chore(clippy): resolve rust 1.95 workspace lints\n\n`cargo clippy --workspace --all-targets -- -D warnings` was red under the\npinned 1.95 toolchain on lints that predate this toolchain bump:\n\n- needless_pass_by_value: `SourceMapStore::add_map` now takes\n  `&serde_json::Value` (it only serializes the value, never stores it).\n  All callers updated to pass a reference. Minor public API change.\n- format_push_string: `push_str(&format!(..))` -> `writeln!` in the v8 and\n  reports benches.\n- type_complexity: extracted a `BranchFixture` type alias in the v8 bench.\n- if-bool-to-int and manual loop counter: `u32::from(..)` and `.enumerate()`\n  in the reports bench.\n\nNo behavior change; full test suite, fmt, and napi runtime tests stay green.",
+          "timestamp": "2026-06-04T09:55:35+02:00",
+          "tree_id": "c730539e7baa713c87643a8ba0959b8b1111102f",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/1416c9a223a6fbcecf1ad724690bad254cfd3411"
+        },
+        "date": 1780559843171,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
