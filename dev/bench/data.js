@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780559144552,
+  "lastUpdate": 1780560058657,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -5183,6 +5183,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 781305,
             "range": "± 7249",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "1416c9a223a6fbcecf1ad724690bad254cfd3411",
+          "message": "chore(clippy): resolve rust 1.95 workspace lints\n\n`cargo clippy --workspace --all-targets -- -D warnings` was red under the\npinned 1.95 toolchain on lints that predate this toolchain bump:\n\n- needless_pass_by_value: `SourceMapStore::add_map` now takes\n  `&serde_json::Value` (it only serializes the value, never stores it).\n  All callers updated to pass a reference. Minor public API change.\n- format_push_string: `push_str(&format!(..))` -> `writeln!` in the v8 and\n  reports benches.\n- type_complexity: extracted a `BranchFixture` type alias in the v8 bench.\n- if-bool-to-int and manual loop counter: `u32::from(..)` and `.enumerate()`\n  in the reports bench.\n\nNo behavior change; full test suite, fmt, and napi runtime tests stay green.",
+          "timestamp": "2026-06-04T09:55:35+02:00",
+          "tree_id": "c730539e7baa713c87643a8ba0959b8b1111102f",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/1416c9a223a6fbcecf1ad724690bad254cfd3411"
+        },
+        "date": 1780560058247,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 20725,
+            "range": "± 173",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 44317,
+            "range": "± 154",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 124370,
+            "range": "± 3285",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 270111,
+            "range": "± 2256",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 95945,
+            "range": "± 614",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 484246,
+            "range": "± 6455",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 272058,
+            "range": "± 2152",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 418152,
+            "range": "± 2923",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 55048,
+            "range": "± 218",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 273770,
+            "range": "± 1195",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 546423,
+            "range": "± 1754",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2824160,
+            "range": "± 9257",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 36102,
+            "range": "± 350",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 32717,
+            "range": "± 150",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 465481,
+            "range": "± 5446",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 422033,
+            "range": "± 3987",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 164769,
+            "range": "± 2476",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 150117,
+            "range": "± 867",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 856170,
+            "range": "± 16275",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 770059,
+            "range": "± 4002",
             "unit": "ns/iter"
           }
         ]
