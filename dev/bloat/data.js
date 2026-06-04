@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780495872399,
+  "lastUpdate": 1780558962143,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -985,6 +985,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 86445200,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "df4c4b8d396abbb8745f9f93dbb470f5c379d8d5",
+          "message": "fix: count inline export const function declaration statements (#114)\n\nAn inline `export const fn = () => {}` registered its per-declarator\nstatement in statementMap but never emitted the `++cov.s[N]` increment, so\nthe declaration line reported as uncovered even after the module ran.\n\nFunction/arrow/class-valued declarator inits hoist their statement counter to\na sibling statement before the enclosing declaration (the `(++s, fn)`\nsequence-wrap would break Function.name inference). The hoist target was the\ninner VariableDeclaration start, but for an exported declaration the\nExportNamedDeclaration occupies the statement slot, so exit_statements (which\nmatches by target_start == stmt.span().start) never matched and the counter\nwas dropped. enclosing_var_decl_hoist_target now returns the export node's\nstart when the declaration's parent is an ExportNamedDeclaration.\n\nVerified at byte-parity with istanbul-lib-instrument across export\nconst/let/var arrow, function, class, multi-declarator, and mixed forms, both\nat module evaluation and after call. Adds Rust emit-order regression tests and\na napi runtime test that evaluates the module and asserts s[0] === 1.\n\nCloses #114",
+          "timestamp": "2026-06-04T09:40:03+02:00",
+          "tree_id": "acd2924a1ec979e5749953e7962ace786c04f600",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/df4c4b8d396abbb8745f9f93dbb470f5c379d8d5"
+        },
+        "date": 1780558961228,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86433512,
             "unit": "bytes"
           }
         ]
