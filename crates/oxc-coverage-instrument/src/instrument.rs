@@ -304,22 +304,6 @@ pub fn instrument(
 
     let cov_fn_name = generate_cov_fn_name(filename);
 
-    // Eager-compose gate (issue #106): when eager composition is requested with
-    // a usable input map, build a position-remap predicate and hand it to the
-    // transform so unmappable coverage points are never instrumented (no map
-    // entry, no counter). This keeps the runtime coverage object and the
-    // emitted counters consistent by construction. Built before the transform
-    // so it can be moved into it; `None` for every non-eager caller, where the
-    // gate is a strict no-op.
-    let eager_remapper = if options.compose_input_source_map {
-        options
-            .input_source_map
-            .as_deref()
-            .and_then(oxc_coverage_source_maps::PositionRemapper::from_json)
-    } else {
-        None
-    };
-
     let mut transform = CoverageTransform::new(TransformInit {
         allocator: &allocator,
         source,
@@ -327,45 +311,12 @@ pub fn instrument(
         report_logic: options.report_logic,
         track_optional_chain: options.track_optional_chain,
         ignore_class_methods: options.ignore_class_methods.clone(),
-        eager_remapper,
+        eager_remapper: eager_remapper(options),
     });
     let state = CoverageState { pragmas };
     let scoping = traverse_mut(&mut transform, &allocator, &mut parsed.program, scoping, state);
 
-    let mut coverage_map =
-        build_coverage_map(filename, transform, options.input_source_map.as_deref());
-    if options.function_identity_overlay {
-        coverage_map.x_fallow_function_map =
-            Some(build_function_identity_map(&coverage_map.path, &coverage_map.fn_map));
-    }
-
-    // Eager composition (issue #100): when requested, fold the embedded
-    // `inputSourceMap` into the coverage map now, before the map is serialized
-    // into the preamble's `coverageData` literal. The runtime `__coverage__`
-    // then ships original-source positions/path and `remap_coverage` on the
-    // result is a no-op. Run AFTER the function-identity overlay attaches so
-    // the overlay's ids stay derived from the pre-remap positions, keeping the
-    // eager path bit-for-bit equal to instrument-then-remap (the remap pipeline
-    // intentionally does not rewrite the overlay). When the input map is
-    // unusable, the remap returns `None` and we leave the embedded map in place
-    // so the lazy remap path remains available.
-    //
-    // Drop-at-the-AST-level (issue #106): the transform above was given the same
-    // `inputSourceMap`-backed position-remap predicate (`eager_remapper`), so
-    // unmappable statement / function / branch points were never instrumented
-    // (no map entry, no counter). The instrumented CODE and the coverage DATA
-    // are therefore derived from the same decision and consistent by
-    // construction. Compose is then a pure NO-DROP remap: it only rewrites the
-    // surviving positions to original coordinates, re-keys to the original
-    // source path, and clears `inputSourceMap`. No-drop is also the safer
-    // default: a hypothetical transform/compose disagreement degrades to a
-    // kept-but-remapped position rather than a dangling counter (the #106 bug).
-    if options.compose_input_source_map
-        && options.input_source_map.is_some()
-        && let Some(composed) = oxc_coverage_source_maps::remap_coverage(&coverage_map)
-    {
-        coverage_map = composed;
-    }
+    let coverage_map = finalize_coverage_map(filename, transform, options);
 
     // Serialize the coverage map once and reuse it for both the hash guard and
     // the preamble's coverageData literal. Istanbul refreshes stale coverage
@@ -499,6 +450,57 @@ fn build_coverage_map(
     if let Some(input_sm) = input_source_map {
         coverage_map.input_source_map = serde_json::from_str(input_sm).ok();
     }
+    coverage_map
+}
+
+fn eager_remapper(
+    options: &InstrumentOptions,
+) -> Option<oxc_coverage_source_maps::PositionRemapper> {
+    if !options.compose_input_source_map {
+        return None;
+    }
+
+    options
+        .input_source_map
+        .as_deref()
+        .and_then(oxc_coverage_source_maps::PositionRemapper::from_json)
+}
+
+fn finalize_coverage_map(
+    filename: &str,
+    transform: CoverageTransform<'_, '_>,
+    options: &InstrumentOptions,
+) -> FileCoverage {
+    let mut coverage_map =
+        build_coverage_map(filename, transform, options.input_source_map.as_deref());
+    if options.function_identity_overlay {
+        coverage_map.x_fallow_function_map =
+            Some(build_function_identity_map(&coverage_map.path, &coverage_map.fn_map));
+    }
+
+    // Eager composition (issue #100): when requested, fold the embedded
+    // `inputSourceMap` into the coverage map now, before the map is serialized
+    // into the preamble's `coverageData` literal. The runtime `__coverage__`
+    // then ships original-source positions/path and `remap_coverage` on the
+    // result is a no-op. Run AFTER the function-identity overlay attaches so
+    // the overlay's ids stay derived from the pre-remap positions, keeping the
+    // eager path bit-for-bit equal to instrument-then-remap (the remap pipeline
+    // intentionally does not rewrite the overlay). When the input map is
+    // unusable, the remap returns `None` and we leave the embedded map in place
+    // so the lazy remap path remains available.
+    //
+    // Drop-at-the-AST-level (issue #106): the transform above was given the same
+    // `inputSourceMap`-backed position-remap predicate, so unmappable statement /
+    // function / branch points were never instrumented (no map entry, no
+    // counter). The instrumented code and coverage data are therefore derived
+    // from the same decision and consistent by construction.
+    if options.compose_input_source_map
+        && options.input_source_map.is_some()
+        && let Some(composed) = oxc_coverage_source_maps::remap_coverage(&coverage_map)
+    {
+        return composed;
+    }
+
     coverage_map
 }
 
