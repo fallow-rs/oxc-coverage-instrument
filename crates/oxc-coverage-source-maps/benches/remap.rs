@@ -107,7 +107,7 @@ fn bench_remap(c: &mut Criterion) {
         });
 
         let mut store = SourceMapStore::new();
-        store.add_map(GENERATED_PATH, map);
+        store.add_map(GENERATED_PATH, &map);
         let mut coverage_without_map = coverage.clone();
         coverage_without_map.input_source_map = None;
 

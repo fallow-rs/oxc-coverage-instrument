@@ -1,8 +1,14 @@
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
 use oxc_coverage_v8::{V8CoverageRange, V8FunctionCoverage, apply_v8_coverage};
+
+/// Return shape of `branch_heavy_fixture`: instrumented source, the coverage
+/// map, the V8 function ranges, and the per-branch span table.
+type BranchFixture =
+    (String, FileCoverage, Vec<V8FunctionCoverage>, BTreeMap<String, Vec<(u32, u32)>>);
 
 fn loc(line: u32, start_col: u32, end_col: u32) -> Location {
     Location {
@@ -24,9 +30,9 @@ fn fixture(lines: u32, unicode: bool) -> (String, FileCoverage, Vec<V8FunctionCo
     for line in 1..=lines {
         let line_start = source.len() as u32;
         if unicode && line % 8 == 0 {
-            source.push_str(&format!("const value{line} = \"emoji 😀\";\n"));
+            let _ = writeln!(source, "const value{line} = \"emoji 😀\";");
         } else {
-            source.push_str(&format!("const value{line} = input + {line};\n"));
+            let _ = writeln!(source, "const value{line} = input + {line};");
         }
         let line_end = source.len() as u32;
         ranges.push(V8CoverageRange {
@@ -89,9 +95,7 @@ fn fixture(lines: u32, unicode: bool) -> (String, FileCoverage, Vec<V8FunctionCo
     (source, coverage, functions)
 }
 
-fn branch_heavy_fixture(
-    branches: u32,
-) -> (String, FileCoverage, Vec<V8FunctionCoverage>, BTreeMap<String, Vec<(u32, u32)>>) {
+fn branch_heavy_fixture(branches: u32) -> BranchFixture {
     let mut source = String::new();
     let mut statement_map = BTreeMap::new();
     let mut branch_map = BTreeMap::new();
@@ -104,7 +108,7 @@ fn branch_heavy_fixture(
     for id in 0..branches {
         let line = id + 1;
         let line_start = source.len() as u32;
-        source.push_str(&format!("if (flag{id}) {{ hit{id}(); }} else {{ miss{id}(); }}\n"));
+        let _ = writeln!(source, "if (flag{id}) {{ hit{id}(); }} else {{ miss{id}(); }}");
         let true_start = line_start + 13 + digits(id);
         let true_end = true_start + 6 + digits(id);
         let false_start = true_end + 12;

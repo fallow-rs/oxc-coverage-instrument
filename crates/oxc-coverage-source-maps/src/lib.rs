@@ -397,7 +397,7 @@ fn realign_arm_vec_map(
 ///
 /// let mut store = SourceMapStore::new();
 /// let input_sm = r#"{"version":3,"sources":["src/app.ts"],"mappings":"AAAA","names":[]}"#;
-/// store.add_map("intermediate.js", serde_json::from_str(input_sm).unwrap());
+/// store.add_map("intermediate.js", &serde_json::from_str(input_sm).unwrap());
 ///
 /// // Minimal FileCoverage to demonstrate the remap; the instrumenter produces
 /// // this shape in real usage. Constructed inline here so the doctest does
@@ -426,8 +426,8 @@ impl SourceMapStore {
     /// Add a source map keyed by the file path. A later `add_map` with the
     /// same key replaces the earlier entry, matching
     /// `istanbul-lib-source-maps`'s `registerMap` semantics.
-    pub fn add_map(&mut self, file: impl Into<String>, source_map: serde_json::Value) {
-        let parsed = serde_json::to_string(&source_map)
+    pub fn add_map(&mut self, file: impl Into<String>, source_map: &serde_json::Value) {
+        let parsed = serde_json::to_string(source_map)
             .ok()
             .and_then(|json| srcmap_sourcemap::SourceMap::from_json(&json).ok());
         self.maps.insert(file.into(), parsed);

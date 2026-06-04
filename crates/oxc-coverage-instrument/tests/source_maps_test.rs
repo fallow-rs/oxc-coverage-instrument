@@ -270,7 +270,7 @@ fn source_map_store_transforms_via_registered_map() {
     assert!(store.is_empty(), "freshly constructed store is empty");
     store.add_map(
         "intermediate.js",
-        serde_json::from_str::<serde_json::Value>(&input_sm_json).unwrap(),
+        &serde_json::from_str::<serde_json::Value>(&input_sm_json).unwrap(),
     );
     assert_eq!(store.len(), 1);
     assert!(store.contains("intermediate.js"));
@@ -296,7 +296,7 @@ fn source_map_store_overrides_embedded_input_map() {
     let result = instrument(intermediate_js, "intermediate.js", &opts).unwrap();
 
     let mut store = SourceMapStore::new();
-    store.add_map("intermediate.js", serde_json::from_str(store_map_json).unwrap());
+    store.add_map("intermediate.js", &serde_json::from_str(store_map_json).unwrap());
 
     let remapped = store.transform_coverage(&result.coverage_map).expect("store applies");
     assert_eq!(remapped.path, "src/store.ts", "store map wins over embedded map");

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::fs;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -16,15 +17,15 @@ fn loc(line: u32, start_col: u32, end_col: u32) -> Location {
 
 fn source_for(lines: u32, file_id: usize) -> String {
     let mut source = String::new();
-    source.push_str(&format!("export function compute{file_id}(input: number): number {{\n"));
+    let _ = writeln!(source, "export function compute{file_id}(input: number): number {{");
     source.push_str("  let total = input;\n");
     for line in 2..lines {
         if line % 9 == 0 {
-            source.push_str(&format!("  total += input > {line} ? {line} : -{line};\n"));
+            let _ = writeln!(source, "  total += input > {line} ? {line} : -{line};");
         } else if line % 5 == 0 {
-            source.push_str(&format!("  total += input && {line};\n"));
+            let _ = writeln!(source, "  total += input && {line};");
         } else {
-            source.push_str(&format!("  total += {line};\n"));
+            let _ = writeln!(source, "  total += {line};");
         }
     }
     source.push_str("  return total;\n}\n");
@@ -42,7 +43,7 @@ fn coverage_for(path: String, lines: u32) -> FileCoverage {
     for line in 1..=lines {
         let key = (line - 1).to_string();
         statement_map.insert(key.clone(), loc(line, 2, 18));
-        s.insert(key, if line % 7 == 0 { 0 } else { 1 });
+        s.insert(key, u32::from(line % 7 != 0));
     }
 
     fn_map.insert(
@@ -51,8 +52,7 @@ fn coverage_for(path: String, lines: u32) -> FileCoverage {
     );
     f.insert("0".to_string(), 1);
 
-    let mut branch_id = 0;
-    for line in (9..=lines).step_by(9) {
+    for (branch_id, line) in (9..=lines).step_by(9).enumerate() {
         let key = branch_id.to_string();
         branch_map.insert(
             key.clone(),
@@ -64,7 +64,6 @@ fn coverage_for(path: String, lines: u32) -> FileCoverage {
             },
         );
         b.insert(key, vec![1, u32::from(line % 2 == 0)]);
-        branch_id += 1;
     }
 
     FileCoverage {

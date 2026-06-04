@@ -152,7 +152,7 @@ fn source_map_store_hit_takes_precedence_over_embedded_map() {
 
     let mut store = SourceMapStore::new();
     assert!(store.is_empty());
-    store.add_map(fc.path.clone(), identity_three_line_map(None));
+    store.add_map(fc.path.clone(), &identity_three_line_map(None));
     assert!(!store.is_empty());
     assert_eq!(store.len(), 1);
     assert!(store.contains(&fc.path));
@@ -176,7 +176,7 @@ fn source_map_store_transform_coverage_map_routes_both_branches() {
     });
 
     let mut store = SourceMapStore::new();
-    store.add_map("intermediate.js", identity_three_line_map(None));
+    store.add_map("intermediate.js", &identity_three_line_map(None));
 
     let out = store.transform_coverage_map(&coverage_map);
     assert!(out.contains_key(SRC_PATH), "hit branch rekeys by source path");
@@ -488,7 +488,7 @@ fn drop_unmapped_applies_to_coverage_map_helper() {
 fn drop_unmapped_applies_through_store() {
     let fc = mixed_mapped_file_coverage();
     let mut store = SourceMapStore::new();
-    store.add_map("intermediate.js", one_line_identity_map());
+    store.add_map("intermediate.js", &one_line_identity_map());
 
     let opts = RemapOptions { drop_unmapped: true };
     let remapped = store
@@ -523,7 +523,7 @@ fn parse_coverage_map_round_trips_through_remap() {
     let fc = &map["intermediate.js"];
 
     let mut store = SourceMapStore::new();
-    store.add_map("intermediate.js", identity_three_line_map(None));
+    store.add_map("intermediate.js", &identity_three_line_map(None));
     let remapped = store.transform_coverage(fc).expect("store-driven remap");
     assert_eq!(remapped.path, SRC_PATH);
 }

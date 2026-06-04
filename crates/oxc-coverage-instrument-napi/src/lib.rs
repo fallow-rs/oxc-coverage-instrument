@@ -388,7 +388,7 @@ pub fn remap_coverage_map_with_loader(
             && let Some(json) = source_maps.get(path)
             && let Ok(value) = serde_json::from_str::<serde_json::Value>(json)
         {
-            store.add_map(path.clone(), value);
+            store.add_map(path.clone(), &value);
         }
     }
     let remapped = store.transform_coverage_map_with_options(&parsed, core_options);
