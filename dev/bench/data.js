@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780496087307,
+  "lastUpdate": 1780559144552,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -5039,6 +5039,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 788239,
             "range": "± 3299",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "df4c4b8d396abbb8745f9f93dbb470f5c379d8d5",
+          "message": "fix: count inline export const function declaration statements (#114)\n\nAn inline `export const fn = () => {}` registered its per-declarator\nstatement in statementMap but never emitted the `++cov.s[N]` increment, so\nthe declaration line reported as uncovered even after the module ran.\n\nFunction/arrow/class-valued declarator inits hoist their statement counter to\na sibling statement before the enclosing declaration (the `(++s, fn)`\nsequence-wrap would break Function.name inference). The hoist target was the\ninner VariableDeclaration start, but for an exported declaration the\nExportNamedDeclaration occupies the statement slot, so exit_statements (which\nmatches by target_start == stmt.span().start) never matched and the counter\nwas dropped. enclosing_var_decl_hoist_target now returns the export node's\nstart when the declaration's parent is an ExportNamedDeclaration.\n\nVerified at byte-parity with istanbul-lib-instrument across export\nconst/let/var arrow, function, class, multi-declarator, and mixed forms, both\nat module evaluation and after call. Adds Rust emit-order regression tests and\na napi runtime test that evaluates the module and asserts s[0] === 1.\n\nCloses #114",
+          "timestamp": "2026-06-04T09:40:03+02:00",
+          "tree_id": "acd2924a1ec979e5749953e7962ace786c04f600",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/df4c4b8d396abbb8745f9f93dbb470f5c379d8d5"
+        },
+        "date": 1780559143559,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 23027,
+            "range": "± 168",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 51714,
+            "range": "± 246",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 146010,
+            "range": "± 744",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 311036,
+            "range": "± 3923",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 125873,
+            "range": "± 1160",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 519818,
+            "range": "± 2968",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 309027,
+            "range": "± 1829",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 458293,
+            "range": "± 1932",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 58708,
+            "range": "± 278",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 283343,
+            "range": "± 7570",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 555796,
+            "range": "± 3192",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2897019,
+            "range": "± 43631",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 42564,
+            "range": "± 296",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 38518,
+            "range": "± 396",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 512489,
+            "range": "± 9143",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 464521,
+            "range": "± 3348",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 195793,
+            "range": "± 1520",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 182669,
+            "range": "± 1114",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 867977,
+            "range": "± 7187",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 781305,
+            "range": "± 7249",
             "unit": "ns/iter"
           }
         ]
