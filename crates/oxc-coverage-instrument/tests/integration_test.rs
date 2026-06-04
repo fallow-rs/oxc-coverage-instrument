@@ -47,6 +47,40 @@ fn statement_empty_and_block_not_counted() {
     assert_eq!(result.coverage_map.statement_map.len(), 1);
 }
 
+// Regression for issue #114: an inline `export const fn = <arrow/function>`
+// hoists its per-declarator statement counter to a sibling of the enclosing
+// statement. The enclosing statement is the ExportNamedDeclaration, not the
+// inner VariableDeclaration; targeting the inner declaration left the counter
+// unmatched and dropped, so s[0] stayed 0 even though the initializer runs at
+// module evaluation. Each form below must emit the hoisted counter before the
+// export keyword.
+#[test]
+fn statement_export_const_arrow_initializer_is_counted() {
+    let result = instrument_js("export const fn = () => { return 1; };\n");
+    assert_eq!(result.coverage_map.statement_map.len(), 2);
+    let counter = result.code.find(".s[0];").expect("hoisted s[0] counter must be emitted");
+    let export = result.code.find("export const fn").expect("export declaration present");
+    assert!(counter < export, "statement counter must run before the export declaration");
+}
+
+#[test]
+fn statement_export_const_function_initializer_is_counted() {
+    let result = instrument_js("export const fn = function () { return 1; };\n");
+    let counter = result.code.find(".s[0];").expect("hoisted s[0] counter must be emitted");
+    let export = result.code.find("export const fn").expect("export declaration present");
+    assert!(counter < export, "statement counter must run before the export declaration");
+}
+
+#[test]
+fn statement_export_const_multi_declarator_both_counted() {
+    let result = instrument_js("export const a = () => 1, b = () => 2;\n");
+    let export = result.code.find("export const a").expect("export declaration present");
+    // Both arrow initializers hoist their statement counters before the export.
+    let s0 = result.code.find(".s[0];").expect("s[0] counter must be emitted");
+    let s2 = result.code.find(".s[2];").expect("s[2] counter must be emitted");
+    assert!(s0 < export && s2 < export, "both statement counters must run before the export");
+}
+
 // ---------------------------------------------------------------------------
 // Function coverage
 // ---------------------------------------------------------------------------
@@ -1606,14 +1640,18 @@ fn export_function_has_no_statement_counter() {
 
 #[test]
 fn export_const_arrow_gets_per_declarator_counter() {
-    // istanbul-lib-instrument wraps the declarator init with a statement
-    // counter: `export const add = (++cov.s[N], (a, b) => …)`.
-    // The counter appears AFTER `export`, inline in the init expression.
+    // A function-valued declarator init hoists its statement counter to a
+    // sibling statement before the enclosing declaration (the sequence-wrap
+    // `(++cov.s[N], fn)` would break Function.name inference). For an exported
+    // declaration the sibling slot is before the `export` keyword. See
+    // `statement_export_const_arrow_initializer_is_counted` for the emit check
+    // that guards issue #114.
     let result = instrument_js("export const add = (a, b) => a + b;");
     assert_eq!(result.coverage_map.fn_map.len(), 1);
     assert_eq!(result.coverage_map.fn_map["0"].name, "add");
-    // Two statements: the declarator init wrapper and the arrow body's return.
+    // Two statements: the declarator init and the arrow body's return.
     assert_eq!(result.coverage_map.statement_map.len(), 2);
+    assert!(result.code.contains(".s[0];"), "declarator init counter must be emitted");
 }
 
 /// Regression test: every declaration-container variant that istanbul-lib-instrument

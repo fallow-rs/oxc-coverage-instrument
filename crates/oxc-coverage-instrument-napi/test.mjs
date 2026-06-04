@@ -7,9 +7,10 @@ import {
   v8ToIstanbulWithLoader,
 } from './index.js';
 import { strict as assert } from 'node:assert';
-import { existsSync, statSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { existsSync, statSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 console.log('Testing oxc-coverage-instrument napi bindings...\n');
@@ -1872,6 +1873,30 @@ function runInstrumented(result, filename, callExpression) {
   }
 
   console.log('  [PASS] istanbul-lib-source-maps getMapping byte-parity (issue #111)');
+}
+
+// Test 25: inline `export const fn = () => {}` counts its declaration statement
+// at module evaluation (issue #114). Requires real module evaluation because
+// `export` is module-only; `new Function` cannot host it. The initializer runs
+// when the module is loaded, so s['0'] must be 1 even though `fn` is never
+// called. The non-exported form is the control that already worked.
+{
+  const initStatement = async (src, cv) => {
+    const file = join(tmpdir(), `oxc-cov-${cv}-${process.pid}.mjs`);
+    writeFileSync(file, instrument(src, 'm.ts', { coverageVariable: cv }).code);
+    try {
+      await import(pathToFileURL(file).href); // module evaluation only, fn never called
+      return Object.values(globalThis[cv])[0].s['0'];
+    } finally {
+      rmSync(file, { force: true });
+    }
+  };
+
+  const exported = await initStatement('export const fn = () => { return 1; };\n', '__oxc114_a');
+  const plain = await initStatement('const fn = () => { return 1; };\nexport { fn };\n', '__oxc114_b');
+  assert.equal(exported, 1, 'export const arrow declaration statement must count at module eval');
+  assert.equal(plain, 1, 'non-exported const arrow declaration statement must count (control)');
+  console.log('  [PASS] export const arrow declaration statement counts at module eval (issue #114)');
 }
 
 console.log('\nAll tests passed!');

@@ -820,6 +820,15 @@ fn enclosing_var_decl_hoist_target(ctx: &TraverseCtx<'_, CoverageState>) -> Opti
         Ancestor::ForStatementInit(_)
         | Ancestor::ForInStatementLeft(_)
         | Ancestor::ForOfStatementLeft(_) => None,
+        // `export const fn = () => {}` wraps the VariableDeclaration in an
+        // ExportNamedDeclaration, and the export node (not the inner
+        // declaration) is what occupies the statement slot. Hoist the
+        // counter to a sibling of the export statement so `exit_statements`
+        // matches `target_start`; targeting the inner VariableDeclaration
+        // start never matches, leaving the declaration statement counter at
+        // 0 even though the initializer runs at module evaluation (issue
+        // #114).
+        Ancestor::ExportNamedDeclarationDeclaration(a) => Some(a.span().start),
         _ => Some(var_decl_span.start),
     }
 }
