@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780563444455,
+  "lastUpdate": 1780570056656,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1130,6 +1130,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 86426904,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "e82bb7f5b818bcfc8b132d2c1ec611e3958d5ca6",
+          "message": "refactor: split coverage map finalization",
+          "timestamp": "2026-06-04T11:35:39+02:00",
+          "tree_id": "ada3a80fb7562dfe113cc3ca106de41d1537aa59",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/e82bb7f5b818bcfc8b132d2c1ec611e3958d5ca6"
+        },
+        "date": 1780570055694,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86429104,
             "unit": "bytes"
           }
         ]
