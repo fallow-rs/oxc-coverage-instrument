@@ -25,7 +25,7 @@ html = ["dep:syntect", "dep:two-face", "dep:rayon"]
 
 [dependencies]
 oxc_coverage_report = { path = "../oxc-coverage-report", version = "0.2.0" }
-oxc_coverage_source_maps = { path = "../oxc-coverage-source-maps", version = "0.4.0" }
+oxc_coverage_source_maps = { path = "../oxc-coverage-source-maps", version = "0.4.1" }
 oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.2.2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
