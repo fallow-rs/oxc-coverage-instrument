@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780559844155,
+  "lastUpdate": 1780560381833,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1038,6 +1038,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/1416c9a223a6fbcecf1ad724690bad254cfd3411"
         },
         "date": 1780559843171,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86433512,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "33e1fbb9294d2325e84c34c52003c81495ab0965",
+          "message": "fix: align emnapi wasm dependency versions",
+          "timestamp": "2026-06-04T10:04:32+02:00",
+          "tree_id": "065c3ca4e32449bb7b4ca90a4c93d2fb1c9c0469",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/33e1fbb9294d2325e84c34c52003c81495ab0965"
+        },
+        "date": 1780560381491,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
