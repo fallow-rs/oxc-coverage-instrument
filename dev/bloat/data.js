@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780570056656,
+  "lastUpdate": 1780645805677,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1159,6 +1159,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 86429104,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "551eb8a7841fcf5d2fac8d42651341147144f4ad",
+          "message": "fix: align eager composeInputSourceMap drop gate with getMapping keep-decision\n\nThe eager AST-level drop gate resolved each Location endpoint with a single greatest-lower-bound lookup, so it dropped a coverage point whose generated column sits just before its line's first mapping. The deferred remapCoverageMap({ dropUnmapped: true }) path keeps that entry via getMapping's least-upper-bound fallback, so eager composition silently dropped statements, functions, and branches that the lazy path (and istanbul-lib-source-maps) retain. This hit compiled Vue render functions at scale.\n\nReplace PositionRemapper::maps(line, column) with location_maps(&Location), which returns get_mapping_location(loc).is_some() (mirroring the deferred drop keep-decision try_remap_location, including the line-0 sentinel). The eager gate and the deferred prune now agree by construction.\n\nRemoves the pub PositionRemapper::maps method from oxc-coverage-source-maps (its only caller was the in-crate gate); a pre-1.0 API change to fold into the next version bump.\n\nCloses #122",
+          "timestamp": "2026-06-05T09:48:09+02:00",
+          "tree_id": "76798eabb1fdb1a54cf31bbc1c368923e1b1d718",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/551eb8a7841fcf5d2fac8d42651341147144f4ad"
+        },
+        "date": 1780645804709,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86440000,
             "unit": "bytes"
           }
         ]
