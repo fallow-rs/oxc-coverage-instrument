@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780570267161,
+  "lastUpdate": 1780646017856,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -5903,6 +5903,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 790098,
             "range": "± 2860",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "551eb8a7841fcf5d2fac8d42651341147144f4ad",
+          "message": "fix: align eager composeInputSourceMap drop gate with getMapping keep-decision\n\nThe eager AST-level drop gate resolved each Location endpoint with a single greatest-lower-bound lookup, so it dropped a coverage point whose generated column sits just before its line's first mapping. The deferred remapCoverageMap({ dropUnmapped: true }) path keeps that entry via getMapping's least-upper-bound fallback, so eager composition silently dropped statements, functions, and branches that the lazy path (and istanbul-lib-source-maps) retain. This hit compiled Vue render functions at scale.\n\nReplace PositionRemapper::maps(line, column) with location_maps(&Location), which returns get_mapping_location(loc).is_some() (mirroring the deferred drop keep-decision try_remap_location, including the line-0 sentinel). The eager gate and the deferred prune now agree by construction.\n\nRemoves the pub PositionRemapper::maps method from oxc-coverage-source-maps (its only caller was the in-crate gate); a pre-1.0 API change to fold into the next version bump.\n\nCloses #122",
+          "timestamp": "2026-06-05T09:48:09+02:00",
+          "tree_id": "76798eabb1fdb1a54cf31bbc1c368923e1b1d718",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/551eb8a7841fcf5d2fac8d42651341147144f4ad"
+        },
+        "date": 1780646016885,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 20743,
+            "range": "± 71",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 49772,
+            "range": "± 815",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 134962,
+            "range": "± 3487",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 274416,
+            "range": "± 1369",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 115194,
+            "range": "± 420",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 479897,
+            "range": "± 1948",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 278377,
+            "range": "± 2786",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 441095,
+            "range": "± 2545",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 52723,
+            "range": "± 88",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 252950,
+            "range": "± 942",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 492757,
+            "range": "± 2652",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2657516,
+            "range": "± 10480",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 37658,
+            "range": "± 181",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 34147,
+            "range": "± 141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 489026,
+            "range": "± 2603",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 444162,
+            "range": "± 2732",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 174379,
+            "range": "± 1180",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 162965,
+            "range": "± 5505",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 834061,
+            "range": "± 3208",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 761795,
+            "range": "± 2945",
             "unit": "ns/iter"
           }
         ]
