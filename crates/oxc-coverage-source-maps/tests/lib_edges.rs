@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 
 use oxc_coverage_source_maps::{
-    RemapOptions, SourceMapStore, remap_coverage, remap_coverage_map_with_loader,
+    PositionRemapper, RemapOptions, SourceMapStore, remap_coverage, remap_coverage_map_with_loader,
     remap_coverage_map_with_options, remap_coverage_with_loader, remap_coverage_with_options,
 };
 use oxc_coverage_types::{
@@ -741,4 +741,45 @@ fn prune_orphan_counters_matches_issue_107_shape() {
         fc.x_fallow_function_map.as_ref().is_none_or(BTreeMap::is_empty),
         "orphan overlay entry (fn id absent from fnMap) is pruned with its counter",
     );
+}
+
+// --- PositionRemapper::location_maps (eager AST-gate predicate, issue #122) ----
+
+/// Build a `Location` from 1-based lines and 0-based columns.
+fn loc(start_line: u32, start_col: u32, end_line: u32, end_col: u32) -> Location {
+    Location {
+        start: Position { line: start_line, column: start_col },
+        end: Position { line: end_line, column: end_col },
+    }
+}
+
+#[test]
+fn location_maps_matches_deferred_get_mapping_keep_decision() {
+    // `AAAA;EACA`: gen(1,0)->orig(1,0) ; gen(2,2)->orig(2,0). Line 2's only
+    // mapping sits at column 2, AFTER a statement that starts at column 0.
+    let input_sm = r#"{"version":3,"sources":["src/app.ts"],"sourcesContent":["const a = 1;\nconst b = 2;\n"],"mappings":"AAAA;EACA","names":[]}"#;
+    let remapper = PositionRemapper::from_json(input_sm).expect("usable map");
+
+    // Line 1 maps cleanly at column 0.
+    assert!(remapper.location_maps(&loc(1, 0, 1, 4)), "line-1 statement maps");
+
+    // Issue #122: line-2 statement at column 0 has no mapping at-or-before on its
+    // line (the only line-2 mapping is at column 2), but `getMapping`'s
+    // least-upper-bound fallback resolves it forward and KEEPS it. The deferred
+    // `drop_unmapped` path keeps it, so the eager gate must too.
+    assert!(
+        remapper.location_maps(&loc(2, 0, 2, 4)),
+        "col-0 statement whose line maps at col 2 is kept (LUB fallback)",
+    );
+
+    // Line 3 has no mapping at all (the map only covers generated lines 1-2):
+    // both GLB and LUB miss, so the span is genuinely unmapped and dropped.
+    assert!(
+        !remapper.location_maps(&loc(3, 0, 3, 4)),
+        "a span on a generated line with no mappings is dropped",
+    );
+
+    // The `line == 0` "unknown" sentinel is kept as a no-op, matching
+    // `try_remap_location`'s legacy-helper route.
+    assert!(remapper.location_maps(&loc(0, 0, 0, 0)), "line-0 sentinel is a keep no-op");
 }

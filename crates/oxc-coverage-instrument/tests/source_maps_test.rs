@@ -494,6 +494,78 @@ fn compose_input_source_map_drops_unmapped_positions() {
     );
 }
 
+/// Intermediate JS with two statements where line 2's statement starts at column
+/// 0 but the input map's only line-2 mapping sits at column 2 (just AFTER the
+/// statement); line 1 maps at column 0:
+///   gen(1,0) -> orig(1,0) ; gen(2,2) -> orig(2,0)
+/// mappings "AAAA;EACA": L1 `[0,0,0,0]`; L2 `[+2,0,+1,0]`. This is the shape
+/// issue #122 reproduces (dense compiled output, e.g. a Vue render function,
+/// whose statements land just before their line's first mapping).
+fn mapping_after_statement_inputs() -> (String, String) {
+    let original_ts = "const a = 1;\nconst b = 2;\n";
+    let intermediate_js = "f();\ng();\n";
+    let input_sm = format!(
+        r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{original_ts:?}],"mappings":"AAAA;EACA","names":[]}}"#,
+    );
+    (intermediate_js.to_string(), input_sm)
+}
+
+#[test]
+fn compose_input_source_map_keeps_entries_deferred_drop_keeps() {
+    // Issue #122: a statement whose generated column sits just before its line's
+    // first mapping must be KEPT by eager compose, exactly as the deferred
+    // `remap_coverage_with_options(.., { drop_unmapped: true })` path keeps it.
+    // The eager AST-level gate previously resolved each endpoint with a single
+    // greatest-lower-bound lookup, so it dropped the line-2 statement (which has
+    // no mapping at-or-before column 0 on its line) while the deferred path's
+    // `getMapping` least-upper-bound fallback resolves it forward to the line-2
+    // mapping and keeps it. The two paths must agree.
+    let (intermediate, input_sm) = mapping_after_statement_inputs();
+
+    // Baseline: the generated map has both statements before composition.
+    let plain =
+        instrument(&intermediate, "intermediate.js", &InstrumentOptions::default()).unwrap();
+    assert_eq!(plain.coverage_map.statement_map.len(), 2, "two statements pre-composition");
+
+    let eager = instrument(
+        &intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm.clone()),
+            compose_input_source_map: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+
+    let deferred = remap_coverage_with_options(
+        &plain_with_map(&intermediate, &input_sm),
+        RemapOptions { drop_unmapped: true },
+    )
+    .expect("deferred drop remap succeeds");
+
+    // The deferred path keeps both statements (line-2 resolves via LUB), and the
+    // eager path must now keep them too: 2, not the pre-fix 1.
+    assert_eq!(
+        deferred.statement_map.len(),
+        2,
+        "deferred drop_unmapped keeps both statements (line-2 resolves via getMapping LUB)"
+    );
+    assert_eq!(
+        eager.coverage_map.statement_map.len(),
+        2,
+        "eager compose keeps the col-0 statement whose line maps at col 2 (issue #122)"
+    );
+
+    // And the eager result is byte-identical to the deferred drop path, proving
+    // `remapCoverageMap` on the eager result is provably a no-op for this shape.
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map).unwrap(),
+        serde_json::to_value(&deferred).unwrap(),
+        "eager compose must equal instrument-then-remap with drop_unmapped"
+    );
+}
+
 /// Instrument `intermediate` with `input_sm` embedded but without eager compose,
 /// returning the `FileCoverage` that still carries its `inputSourceMap` so the
 /// lazy remap helpers can be exercised against it.

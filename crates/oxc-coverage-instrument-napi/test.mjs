@@ -709,6 +709,58 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] composeInputSourceMap keeps mapped branch runnable (issue #106 control)');
 }
 
+// Test 14f: composeInputSourceMap keeps entries whose generated position sits
+// just before their line's first mapping, matching dropUnmapped (issue #122).
+{
+  // The reporter's exact repro: two statements, line 2's statement starts at
+  // column 0 but that line's only mapping is at column 2. Eager compose used to
+  // drop the line-2 statement (greatest-lower-bound miss); the deferred
+  // dropUnmapped path keeps it (getMapping's least-upper-bound fallback). They
+  // must agree.
+  const generated = 'f();\ng();\n';
+  const inputSourceMap = JSON.stringify({
+    version: 3,
+    sources: ['orig.js'],
+    names: [],
+    mappings: 'AASA;EAUA', // gen 1:0 -> orig 10:0 ; gen 2:2 -> orig 20:0
+  });
+
+  const eager = JSON.parse(
+    instrument(generated, 'orig.js', {
+      inputSourceMap,
+      composeInputSourceMap: true,
+      coverageVariable: '__cov122e',
+    }).coverageMap,
+  );
+
+  const plain = JSON.parse(
+    instrument(generated, 'orig.js', {
+      inputSourceMap,
+      coverageVariable: '__cov122d',
+    }).coverageMap,
+  );
+  const deferred = JSON.parse(
+    remapCoverageMap(JSON.stringify({ [plain.path]: plain }), { dropUnmapped: true }),
+  )[plain.path];
+
+  assert.equal(
+    Object.keys(deferred.statementMap).length,
+    2,
+    'deferred dropUnmapped keeps both statements',
+  );
+  assert.equal(
+    Object.keys(eager.statementMap).length,
+    2,
+    'eager compose keeps the col-0 statement whose line maps at col 2 (issue #122)',
+  );
+  assert.deepEqual(
+    eager,
+    deferred,
+    'eager compose equals instrument-then-remap with dropUnmapped',
+  );
+  console.log('  [PASS] composeInputSourceMap keeps entries dropUnmapped keeps (issue #122)');
+}
+
 // Test 15: ignoreClassMethods drops fnMap entries for matching methods
 {
   const source = `

@@ -87,15 +87,35 @@ impl PositionRemapper {
         Some(Self { sm })
     }
 
-    /// Whether the istanbul position (`line` is 1-based, `column` is 0-based
-    /// UTF-16) remaps through the source map. Returns `true` for the `line == 0`
-    /// "unknown" sentinel, matching `try_remap_position` exactly.
+    /// Whether an istanbul `Location` survives `getMapping` resolution, i.e.
+    /// whether the deferred `remap_coverage_with_options(.., { drop_unmapped:
+    /// true })` path would KEEP this entry. The eager AST-level drop gate (issue
+    /// #106) consults this so a gated transform and the later no-drop compose
+    /// agree with the deferred prune (issue #105 / #111) by construction: both
+    /// ask `get_mapping_location`, so a span that resolves for one resolves for
+    /// the other. Issue #122: the previous per-position predicate resolved each
+    /// endpoint with a single greatest-lower-bound lookup, which dropped a point
+    /// whose generated column sat just before that line's first mapping even
+    /// though `getMapping`'s least-upper-bound fallback keeps it.
+    ///
+    /// Mirrors `try_remap_location` exactly, including the `line == 0`
+    /// "unknown" sentinel (routed to the legacy direct lookup, which keeps a
+    /// sentinel endpoint as a no-op), but without mutating the location: the gate
+    /// only needs the keep/drop decision; the position rewrite happens later in
+    /// the no-drop `remap_coverage` pass.
     #[must_use]
-    pub fn maps(&self, line: u32, column: u32) -> bool {
-        if line == 0 {
-            return true;
+    pub fn location_maps(&self, loc: &Location) -> bool {
+        if loc.start.line == 0 || loc.end.line == 0 {
+            return self.legacy_position_maps(&loc.start) && self.legacy_position_maps(&loc.end);
         }
-        self.sm.original_position_for(line - 1, column).is_some()
+        get_mapping_location(loc, &self.sm).is_some()
+    }
+
+    /// Non-mutating mirror of [`legacy_try_remap_position`]: `true` when the
+    /// istanbul position (1-based `line`, 0-based UTF-16 `column`) has a direct
+    /// greatest-lower-bound mapping, or when it is the `line == 0` sentinel.
+    fn legacy_position_maps(&self, pos: &Position) -> bool {
+        pos.line == 0 || self.sm.original_position_for(pos.line - 1, pos.column).is_some()
     }
 }
 

@@ -230,14 +230,15 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         }
     }
 
-    /// Whether both endpoints of an istanbul `Location` remap through the
-    /// eager-compose input source map. Returns `true` when no remapper is set
-    /// (the non-eager safety net), so gating is a strict no-op outside eager
-    /// mode.
+    /// Whether an istanbul `Location` survives `getMapping` resolution through
+    /// the eager-compose input source map, i.e. whether the deferred
+    /// `drop_unmapped` prune would keep it (issue #122: resolved per-span via
+    /// `getMapping`, not per-endpoint via a single greatest-lower-bound lookup,
+    /// so the eager gate matches the deferred path exactly). Returns `true` when
+    /// no remapper is set (the non-eager safety net), so gating is a strict
+    /// no-op outside eager mode.
     fn location_maps(&self, loc: &Location) -> bool {
-        self.eager_remapper.as_ref().is_none_or(|r| {
-            r.maps(loc.start.line, loc.start.column) && r.maps(loc.end.line, loc.end.column)
-        })
+        self.eager_remapper.as_ref().is_none_or(|r| r.location_maps(loc))
     }
 
     fn span_to_location(&self, span: Span) -> Location {
