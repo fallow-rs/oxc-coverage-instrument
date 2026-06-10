@@ -26,7 +26,6 @@ oxc_ast = "0.126"
 oxc_codegen = "0.126"
 oxc_parser = "0.126"
 oxc_semantic = "0.126"
-oxc_sourcemap = "7.0"
 oxc_span = "0.126"
 oxc_syntax = "0.126"
 oxc_transformer = "0.126"
@@ -45,6 +44,7 @@ srcmap-sourcemap = "=0.3.8"
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
 insta = { version = "1", features = ["json"] }
+oxc_sourcemap = "7.0"
 serde = { version = "1", features = ["derive"] }
 
 [[bench]]
