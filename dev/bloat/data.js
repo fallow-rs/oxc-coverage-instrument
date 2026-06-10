@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781076072682,
+  "lastUpdate": 1781076944133,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1246,6 +1246,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 86442032,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "466d517113e916bef7e10cb3b36e9d1bc1e836f3",
+          "message": "chore(deps): bump oxc_sourcemap to 7.0.0\n\n* chore(deps): bump oxc_sourcemap from 6.1.1 to 7.0.0 in the oxc group\n\nBumps the oxc group with 1 update: [oxc_sourcemap](https://github.com/oxc-project/oxc-sourcemap).\n\n\nUpdates `oxc_sourcemap` from 6.1.1 to 7.0.0\n- [Release notes](https://github.com/oxc-project/oxc-sourcemap/releases)\n- [Changelog](https://github.com/oxc-project/oxc-sourcemap/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc-sourcemap/compare/v6.1.1...v7.0.0)\n\n---\nupdated-dependencies:\n- dependency-name: oxc_sourcemap\n  dependency-version: 7.0.0\n  dependency-type: direct:production\n  update-type: version-update:semver-major\n  dependency-group: oxc\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\n\n* fix: adapt oxc sourcemap bump\n\n---------\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>\nCo-authored-by: Bart Waardenburg <bart@waardenburg.dev>",
+          "timestamp": "2026-06-10T09:33:09+02:00",
+          "tree_id": "401f81d834c25aed70caee8f72ef37d4ad7ca1fb",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/466d517113e916bef7e10cb3b36e9d1bc1e836f3"
+        },
+        "date": 1781076943223,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86443928,
             "unit": "bytes"
           }
         ]
