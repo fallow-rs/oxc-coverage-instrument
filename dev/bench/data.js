@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781076291157,
+  "lastUpdate": 1781077218062,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -6335,6 +6335,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 781232,
             "range": "± 3665",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "466d517113e916bef7e10cb3b36e9d1bc1e836f3",
+          "message": "chore(deps): bump oxc_sourcemap to 7.0.0\n\n* chore(deps): bump oxc_sourcemap from 6.1.1 to 7.0.0 in the oxc group\n\nBumps the oxc group with 1 update: [oxc_sourcemap](https://github.com/oxc-project/oxc-sourcemap).\n\n\nUpdates `oxc_sourcemap` from 6.1.1 to 7.0.0\n- [Release notes](https://github.com/oxc-project/oxc-sourcemap/releases)\n- [Changelog](https://github.com/oxc-project/oxc-sourcemap/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc-sourcemap/compare/v6.1.1...v7.0.0)\n\n---\nupdated-dependencies:\n- dependency-name: oxc_sourcemap\n  dependency-version: 7.0.0\n  dependency-type: direct:production\n  update-type: version-update:semver-major\n  dependency-group: oxc\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\n\n* fix: adapt oxc sourcemap bump\n\n---------\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>\nCo-authored-by: Bart Waardenburg <bart@waardenburg.dev>",
+          "timestamp": "2026-06-10T09:33:09+02:00",
+          "tree_id": "401f81d834c25aed70caee8f72ef37d4ad7ca1fb",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/466d517113e916bef7e10cb3b36e9d1bc1e836f3"
+        },
+        "date": 1781077217735,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 22622,
+            "range": "± 191",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 51615,
+            "range": "± 311",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 147158,
+            "range": "± 5341",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 312882,
+            "range": "± 6175",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 127644,
+            "range": "± 1051",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 525201,
+            "range": "± 4375",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 309549,
+            "range": "± 6918",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 462000,
+            "range": "± 2869",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 58098,
+            "range": "± 184",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 282998,
+            "range": "± 32020",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 558363,
+            "range": "± 3985",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2843598,
+            "range": "± 17565",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 41675,
+            "range": "± 824",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 37259,
+            "range": "± 243",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 514365,
+            "range": "± 4880",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 467171,
+            "range": "± 4216",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 195458,
+            "range": "± 1153",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 181806,
+            "range": "± 884",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 863471,
+            "range": "± 185856",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 779794,
+            "range": "± 3766",
             "unit": "ns/iter"
           }
         ]
