@@ -40,7 +40,7 @@ sha2 = "0.11"
 # Companion source map crates (fallow-rs/srcmap). Exact-pinned because srcmap is pre-1.0
 # and only the parse + composition APIs are stable; bump these explicitly.
 srcmap-remapping = "=0.3.7"
-srcmap-sourcemap = "=0.3.7"
+srcmap-sourcemap = "=0.3.8"
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
