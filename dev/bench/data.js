@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780652079743,
+  "lastUpdate": 1781076291157,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument benchmarks": [
@@ -6191,6 +6191,150 @@ window.BENCHMARK_DATA = {
             "name": "napi_path/cached/large_module",
             "value": 787088,
             "range": "± 5464",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "615671aefcf6ed639ab154540dbbed411dcdbe8e",
+          "message": "chore(deps): bump srcmap-sourcemap to 0.3.8\n\nBumps [srcmap-sourcemap](https://github.com/fallow-rs/srcmap) from 0.3.7 to 0.3.8.\n- [Release notes](https://github.com/fallow-rs/srcmap/releases)\n- [Changelog](https://github.com/fallow-rs/srcmap/blob/main/release.toml)\n- [Commits](https://github.com/fallow-rs/srcmap/compare/v0.3.7...v0.3.8)\n\n---\nupdated-dependencies:\n- dependency-name: srcmap-sourcemap\n  dependency-version: 0.3.8\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-10T09:18:45+02:00",
+          "tree_id": "fba936253182158227bcf01934f4b3ab2a4a786f",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/615671aefcf6ed639ab154540dbbed411dcdbe8e"
+        },
+        "date": 1781076290840,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "instrument/file/small_pragma",
+            "value": 21180,
+            "range": "± 395",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/small_while",
+            "value": 45327,
+            "range": "± 106",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_react",
+            "value": 122619,
+            "range": "± 454",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_app",
+            "value": 276578,
+            "range": "± 5733",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/medium_typescript",
+            "value": 97548,
+            "range": "± 3152",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instrument/file/large_module",
+            "value": 477884,
+            "range": "± 11643",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/without_source_map",
+            "value": 276985,
+            "range": "± 2039",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_map/with_source_map",
+            "value": 411831,
+            "range": "± 3357",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/10",
+            "value": 55877,
+            "range": "± 141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/50",
+            "value": 273451,
+            "range": "± 3113",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/100",
+            "value": 549623,
+            "range": "± 5562",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/functions/500",
+            "value": 2809739,
+            "range": "± 11786",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/small_pragma",
+            "value": 36418,
+            "range": "± 152",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/small_pragma",
+            "value": 32786,
+            "range": "± 85",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_app",
+            "value": 475232,
+            "range": "± 2945",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_app",
+            "value": 415592,
+            "range": "± 4489",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/medium_typescript",
+            "value": 160558,
+            "range": "± 1310",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/medium_typescript",
+            "value": 146753,
+            "range": "± 955",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/legacy/large_module",
+            "value": 863458,
+            "range": "± 3002",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "napi_path/cached/large_module",
+            "value": 781232,
+            "range": "± 3665",
             "unit": "ns/iter"
           }
         ]
