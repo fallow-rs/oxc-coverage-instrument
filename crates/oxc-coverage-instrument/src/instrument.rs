@@ -597,7 +597,7 @@ struct EmitInputs<'a, 'arena> {
     options: &'a InstrumentOptions,
 }
 
-fn emit_code(inputs: EmitInputs<'_, '_>) -> (String, Option<oxc_sourcemap::SourceMap>) {
+fn emit_code(inputs: EmitInputs<'_, '_>) -> (String, Option<String>) {
     let EmitInputs { program, scoping, source, filename, preamble, options } = inputs;
     let codegen_options = CodegenOptions {
         source_map_path: if options.source_map { Some(PathBuf::from(filename)) } else { None },
@@ -609,7 +609,7 @@ fn emit_code(inputs: EmitInputs<'_, '_>) -> (String, Option<oxc_sourcemap::Sourc
         .with_scoping(Some(scoping))
         .build(program);
     let code = format!("{preamble}{}", codegen_ret.code);
-    (code, codegen_ret.map)
+    (code, codegen_ret.map.map(|sm| sm.to_json_string()))
 }
 
 /// Offset the codegen source map by the preamble line count and, if an input
@@ -621,19 +621,18 @@ fn emit_code(inputs: EmitInputs<'_, '_>) -> (String, Option<oxc_sourcemap::Sourc
 /// most JS bundlers also follow). Line offsetting uses `srcmap-remapping`'s
 /// `ConcatBuilder`.
 fn finalize_source_map(
-    sm: &oxc_sourcemap::SourceMap,
+    output_json: &str,
     preamble: &str,
     input_source_map: Option<&str>,
 ) -> String {
     let preamble_lines =
         u32::try_from(preamble.chars().filter(|&c| c == '\n').count()).unwrap_or(u32::MAX);
 
-    // Bridge oxc_sourcemap → srcmap_sourcemap via JSON. Both crates emit the
-    // standard source map v3 format, so the round-trip is lossless. Bail out
-    // to the raw oxc serialization if the parse ever fails.
-    let output_json = sm.to_json_string();
-    let Ok(output_sm) = srcmap_sourcemap::SourceMap::from_json(&output_json) else {
-        return output_json;
+    // Bridge the codegen source map to srcmap_sourcemap via JSON. Both crates
+    // emit the standard source map v3 format, so the round-trip is lossless.
+    // Bail out to the raw serialization if the parse ever fails.
+    let Ok(output_sm) = srcmap_sourcemap::SourceMap::from_json(output_json) else {
+        return output_json.to_string();
     };
 
     let offset_sm = if preamble_lines > 0 {
