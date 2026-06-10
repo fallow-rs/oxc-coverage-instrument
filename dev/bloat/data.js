@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780651859247,
+  "lastUpdate": 1781076072682,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1217,6 +1217,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 86439848,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "615671aefcf6ed639ab154540dbbed411dcdbe8e",
+          "message": "chore(deps): bump srcmap-sourcemap to 0.3.8\n\nBumps [srcmap-sourcemap](https://github.com/fallow-rs/srcmap) from 0.3.7 to 0.3.8.\n- [Release notes](https://github.com/fallow-rs/srcmap/releases)\n- [Changelog](https://github.com/fallow-rs/srcmap/blob/main/release.toml)\n- [Commits](https://github.com/fallow-rs/srcmap/compare/v0.3.7...v0.3.8)\n\n---\nupdated-dependencies:\n- dependency-name: srcmap-sourcemap\n  dependency-version: 0.3.8\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-10T09:18:45+02:00",
+          "tree_id": "fba936253182158227bcf01934f4b3ab2a4a786f",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/615671aefcf6ed639ab154540dbbed411dcdbe8e"
+        },
+        "date": 1781076071750,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86442032,
             "unit": "bytes"
           }
         ]
