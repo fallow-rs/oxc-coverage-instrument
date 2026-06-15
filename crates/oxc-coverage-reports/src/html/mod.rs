@@ -212,7 +212,7 @@ fn render_node(input: RenderNodeInput<'_>) -> io::Result<()> {
                 output_dir.join(&node.relative_path)
             };
             fs::create_dir_all(&folder_dir)?;
-            let html = render_folder_index(node, children, ctx, depth);
+            let html = render_folder_index(FolderIndexInputs { node, children, ctx, depth });
             fs::write(folder_dir.join(INDEX_FILE), html)?;
 
             // Render children in parallel. The file branch is CPU-bound
@@ -260,12 +260,16 @@ fn child_depth_delta(_parent: &ReportNode, child: &ReportNode) -> usize {
 
 // -- Folder index page ------------------------------------------------------
 
-fn render_folder_index(
-    node: &ReportNode,
-    children: &[ReportNode],
-    ctx: &RenderContext,
+#[derive(Clone, Copy)]
+struct FolderIndexInputs<'a> {
+    node: &'a ReportNode,
+    children: &'a [ReportNode],
+    ctx: &'a RenderContext<'a>,
     depth: usize,
-) -> String {
+}
+
+fn render_folder_index(inputs: FolderIndexInputs<'_>) -> String {
+    let FolderIndexInputs { node, children, ctx, depth } = inputs;
     let title = if node.relative_path.is_empty() {
         "All files".to_owned()
     } else {
