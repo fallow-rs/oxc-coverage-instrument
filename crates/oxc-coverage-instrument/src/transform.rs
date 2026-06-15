@@ -2143,29 +2143,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         }
         use oxc_syntax::operator::AssignmentOperator;
 
-        // `o.foo = function(){}` / `o['bar'] = () => {}`: carry the property
-        // name into the inner Function/Arrow so `fnMap` entries pick up the
-        // assignment target instead of `(anonymous_N)`. Plain identifier
-        // targets (`x = function(){}`) reuse the existing `VariableDeclarator`
-        // hoist that already preserves Function.name via NamedEvaluation.
-        if matches!(expr.operator, AssignmentOperator::Assign)
-            && matches!(
-                expr.right,
-                Expression::FunctionExpression(_)
-                    | Expression::ArrowFunctionExpression(_)
-                    | Expression::ClassExpression(_)
-            )
-        {
-            self.pending_name = match &expr.left {
-                AssignmentTarget::StaticMemberExpression(member) => {
-                    Some(member.property.name.to_string())
-                }
-                AssignmentTarget::ComputedMemberExpression(member) => match &member.expression {
-                    Expression::StringLiteral(lit) => Some(lit.value.to_string()),
-                    _ => None,
-                },
-                _ => None,
-            };
+        if let AssignmentTargetName::Update(name) = assignment_target_name(expr) {
+            self.pending_name = name;
         }
 
         // Logical assignment operators: x ??= y, x ||= y, x &&= y
@@ -2211,6 +2190,40 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             );
         }
     }
+}
+
+enum AssignmentTargetName {
+    Unchanged,
+    Update(Option<String>),
+}
+
+fn assignment_target_name(expr: &AssignmentExpression<'_>) -> AssignmentTargetName {
+    use oxc_syntax::operator::AssignmentOperator;
+
+    // `o.foo = function(){}` / `o['bar'] = () => {}`: carry the property
+    // name into the inner Function/Arrow so `fnMap` entries pick up the
+    // assignment target instead of `(anonymous_N)`. Plain identifier
+    // targets (`x = function(){}`) reuse the existing `VariableDeclarator`
+    // hoist that already preserves Function.name via NamedEvaluation.
+    if !matches!(expr.operator, AssignmentOperator::Assign)
+        || !matches!(
+            expr.right,
+            Expression::FunctionExpression(_)
+                | Expression::ArrowFunctionExpression(_)
+                | Expression::ClassExpression(_)
+        )
+    {
+        return AssignmentTargetName::Unchanged;
+    }
+
+    AssignmentTargetName::Update(match &expr.left {
+        AssignmentTarget::StaticMemberExpression(member) => Some(member.property.name.to_string()),
+        AssignmentTarget::ComputedMemberExpression(member) => match &member.expression {
+            Expression::StringLiteral(lit) => Some(lit.value.to_string()),
+            _ => None,
+        },
+        _ => None,
+    })
 }
 
 /// Inject a branch counter into a statement, wrapping in a block if necessary.
