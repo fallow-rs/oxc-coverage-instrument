@@ -34,6 +34,32 @@ struct InstrumentArgs {
     coverage_variable: String,
 }
 
+impl InstrumentArgs {
+    fn new(filename: String) -> Self {
+        Self {
+            filename,
+            output_file: None,
+            coverage_map_only: false,
+            source_map: false,
+            coverage_variable: "__coverage__".to_string(),
+        }
+    }
+
+    fn set_output_arg(&mut self, args: &[String], i: &mut usize) -> Result<(), ExitCode> {
+        self.output_file = Some(take_value(args, i, "--output")?);
+        Ok(())
+    }
+
+    fn set_coverage_variable_arg(
+        &mut self,
+        args: &[String],
+        i: &mut usize,
+    ) -> Result<(), ExitCode> {
+        self.coverage_variable = take_value(args, i, "--coverage-variable")?;
+        Ok(())
+    }
+}
+
 struct ReportArgs {
     coverage_file: String,
     output_file: Option<String>,
@@ -290,24 +316,15 @@ fn instrument_filename(args: &[String]) -> Result<String, ExitCode> {
 
 fn parse_instrument_args(args: &[String]) -> Result<InstrumentArgs, ExitCode> {
     let filename = instrument_filename(args)?;
-
-    let mut cli = InstrumentArgs {
-        filename,
-        output_file: None,
-        coverage_map_only: false,
-        source_map: false,
-        coverage_variable: "__coverage__".to_string(),
-    };
+    let mut cli = InstrumentArgs::new(filename);
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "-o" | "--output" => cli.output_file = Some(take_value(args, &mut i, "--output")?),
+            "-o" | "--output" => cli.set_output_arg(args, &mut i)?,
             "--coverage-map" => cli.coverage_map_only = true,
             "--source-map" => cli.source_map = true,
-            "--coverage-variable" => {
-                cli.coverage_variable = take_value(args, &mut i, "--coverage-variable")?;
-            }
+            "--coverage-variable" => cli.set_coverage_variable_arg(args, &mut i)?,
             "--version" | "-V" => {
                 print_version();
                 return Err(ExitCode::SUCCESS);
