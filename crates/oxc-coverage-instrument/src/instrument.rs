@@ -304,8 +304,14 @@ pub fn instrument(
 
     let (coverage_json, preamble) = build_instrument_preamble(&coverage_map, options, &cov_fn_name);
 
-    let (code, source_map) =
-        emit_instrument_output(&parsed.program, scoping, source, filename, &preamble, options);
+    let (code, source_map) = emit_instrument_output(EmitInputs {
+        program: &parsed.program,
+        scoping,
+        source,
+        filename,
+        preamble: &preamble,
+        options,
+    });
 
     Ok(InstrumentResult {
         code,
@@ -323,16 +329,10 @@ fn validate_coverage_variable(options: &InstrumentOptions) -> Result<(), Instrum
     Err(InstrumentError::InvalidCoverageVariable(options.coverage_variable.clone()))
 }
 
-fn emit_instrument_output(
-    program: &Program<'_>,
-    scoping: Scoping,
-    source: &str,
-    filename: &str,
-    preamble: &str,
-    options: &InstrumentOptions,
-) -> (String, Option<String>) {
-    let (code, raw_source_map) =
-        emit_code(EmitInputs { program, scoping, source, filename, preamble, options });
+fn emit_instrument_output(inputs: EmitInputs<'_, '_>) -> (String, Option<String>) {
+    let preamble = inputs.preamble;
+    let options = inputs.options;
+    let (code, raw_source_map) = emit_code(inputs);
     let source_map = finalize_emitted_source_map(raw_source_map.as_ref(), preamble, options);
     (code, source_map)
 }
