@@ -1363,12 +1363,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
     ) {
         let parent_ignored = self.in_ignored_subtree();
         let key_span = method.key.span();
-        let is_private = matches!(method.key, PropertyKey::PrivateIdentifier(_));
-        let ignore_by_pragma = !is_private
-            && (ctx.state.pragmas.get(method.span.start) == Some(IgnoreType::Next)
-                || ctx.state.pragmas.get(key_span.start) == Some(IgnoreType::Next)
-                || self.skip_next);
-        if ignore_by_pragma {
+        if method_ignored_by_pragma(method, key_span, ctx, self.skip_next) {
             self.ignored_prop_stack.push(true);
             self.skip_next = false;
             return;
@@ -1392,12 +1387,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             }
             return;
         }
-        let label = match method.kind {
-            MethodDefinitionKind::Get => format!("get {name}"),
-            MethodDefinitionKind::Set => format!("set {name}"),
-            MethodDefinitionKind::Method | MethodDefinitionKind::Constructor => name,
-        };
-        self.pending_name = Some(label);
+        self.pending_name = Some(method_label(method.kind, name));
         // `decl` for a method is the method key's span (e.g. `bar` in
         // `class C { bar(x) {} }`). Matches the rule we apply for named
         // function declarations — see `fn_decl_span_matches_istanbul`.
@@ -2214,6 +2204,26 @@ fn declarator_function_name(decl: &VariableDeclarator<'_>) -> Option<String> {
         return Some(id.name.to_string());
     }
     None
+}
+
+fn method_ignored_by_pragma(
+    method: &MethodDefinition<'_>,
+    key_span: Span,
+    ctx: &TraverseCtx<'_, CoverageState>,
+    skip_next: bool,
+) -> bool {
+    !matches!(method.key, PropertyKey::PrivateIdentifier(_))
+        && (ctx.state.pragmas.get(method.span.start) == Some(IgnoreType::Next)
+            || ctx.state.pragmas.get(key_span.start) == Some(IgnoreType::Next)
+            || skip_next)
+}
+
+fn method_label(kind: MethodDefinitionKind, name: String) -> String {
+    match kind {
+        MethodDefinitionKind::Get => format!("get {name}"),
+        MethodDefinitionKind::Set => format!("set {name}"),
+        MethodDefinitionKind::Method | MethodDefinitionKind::Constructor => name,
+    }
 }
 
 fn build_class_field_counter<'a>(
