@@ -304,17 +304,15 @@ pub fn instrument(
 
     let cov_fn_name = generate_cov_fn_name(filename);
 
-    let mut transform = CoverageTransform::new(TransformInit {
-        allocator: &allocator,
+    let (transform, scoping) = run_coverage_transform(
+        &allocator,
+        &mut parsed.program,
+        scoping,
+        pragmas,
         source,
-        cov_fn_name: &cov_fn_name,
-        report_logic: options.report_logic,
-        track_optional_chain: options.track_optional_chain,
-        ignore_class_methods: options.ignore_class_methods.clone(),
-        eager_remapper: eager_remapper(options),
-    });
-    let state = CoverageState { pragmas };
-    let scoping = traverse_mut(&mut transform, &allocator, &mut parsed.program, scoping, state);
+        &cov_fn_name,
+        options,
+    );
 
     let coverage_map = finalize_coverage_map(filename, transform, options);
 
@@ -337,6 +335,29 @@ pub fn instrument(
         source_map,
         unhandled_pragmas,
     })
+}
+
+fn run_coverage_transform<'src, 'arena>(
+    allocator: &'arena Allocator,
+    program: &mut Program<'arena>,
+    scoping: Scoping,
+    pragmas: PragmaMap,
+    source: &'src str,
+    cov_fn_name: &'src str,
+    options: &InstrumentOptions,
+) -> (CoverageTransform<'src, 'arena>, Scoping) {
+    let mut transform = CoverageTransform::new(TransformInit {
+        allocator,
+        source,
+        cov_fn_name,
+        report_logic: options.report_logic,
+        track_optional_chain: options.track_optional_chain,
+        ignore_class_methods: options.ignore_class_methods.clone(),
+        eager_remapper: eager_remapper(options),
+    });
+    let state = CoverageState { pragmas };
+    let scoping = traverse_mut(&mut transform, allocator, program, scoping, state);
+    (transform, scoping)
 }
 
 fn build_instrument_preamble(
