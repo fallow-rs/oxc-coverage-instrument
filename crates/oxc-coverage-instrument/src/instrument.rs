@@ -290,18 +290,7 @@ pub fn instrument(
         return Ok(empty_coverage_result(filename, source, unhandled_pragmas));
     }
 
-    let mut scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
-
-    if options.strip_typescript {
-        scoping = strip_typescript_pass(
-            &allocator,
-            filename,
-            &mut parsed.program,
-            scoping,
-            options.decorator_mode,
-        )?;
-    }
-
+    let scoping = prepare_scoping(&allocator, filename, &mut parsed.program, options)?;
     let cov_fn_name = generate_cov_fn_name(filename);
 
     let (transform, scoping) = run_coverage_transform(
@@ -335,6 +324,19 @@ pub fn instrument(
         source_map,
         unhandled_pragmas,
     })
+}
+
+fn prepare_scoping<'a>(
+    allocator: &'a Allocator,
+    filename: &str,
+    program: &mut Program<'a>,
+    options: &InstrumentOptions,
+) -> Result<Scoping, InstrumentError> {
+    let scoping = SemanticBuilder::new().build(program).semantic.into_scoping();
+    if !options.strip_typescript {
+        return Ok(scoping);
+    }
+    strip_typescript_pass(allocator, filename, program, scoping, options.decorator_mode)
 }
 
 fn run_coverage_transform<'src, 'arena>(
