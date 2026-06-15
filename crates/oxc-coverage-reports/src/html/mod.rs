@@ -418,13 +418,13 @@ fn render_detail(
     body.push_str(
         "      <div class=\"detail-actions\">\n        <button type=\"button\" class=\"btn-ghost\" id=\"cov-next-uncovered\" aria-label=\"Jump to next uncovered line\" disabled>Next uncovered</button>\n      </div>\n",
     );
-    body.push_str(&render_detail_source(
+    body.push_str(&render_detail_source(DetailSourceInputs {
         source,
-        &coverage.path,
-        &line_hits,
-        &branched_lines,
-        &fn_lines,
-    ));
+        coverage_path: &coverage.path,
+        line_hits: &line_hits,
+        branched_lines: &branched_lines,
+        fn_lines: &fn_lines,
+    }));
     body.push_str("    </div>\n");
     body.push_str(
         "    <div class=\"copy-toast\" id=\"cov-copy-toast\" role=\"status\" aria-atomic=\"true\"></div>\n",
@@ -432,13 +432,16 @@ fn render_detail(
     render_page(&title, depth, &body)
 }
 
-fn render_detail_source(
+struct DetailSourceInputs<'a> {
     source: Result<String, MissingSource>,
-    coverage_path: &str,
-    line_hits: &BTreeMap<u32, u32>,
-    branched_lines: &BTreeMap<u32, BranchSummary>,
-    fn_lines: &BTreeMap<u32, u32>,
-) -> String {
+    coverage_path: &'a str,
+    line_hits: &'a BTreeMap<u32, u32>,
+    branched_lines: &'a BTreeMap<u32, BranchSummary>,
+    fn_lines: &'a BTreeMap<u32, u32>,
+}
+
+fn render_detail_source(inputs: DetailSourceInputs<'_>) -> String {
+    let DetailSourceInputs { source, coverage_path, line_hits, branched_lines, fn_lines } = inputs;
     let mut out = String::new();
     match source {
         Ok(text) => {
