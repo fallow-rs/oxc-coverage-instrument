@@ -526,7 +526,7 @@ fn render_source_row(row: SourceRow<'_>) -> String {
         ""
     };
     let glyph = severity_glyph(class);
-    let aria = row_aria_label(line_no, class, branch, fn_hits);
+    let aria = row_aria_label(RowAriaInput { line_no, class, branch, fn_hits });
     let branch_note = render_branch_note(branch);
     format!(
         "          <tr class=\"line {class}\" id=\"L{line_no}\" aria-label=\"{aria}\">\
@@ -570,12 +570,16 @@ fn severity_glyph(class: &str) -> &'static str {
 /// raw class tokens (`miss` etc.) that would otherwise leak into AT
 /// output. Returned values are safe to drop into an HTML attribute
 /// because they are bounded to known phrases.
-fn row_aria_label(
+#[derive(Clone, Copy)]
+struct RowAriaInput<'a> {
     line_no: u32,
-    class: &str,
-    branch: Option<&BranchSummary>,
+    class: &'a str,
+    branch: Option<&'a BranchSummary>,
     fn_hits: Option<u32>,
-) -> String {
+}
+
+fn row_aria_label(input: RowAriaInput<'_>) -> String {
+    let RowAriaInput { line_no, class, branch, fn_hits } = input;
     let phrase = match class {
         "hit" => "covered",
         "miss" => "not covered",
@@ -634,7 +638,8 @@ fn render_source_unavailable(line_hits: &BTreeMap<u32, u32>) -> String {
     for (line, hits) in line_hits {
         let class = if *hits == 0 { "miss" } else { "hit" };
         let glyph = severity_glyph(class);
-        let aria = row_aria_label(*line, class, None, None);
+        let aria =
+            row_aria_label(RowAriaInput { line_no: *line, class, branch: None, fn_hits: None });
         let _ = writeln!(
             out,
             "          <tr class=\"line {class}\" id=\"L{line}\" aria-label=\"{aria}\">\
