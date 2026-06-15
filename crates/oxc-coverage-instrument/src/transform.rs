@@ -307,6 +307,16 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         Some(id_num)
     }
 
+    fn try_hoist_named_initializer_counter(&mut self, init_span: Span, hoist_target_start: u32) {
+        if let Some(stmt_id) = self.add_statement(init_span) {
+            self.pending_stmts.push(PendingInsertion {
+                target_start: hoist_target_start,
+                counter_id: stmt_id,
+                counter_type: CounterType::Statement,
+            });
+        }
+    }
+
     /// Register a branch umbrella entry. In eager mode returns `None` when the
     /// umbrella `loc` start/end fails to remap (mirrors the `prune_branches`
     /// outer-loc rule); nothing is pushed and the caller must skip all of this
@@ -1290,14 +1300,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         if is_named_initializer
             && let Some(hoist_target_start) = enclosing_var_decl_hoist_target(ctx)
         {
-            // Eager gate: skip the hoisted counter if the init does not remap.
-            if let Some(stmt_id) = self.add_statement(init_span) {
-                self.pending_stmts.push(PendingInsertion {
-                    target_start: hoist_target_start,
-                    counter_id: stmt_id,
-                    counter_type: CounterType::Statement,
-                });
-            }
+            self.try_hoist_named_initializer_counter(init_span, hoist_target_start);
             return;
         }
 
