@@ -287,7 +287,12 @@ pub fn instrument(
         return Ok(empty_coverage_result(filename, source, unhandled_pragmas));
     }
 
-    let scoping = prepare_scoping(&allocator, filename, &mut parsed.program, options)?;
+    let scoping = prepare_scoping(PrepareScopingInput {
+        allocator: &allocator,
+        filename,
+        program: &mut parsed.program,
+        options,
+    })?;
     let cov_fn_name = generate_cov_fn_name(filename);
 
     let (transform, scoping) = run_coverage_transform(CoverageTransformRun {
@@ -337,12 +342,15 @@ fn emit_instrument_output(inputs: EmitInputs<'_, '_>) -> (String, Option<String>
     (code, source_map)
 }
 
-fn prepare_scoping<'a>(
-    allocator: &'a Allocator,
-    filename: &str,
-    program: &mut Program<'a>,
-    options: &InstrumentOptions,
-) -> Result<Scoping, InstrumentError> {
+struct PrepareScopingInput<'arena, 'a> {
+    allocator: &'arena Allocator,
+    filename: &'a str,
+    program: &'a mut Program<'arena>,
+    options: &'a InstrumentOptions,
+}
+
+fn prepare_scoping(input: PrepareScopingInput<'_, '_>) -> Result<Scoping, InstrumentError> {
+    let PrepareScopingInput { allocator, filename, program, options } = input;
     let scoping = SemanticBuilder::new().build(program).semantic.into_scoping();
     if !options.strip_typescript {
         return Ok(scoping);
