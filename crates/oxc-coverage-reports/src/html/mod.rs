@@ -372,23 +372,27 @@ fn render_summary_row(child: &ReportNode, threshold: f64) -> String {
         ("Lines", child.summary.lines),
     ];
     for (idx, (label, metric)) in metrics.iter().enumerate() {
-        out.push_str(&render_summary_metric_cell(
+        out.push_str(&render_summary_metric_cell(SummaryMetricCell {
             label,
-            *metric,
+            metric: *metric,
             threshold,
-            idx == metrics.len() - 1,
-        ));
+            include_meter: idx == metrics.len() - 1,
+        }));
     }
     out.push_str("          </tr>\n");
     out
 }
 
-fn render_summary_metric_cell(
-    label: &str,
+#[derive(Clone, Copy)]
+struct SummaryMetricCell<'a> {
+    label: &'a str,
     metric: Metric,
     threshold: f64,
     include_meter: bool,
-) -> String {
+}
+
+fn render_summary_metric_cell(input: SummaryMetricCell<'_>) -> String {
+    let SummaryMetricCell { label, metric, threshold, include_meter } = input;
     let mc = pct_class(metric.pct, threshold);
     let meter = if include_meter {
         let pct = metric.pct.clamp(0.0, 100.0);
