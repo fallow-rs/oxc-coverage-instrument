@@ -136,7 +136,7 @@ pub fn write(
     fs::write(output_dir.join("base.js"), BASE_JS)?;
 
     let ctx = RenderContext { root_dir, options };
-    render_node(&root, &ctx, output_dir, 0)?;
+    render_node(RenderNodeInput { node: &root, ctx: &ctx, output_dir, depth: 0 })?;
     Ok(())
 }
 
@@ -193,12 +193,16 @@ struct RenderContext<'a> {
     options: &'a HtmlOptions,
 }
 
-fn render_node(
-    node: &ReportNode,
-    ctx: &RenderContext,
-    output_dir: &Path,
+#[derive(Clone, Copy)]
+struct RenderNodeInput<'a> {
+    node: &'a ReportNode,
+    ctx: &'a RenderContext<'a>,
+    output_dir: &'a Path,
     depth: usize,
-) -> io::Result<()> {
+}
+
+fn render_node(input: RenderNodeInput<'_>) -> io::Result<()> {
+    let RenderNodeInput { node, ctx, output_dir, depth } = input;
     match &node.kind {
         NodeKind::Folder { children } => {
             // Folder pages live at `<output_dir>/<node.relative_path>/index.html`.
@@ -218,7 +222,12 @@ fn render_node(
             children
                 .par_iter()
                 .map(|child| {
-                    render_node(child, ctx, output_dir, depth + child_depth_delta(node, child))
+                    render_node(RenderNodeInput {
+                        node: child,
+                        ctx,
+                        output_dir,
+                        depth: depth + child_depth_delta(node, child),
+                    })
                 })
                 .collect::<io::Result<Vec<_>>>()?;
         }
