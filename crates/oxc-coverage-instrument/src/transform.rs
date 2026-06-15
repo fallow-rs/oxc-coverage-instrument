@@ -984,6 +984,16 @@ fn is_parent_logical(ctx: &TraverseCtx<'_, CoverageState>) -> bool {
     false
 }
 
+fn logical_expression_ignored(
+    expr: &LogicalExpression,
+    ctx: &TraverseCtx<'_, CoverageState>,
+    parent_ignored: bool,
+) -> bool {
+    parent_ignored
+        || ctx.state.pragmas.get(expr.span.start) == Some(IgnoreType::Next)
+        || is_synthetic_span(expr.span)
+}
+
 /// Collect all leaf operand spans from a chained logical expression.
 /// For `a && b || c`, returns spans of [a, b, c]. Also flattens through
 /// `ParenthesizedExpression` nodes so `a && (b || c)` is treated as one
@@ -1895,10 +1905,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         expr: &mut LogicalExpression<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        if self.in_ignored_subtree()
-            || ctx.state.pragmas.get(expr.span.start) == Some(IgnoreType::Next)
-            || is_synthetic_span(expr.span)
-        {
+        if logical_expression_ignored(expr, ctx, self.in_ignored_subtree()) {
             return;
         }
         match expr.operator {
