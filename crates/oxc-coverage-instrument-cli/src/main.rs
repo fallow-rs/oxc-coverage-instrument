@@ -93,6 +93,45 @@ impl ReportArgsDraft {
         Ok(())
     }
 
+    fn set_format_arg(&mut self, args: &[String], i: &mut usize) -> Result<(), ExitCode> {
+        let value = take_value(args, i, "--format")?;
+        self.set_format(&value)
+    }
+
+    fn set_output_arg(&mut self, args: &[String], i: &mut usize) -> Result<(), ExitCode> {
+        self.output_file = Some(take_value(args, i, "--output")?);
+        Ok(())
+    }
+
+    fn set_output_dir_arg(&mut self, args: &[String], i: &mut usize) -> Result<(), ExitCode> {
+        self.output_dir = Some(PathBuf::from(take_value(args, i, "--output-dir")?));
+        Ok(())
+    }
+
+    fn set_root_arg(&mut self, args: &[String], i: &mut usize) -> Result<(), ExitCode> {
+        self.root_dir = Some(PathBuf::from(take_value(args, i, "--root")?));
+        Ok(())
+    }
+
+    fn set_threshold_arg(&mut self, args: &[String], i: &mut usize) -> Result<(), ExitCode> {
+        let value = take_value(args, i, "--threshold")?;
+        self.set_threshold(&value)
+    }
+
+    fn set_fail_under_arg(&mut self, args: &[String], i: &mut usize) -> Result<(), ExitCode> {
+        let value = take_value(args, i, "--fail-under")?;
+        self.set_fail_under(&value)
+    }
+
+    fn set_coverage_file_arg(&mut self, value: &str) -> Result<(), ExitCode> {
+        if self.coverage_file.is_some() {
+            eprintln!("error: only one coverage file may be supplied (got '{value}')");
+            return Err(ExitCode::FAILURE);
+        }
+        self.coverage_file = Some(value.to_owned());
+        Ok(())
+    }
+
     fn set_threshold(&mut self, value: &str) -> Result<(), ExitCode> {
         let parsed = value.parse::<f64>().map_err(|_| {
             eprintln!("error: --threshold must be a number between 0 and 100, got '{value}'");
@@ -295,23 +334,12 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--format" | "-f" => {
-                let value = take_value(args, &mut i, "--format")?;
-                report.set_format(&value)?;
-            }
-            "-o" | "--output" => report.output_file = Some(take_value(args, &mut i, "--output")?),
-            "--output-dir" => {
-                report.output_dir = Some(PathBuf::from(take_value(args, &mut i, "--output-dir")?));
-            }
-            "--root" => report.root_dir = Some(PathBuf::from(take_value(args, &mut i, "--root")?)),
-            "--threshold" => {
-                let value = take_value(args, &mut i, "--threshold")?;
-                report.set_threshold(&value)?;
-            }
-            "--fail-under" => {
-                let value = take_value(args, &mut i, "--fail-under")?;
-                report.set_fail_under(&value)?;
-            }
+            "--format" | "-f" => report.set_format_arg(args, &mut i)?,
+            "-o" | "--output" => report.set_output_arg(args, &mut i)?,
+            "--output-dir" => report.set_output_dir_arg(args, &mut i)?,
+            "--root" => report.set_root_arg(args, &mut i)?,
+            "--threshold" => report.set_threshold_arg(args, &mut i)?,
+            "--fail-under" => report.set_fail_under_arg(args, &mut i)?,
             "--help" | "-h" => {
                 print_report_usage();
                 return Err(ExitCode::SUCCESS);
@@ -321,13 +349,7 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
                 print_report_usage();
                 return Err(ExitCode::FAILURE);
             }
-            other => {
-                if report.coverage_file.is_some() {
-                    eprintln!("error: only one coverage file may be supplied (got '{other}')");
-                    return Err(ExitCode::FAILURE);
-                }
-                report.coverage_file = Some(other.to_owned());
-            }
+            other => report.set_coverage_file_arg(other)?,
         }
         i += 1;
     }
