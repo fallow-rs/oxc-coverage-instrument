@@ -318,21 +318,7 @@ pub fn instrument(
 
     let coverage_map = finalize_coverage_map(filename, transform, options);
 
-    // Serialize the coverage map once and reuse it for both the hash guard and
-    // the preamble's coverageData literal. Istanbul refreshes stale coverage
-    // objects when the same path is reinstrumented with a different shape, and
-    // the hash is computed over the same JSON we embed in the preamble.
-    let coverage_json = serialize_coverage_map(&coverage_map);
-    let coverage_hash = djb31_hex(&coverage_json);
-
-    let preamble = generate_preamble_source(&PreambleInputs {
-        coverage: &coverage_map,
-        coverage_json: &coverage_json,
-        coverage_hash: &coverage_hash,
-        coverage_var: &options.coverage_variable,
-        cov_fn_name: &cov_fn_name,
-        report_logic: options.report_logic,
-    });
+    let (coverage_json, preamble) = build_instrument_preamble(&coverage_map, options, &cov_fn_name);
 
     let (code, raw_source_map) = emit_code(EmitInputs {
         program: &parsed.program,
@@ -342,9 +328,7 @@ pub fn instrument(
         preamble: &preamble,
         options,
     });
-    let source_map = raw_source_map
-        .as_ref()
-        .map(|sm| finalize_source_map(sm, &preamble, options.input_source_map.as_deref()));
+    let source_map = finalize_emitted_source_map(raw_source_map.as_ref(), &preamble, options);
 
     Ok(InstrumentResult {
         code,
@@ -353,6 +337,36 @@ pub fn instrument(
         source_map,
         unhandled_pragmas,
     })
+}
+
+fn build_instrument_preamble(
+    coverage_map: &FileCoverage,
+    options: &InstrumentOptions,
+    cov_fn_name: &str,
+) -> (String, String) {
+    // Serialize once and reuse it for both the hash guard and the coverageData
+    // literal. The hash is computed over the same JSON embedded in the preamble.
+    let coverage_json = serialize_coverage_map(coverage_map);
+    let coverage_hash = djb31_hex(&coverage_json);
+    let preamble = generate_preamble_source(&PreambleInputs {
+        coverage: coverage_map,
+        coverage_json: &coverage_json,
+        coverage_hash: &coverage_hash,
+        coverage_var: &options.coverage_variable,
+        cov_fn_name,
+        report_logic: options.report_logic,
+    });
+    (coverage_json, preamble)
+}
+
+fn finalize_emitted_source_map(
+    raw_source_map: Option<&String>,
+    preamble: &str,
+    options: &InstrumentOptions,
+) -> Option<String> {
+    raw_source_map
+        .as_ref()
+        .map(|sm| finalize_source_map(sm, preamble, options.input_source_map.as_deref()))
 }
 
 /// Run `oxc_transformer`'s TypeScript-strip pass on the parsed program in
