@@ -48,7 +48,7 @@
 mod highlight;
 
 use crate::escape::{html_attr, html_text};
-use oxc_coverage_report::{CoverageMap, CoverageSummary, NodeKind, ReportNode, summarize};
+use oxc_coverage_report::{CoverageMap, CoverageSummary, Metric, NodeKind, ReportNode, summarize};
 use oxc_coverage_source_maps::remap_coverage_map;
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry};
 use rayon::prelude::*;
@@ -353,26 +353,37 @@ fn render_summary_row(child: &ReportNode, threshold: f64) -> String {
         ("Lines", child.summary.lines),
     ];
     for (idx, (label, metric)) in metrics.iter().enumerate() {
-        let mc = pct_class(metric.pct, threshold);
-        // Mini coverage meter only on the Lines column (final column);
-        // duplicating it on every column would clutter the table.
-        let meter = if idx == metrics.len() - 1 {
-            let pct = metric.pct.clamp(0.0, 100.0);
-            format!(
-                "<span class=\"cov-meter cov-meter--{mc}\" role=\"meter\" aria-label=\"{label} coverage\" aria-valuenow=\"{val}\" aria-valuemin=\"0\" aria-valuemax=\"100\"><span class=\"cov-meter__fill\" style=\"width:{val}%\" aria-hidden=\"true\"></span></span>",
-                val = pct as u32,
-            )
-        } else {
-            String::new()
-        };
-        let _ = writeln!(
-            out,
-            "            <td class=\"pct {mc}\">{:.2}%<span class=\"quiet\"> ({}/{})</span>{meter}</td>",
-            metric.pct, metric.covered, metric.total,
-        );
+        out.push_str(&render_summary_metric_cell(
+            label,
+            *metric,
+            threshold,
+            idx == metrics.len() - 1,
+        ));
     }
     out.push_str("          </tr>\n");
     out
+}
+
+fn render_summary_metric_cell(
+    label: &str,
+    metric: Metric,
+    threshold: f64,
+    include_meter: bool,
+) -> String {
+    let mc = pct_class(metric.pct, threshold);
+    let meter = if include_meter {
+        let pct = metric.pct.clamp(0.0, 100.0);
+        format!(
+            "<span class=\"cov-meter cov-meter--{mc}\" role=\"meter\" aria-label=\"{label} coverage\" aria-valuenow=\"{val}\" aria-valuemin=\"0\" aria-valuemax=\"100\"><span class=\"cov-meter__fill\" style=\"width:{val}%\" aria-hidden=\"true\"></span></span>",
+            val = pct as u32,
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "            <td class=\"pct {mc}\">{:.2}%<span class=\"quiet\"> ({}/{})</span>{meter}</td>\n",
+        metric.pct, metric.covered, metric.total,
+    )
 }
 
 // -- File detail page -------------------------------------------------------
