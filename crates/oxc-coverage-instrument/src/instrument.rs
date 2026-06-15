@@ -307,15 +307,8 @@ pub fn instrument(
 
     let (coverage_json, preamble) = build_instrument_preamble(&coverage_map, options, &cov_fn_name);
 
-    let (code, raw_source_map) = emit_code(EmitInputs {
-        program: &parsed.program,
-        scoping,
-        source,
-        filename,
-        preamble: &preamble,
-        options,
-    });
-    let source_map = finalize_emitted_source_map(raw_source_map.as_ref(), &preamble, options);
+    let (code, source_map) =
+        emit_instrument_output(&parsed.program, scoping, source, filename, &preamble, options);
 
     Ok(InstrumentResult {
         code,
@@ -324,6 +317,20 @@ pub fn instrument(
         source_map,
         unhandled_pragmas,
     })
+}
+
+fn emit_instrument_output(
+    program: &Program<'_>,
+    scoping: Scoping,
+    source: &str,
+    filename: &str,
+    preamble: &str,
+    options: &InstrumentOptions,
+) -> (String, Option<String>) {
+    let (code, raw_source_map) =
+        emit_code(EmitInputs { program, scoping, source, filename, preamble, options });
+    let source_map = finalize_emitted_source_map(raw_source_map.as_ref(), preamble, options);
+    (code, source_map)
 }
 
 fn prepare_scoping<'a>(
