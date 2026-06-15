@@ -358,14 +358,7 @@ fn prune_branches(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap)
             return false;
         }
 
-        let mut kept_indices: Vec<usize> = Vec::new();
-        let mut kept_locations: Vec<Location> = Vec::new();
-        for (idx, arm) in branch_entry.locations.iter_mut().enumerate() {
-            if try_remap_location(arm, sm) {
-                kept_indices.push(idx);
-                kept_locations.push(arm.clone());
-            }
-        }
+        let (kept_indices, kept_locations) = surviving_branch_arms(branch_entry, sm);
         if kept_locations.is_empty() {
             dropped_branches.push(key.clone());
             return false;
@@ -386,6 +379,21 @@ fn prune_branches(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap)
     if let Some(b_t) = coverage.b_t.as_mut() {
         realign_arm_vec_map(b_t, &surviving_arms);
     }
+}
+
+fn surviving_branch_arms(
+    branch_entry: &mut oxc_coverage_types::BranchEntry,
+    sm: &srcmap_sourcemap::SourceMap,
+) -> (Vec<usize>, Vec<Location>) {
+    let mut kept_indices: Vec<usize> = Vec::new();
+    let mut kept_locations: Vec<Location> = Vec::new();
+    for (idx, arm) in branch_entry.locations.iter_mut().enumerate() {
+        if try_remap_location(arm, sm) {
+            kept_indices.push(idx);
+            kept_locations.push(arm.clone());
+        }
+    }
+    (kept_indices, kept_locations)
 }
 
 /// Project each surviving-arm hit-count vector down to the kept indices.
