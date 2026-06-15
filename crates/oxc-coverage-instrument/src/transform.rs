@@ -1078,13 +1078,17 @@ struct LogicalWrapState<'b> {
     path_idx: usize,
 }
 
+#[derive(Clone, Copy)]
+struct LogicalWrapConfig<'b> {
+    cov_fn_name: &'b str,
+    cov_fn_bt_name: Option<&'b str>,
+    branch_id: usize,
+    report_logic: bool,
+}
+
 impl<'b> LogicalWrapState<'b> {
-    fn new(
-        cov_fn_name: &'b str,
-        cov_fn_bt_name: Option<&'b str>,
-        branch_id: usize,
-        report_logic: bool,
-    ) -> Self {
+    fn new(config: LogicalWrapConfig<'b>) -> Self {
+        let LogicalWrapConfig { cov_fn_name, cov_fn_bt_name, branch_id, report_logic } = config;
         Self { cov_fn_name, cov_fn_bt_name, branch_id, report_logic, path_idx: 0 }
     }
 
@@ -1980,12 +1984,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                 }
 
                 // Wrap each leaf operand with its branch counter
-                let mut state = LogicalWrapState::new(
-                    self.cov_fn_name,
-                    self.cov_fn_bt_name,
+                let mut state = LogicalWrapState::new(LogicalWrapConfig {
+                    cov_fn_name: self.cov_fn_name,
+                    cov_fn_bt_name: self.cov_fn_bt_name,
                     branch_id,
-                    self.report_logic,
-                );
+                    report_logic: self.report_logic,
+                });
                 wrap_logical_leaves(expr, &mut state, ctx);
             }
         }
@@ -2087,7 +2091,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                 return;
             };
             if self.add_branch_path(branch_id, init_span).is_some() {
-                let state = LogicalWrapState::new(self.cov_fn_name, None, branch_id, false);
+                let state = LogicalWrapState::new(LogicalWrapConfig {
+                    cov_fn_name: self.cov_fn_name,
+                    cov_fn_bt_name: None,
+                    branch_id,
+                    report_logic: false,
+                });
                 wrap_expression_with_branch_counter(init, &state, ctx);
             }
         }
@@ -2160,7 +2169,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             return;
         };
         if self.add_branch_path(branch_id, right_span).is_some() {
-            let state = LogicalWrapState::new(self.cov_fn_name, None, branch_id, false);
+            let state = LogicalWrapState::new(LogicalWrapConfig {
+                cov_fn_name: self.cov_fn_name,
+                cov_fn_bt_name: None,
+                branch_id,
+                report_logic: false,
+            });
             wrap_expression_with_branch_counter(&mut pattern.right, &state, ctx);
         }
     }
