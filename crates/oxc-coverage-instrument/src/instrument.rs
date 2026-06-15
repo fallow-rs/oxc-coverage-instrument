@@ -290,15 +290,15 @@ pub fn instrument(
     let scoping = prepare_scoping(&allocator, filename, &mut parsed.program, options)?;
     let cov_fn_name = generate_cov_fn_name(filename);
 
-    let (transform, scoping) = run_coverage_transform(
-        &allocator,
-        &mut parsed.program,
+    let (transform, scoping) = run_coverage_transform(CoverageTransformRun {
+        allocator: &allocator,
+        program: &mut parsed.program,
         scoping,
         pragmas,
         source,
-        &cov_fn_name,
+        cov_fn_name: &cov_fn_name,
         options,
-    );
+    });
 
     let coverage_map = finalize_coverage_map(filename, transform, options);
 
@@ -350,15 +350,28 @@ fn prepare_scoping<'a>(
     strip_typescript_pass(allocator, filename, program, scoping, options.decorator_mode)
 }
 
-fn run_coverage_transform<'src, 'arena>(
+struct CoverageTransformRun<'src, 'arena, 'a> {
     allocator: &'arena Allocator,
-    program: &mut Program<'arena>,
+    program: &'a mut Program<'arena>,
     scoping: Scoping,
     pragmas: PragmaMap,
     source: &'src str,
     cov_fn_name: &'src str,
-    options: &InstrumentOptions,
+    options: &'a InstrumentOptions,
+}
+
+fn run_coverage_transform<'src, 'arena>(
+    input: CoverageTransformRun<'src, 'arena, '_>,
 ) -> (CoverageTransform<'src, 'arena>, Scoping) {
+    let CoverageTransformRun {
+        allocator,
+        program,
+        scoping,
+        pragmas,
+        source,
+        cov_fn_name,
+        options,
+    } = input;
     let mut transform = CoverageTransform::new(TransformInit {
         allocator,
         source,
