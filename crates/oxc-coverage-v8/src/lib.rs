@@ -211,18 +211,34 @@ fn apply_v8_coverage_inner(file_coverage: &mut FileCoverage, input: &CoverageInp
         wrapper_length: input.wrapper_length,
     };
 
+    apply_statement_counts(file_coverage, &context);
+    apply_function_counts(file_coverage, &context);
+    apply_branch_counts(file_coverage, input, &context);
+}
+
+fn apply_statement_counts(file_coverage: &mut FileCoverage, context: &CoverageContext<'_>) {
     for (id, loc) in &file_coverage.statement_map {
         let count = context.count_for_location(loc);
         if let Some(slot) = file_coverage.s.get_mut(id) {
             *slot = count;
         }
     }
+}
+
+fn apply_function_counts(file_coverage: &mut FileCoverage, context: &CoverageContext<'_>) {
     for (id, fn_entry) in &file_coverage.fn_map {
         let count = context.count_for_location(&fn_entry.loc);
         if let Some(slot) = file_coverage.f.get_mut(id) {
             *slot = count;
         }
     }
+}
+
+fn apply_branch_counts(
+    file_coverage: &mut FileCoverage,
+    input: &CoverageInput<'_>,
+    context: &CoverageContext<'_>,
+) {
     for (id, branch_entry) in &file_coverage.branch_map {
         let body_spans = input.arm_body_byte_spans.get(id);
         let arm_counts: Vec<u32> = branch_entry
