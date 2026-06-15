@@ -264,7 +264,13 @@ fn render_folder_index(
     };
     let threshold = ctx.options.green_threshold();
     let mut body = String::new();
-    body.push_str(&render_summary_header(&title, &node.summary, depth, node, threshold));
+    body.push_str(&render_summary_header(SummaryHeaderInputs {
+        title: &title,
+        summary: &node.summary,
+        depth,
+        node,
+        threshold,
+    }));
     body.push_str("    <div class=\"pad1\">\n");
     body.push_str(&render_threshold_summary(children, threshold));
     body.push_str(&render_filter_group(children.len()));
@@ -401,13 +407,13 @@ fn render_detail(
     let fn_lines = compute_fn_lines(coverage);
 
     let mut body = String::new();
-    body.push_str(&render_summary_header(
-        &title,
-        &node.summary,
+    body.push_str(&render_summary_header(SummaryHeaderInputs {
+        title: &title,
+        summary: &node.summary,
         depth,
         node,
-        ctx.options.green_threshold(),
-    ));
+        threshold: ctx.options.green_threshold(),
+    }));
     body.push_str("    <div class=\"pad1\">\n");
     body.push_str(
         "      <div class=\"detail-actions\">\n        <button type=\"button\" class=\"btn-ghost\" id=\"cov-next-uncovered\" aria-label=\"Jump to next uncovered line\" disabled>Next uncovered</button>\n      </div>\n",
@@ -648,13 +654,17 @@ fn render_page(title: &str, depth: usize, body: &str) -> String {
     out
 }
 
-fn render_summary_header(
-    title: &str,
-    summary: &CoverageSummary,
+#[derive(Clone, Copy)]
+struct SummaryHeaderInputs<'a> {
+    title: &'a str,
+    summary: &'a CoverageSummary,
     depth: usize,
-    node: &ReportNode,
+    node: &'a ReportNode,
     threshold: f64,
-) -> String {
+}
+
+fn render_summary_header(inputs: SummaryHeaderInputs<'_>) -> String {
+    let SummaryHeaderInputs { title, summary, depth, node, threshold } = inputs;
     let mut out = String::from("    <header class=\"summary\">\n");
     let _ = writeln!(out, "      <h1>{}</h1>", html_text(title));
     out.push_str(&render_breadcrumb(node, depth));
