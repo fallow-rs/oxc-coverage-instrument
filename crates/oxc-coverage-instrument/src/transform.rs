@@ -364,6 +364,15 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         Some(self.add_branch_path_location(branch_id, location, (span.start, span.end)))
     }
 
+    fn add_logical_leaf_paths(&mut self, branch_id: usize, leaf_spans: Vec<Span>) {
+        for span in leaf_spans {
+            // Bypass the per-arm gate deliberately: logical-leaf wrapping advances
+            // path_idx per leaf and expects the arm vec to match wrapped leaves.
+            let location = self.span_to_location(span);
+            self.add_branch_path_location(branch_id, location, (span.start, span.end));
+        }
+    }
+
     /// Record a branch arm whose istanbul-reported location and the underlying
     /// AST body span differ. Today this is only the if-arm 0 case (istanbul
     /// reports the whole `IfStatement`; the body is the consequent statement).
@@ -1898,12 +1907,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                 let Some(branch_id) = self.add_branch("binary-expr", expr.span) else {
                     return;
                 };
-                for span in leaf_spans {
-                    // Bypass the per-arm gate deliberately (see comment above):
-                    // register every leaf so arm count == wrapped-leaf count.
-                    let location = self.span_to_location(span);
-                    self.add_branch_path_location(branch_id, location, (span.start, span.end));
-                }
+                self.add_logical_leaf_paths(branch_id, leaf_spans);
 
                 if self.report_logic {
                     self.logical_branch_ids.push(branch_id);
