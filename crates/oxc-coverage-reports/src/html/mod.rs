@@ -401,33 +401,43 @@ fn render_detail(
     body.push_str(
         "      <div class=\"detail-actions\">\n        <button type=\"button\" class=\"btn-ghost\" id=\"cov-next-uncovered\" aria-label=\"Jump to next uncovered line\" disabled>Next uncovered</button>\n      </div>\n",
     );
-    match source {
-        Ok(text) => {
-            // Highlight up front so the per-line table render gets
-            // pre-escaped, span-wrapped HTML; this also keeps scope
-            // state consistent across multi-line strings/comments.
-            let highlighted = highlight::highlight_lines(&text, Path::new(&coverage.path));
-            body.push_str("      <table class=\"source\">\n");
-            body.push_str(&render_source_table(
-                &highlighted,
-                &line_hits,
-                &branched_lines,
-                &fn_lines,
-            ));
-            body.push_str("      </table>\n");
-        }
-        Err(missing) => {
-            body.push_str(&render_source_unavailable_notice(&missing));
-            body.push_str("      <table class=\"source\">\n");
-            body.push_str(&render_source_unavailable(&line_hits));
-            body.push_str("      </table>\n");
-        }
-    }
+    body.push_str(&render_detail_source(
+        source,
+        &coverage.path,
+        &line_hits,
+        &branched_lines,
+        &fn_lines,
+    ));
     body.push_str("    </div>\n");
     body.push_str(
         "    <div class=\"copy-toast\" id=\"cov-copy-toast\" role=\"status\" aria-atomic=\"true\"></div>\n",
     );
     render_page(&title, depth, &body)
+}
+
+fn render_detail_source(
+    source: Result<String, MissingSource>,
+    coverage_path: &str,
+    line_hits: &BTreeMap<u32, u32>,
+    branched_lines: &BTreeMap<u32, BranchSummary>,
+    fn_lines: &BTreeMap<u32, u32>,
+) -> String {
+    let mut out = String::new();
+    match source {
+        Ok(text) => {
+            let highlighted = highlight::highlight_lines(&text, Path::new(coverage_path));
+            out.push_str("      <table class=\"source\">\n");
+            out.push_str(&render_source_table(&highlighted, line_hits, branched_lines, fn_lines));
+            out.push_str("      </table>\n");
+        }
+        Err(missing) => {
+            out.push_str(&render_source_unavailable_notice(&missing));
+            out.push_str("      <table class=\"source\">\n");
+            out.push_str(&render_source_unavailable(line_hits));
+            out.push_str("      </table>\n");
+        }
+    }
+    out
 }
 
 fn render_source_table(
