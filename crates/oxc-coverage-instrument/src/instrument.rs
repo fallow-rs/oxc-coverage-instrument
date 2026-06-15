@@ -278,10 +278,7 @@ pub fn instrument(
     filename: &str,
     options: &InstrumentOptions,
 ) -> Result<InstrumentResult, InstrumentError> {
-    if !is_valid_js_identifier(&options.coverage_variable) {
-        return Err(InstrumentError::InvalidCoverageVariable(options.coverage_variable.clone()));
-    }
-
+    validate_coverage_variable(options)?;
     let allocator = Allocator::default();
     let mut parsed = parse_program(&allocator, source, filename)?;
 
@@ -317,6 +314,13 @@ pub fn instrument(
         source_map,
         unhandled_pragmas,
     })
+}
+
+fn validate_coverage_variable(options: &InstrumentOptions) -> Result<(), InstrumentError> {
+    if is_valid_js_identifier(&options.coverage_variable) {
+        return Ok(());
+    }
+    Err(InstrumentError::InvalidCoverageVariable(options.coverage_variable.clone()))
 }
 
 fn emit_instrument_output(
