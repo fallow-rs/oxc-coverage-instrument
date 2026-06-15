@@ -1249,25 +1249,13 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // counter wrap and any inner function counter. Set `skip_next` so the
         // inner arrow/function hook consumes it.
         if self.skip_current_var_decl {
-            if matches!(
-                decl.init,
-                Some(Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
-            ) {
-                self.skip_next = true;
-            }
+            mark_ignored_declarator_fn(decl, &mut self.skip_next);
             return;
         }
 
         // Set inherited name for function/arrow init so coverFunction can use it.
-        if let Some(id) = decl.id.get_binding_identifier()
-            && decl.init.as_ref().is_some_and(|init| {
-                matches!(
-                    init,
-                    Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
-                )
-            })
-        {
-            self.pending_name = Some(id.name.to_string());
+        if let Some(name) = declarator_function_name(decl) {
+            self.pending_name = Some(name);
         }
 
         // Per-declarator statement counter: wrap the init with (++cov.s[N], init).
@@ -2224,6 +2212,24 @@ fn assignment_target_name(expr: &AssignmentExpression<'_>) -> AssignmentTargetNa
         },
         _ => None,
     })
+}
+
+fn mark_ignored_declarator_fn(decl: &VariableDeclarator<'_>, skip_next: &mut bool) {
+    if matches!(
+        decl.init,
+        Some(Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
+    ) {
+        *skip_next = true;
+    }
+}
+
+fn declarator_function_name(decl: &VariableDeclarator<'_>) -> Option<String> {
+    let id = decl.id.get_binding_identifier()?;
+    let init = decl.init.as_ref()?;
+    if matches!(init, Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)) {
+        return Some(id.name.to_string());
+    }
+    None
 }
 
 /// Inject a branch counter into a statement, wrapping in a block if necessary.
