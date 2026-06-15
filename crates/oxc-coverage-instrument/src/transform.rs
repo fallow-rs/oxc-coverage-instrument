@@ -151,6 +151,12 @@ struct PendingInsertion {
     counter_type: CounterType,
 }
 
+struct ElseBranchInput<'arena, 'a> {
+    stmt: &'a mut IfStatement<'arena>,
+    branch_id: usize,
+    synthetic_anchor: u32,
+}
+
 #[derive(Clone, Copy)]
 enum CounterType {
     Statement,
@@ -464,11 +470,10 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
     // `start.line` access on an empty placeholder.
     fn inject_else_branch_counter(
         &mut self,
-        stmt: &mut IfStatement<'arena>,
-        branch_id: usize,
-        synthetic_anchor: u32,
+        input: ElseBranchInput<'arena, '_>,
         ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
+        let ElseBranchInput { stmt, branch_id, synthetic_anchor } = input;
         // Resolve the else arm's location span WITHOUT mutating the AST yet: a
         // real else uses its own span; a missing (or already zero-width
         // synthetic) else anchors at the consequent's end.
@@ -1746,7 +1751,14 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             );
         }
         if pragma != Some(IgnoreType::Else) {
-            self.inject_else_branch_counter(stmt, branch_id, consequent_body_span.end, ctx);
+            self.inject_else_branch_counter(
+                ElseBranchInput {
+                    stmt,
+                    branch_id,
+                    synthetic_anchor: consequent_body_span.end,
+                },
+                ctx,
+            );
         }
     }
 
