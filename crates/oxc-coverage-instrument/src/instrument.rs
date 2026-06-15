@@ -347,7 +347,13 @@ fn prepare_scoping<'a>(
     if !options.strip_typescript {
         return Ok(scoping);
     }
-    strip_typescript_pass(allocator, filename, program, scoping, options.decorator_mode)
+    strip_typescript_pass(StripTypescriptInput {
+        allocator,
+        filename,
+        program,
+        scoping,
+        decorator_mode: options.decorator_mode,
+    })
 }
 
 struct CoverageTransformRun<'src, 'arena, 'a> {
@@ -421,13 +427,16 @@ fn finalize_emitted_source_map(
 /// semantic state may change as type-only nodes are removed). Surviving nodes
 /// retain their original `Span` values, so positions still refer to the
 /// original TypeScript source offsets.
-fn strip_typescript_pass<'a>(
-    allocator: &'a Allocator,
-    filename: &str,
-    program: &mut Program<'a>,
+struct StripTypescriptInput<'arena, 'a> {
+    allocator: &'arena Allocator,
+    filename: &'a str,
+    program: &'a mut Program<'arena>,
     scoping: Scoping,
     decorator_mode: DecoratorMode,
-) -> Result<Scoping, InstrumentError> {
+}
+
+fn strip_typescript_pass(input: StripTypescriptInput<'_, '_>) -> Result<Scoping, InstrumentError> {
+    let StripTypescriptInput { allocator, filename, program, scoping, decorator_mode } = input;
     // `JsxOptions::default()` calls `JsxOptions::enable()`, which would
     // rewrite `<div>` to `React.createElement` / `_jsx` on `.tsx` input.
     // Strip-pass only removes type syntax; JSX must round-trip unchanged
