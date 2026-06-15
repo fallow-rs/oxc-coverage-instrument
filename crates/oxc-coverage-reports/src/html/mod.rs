@@ -464,7 +464,12 @@ fn render_detail_source(inputs: DetailSourceInputs<'_>) -> String {
         Ok(text) => {
             let highlighted = highlight::highlight_lines(&text, Path::new(coverage_path));
             out.push_str("      <table class=\"source\">\n");
-            out.push_str(&render_source_table(&highlighted, line_hits, branched_lines, fn_lines));
+            out.push_str(&render_source_table(SourceTableInputs {
+                lines: &highlighted,
+                line_hits,
+                branched: branched_lines,
+                fns: fn_lines,
+            }));
             out.push_str("      </table>\n");
         }
         Err(missing) => {
@@ -477,12 +482,16 @@ fn render_detail_source(inputs: DetailSourceInputs<'_>) -> String {
     out
 }
 
-fn render_source_table(
-    lines: &[String],
-    line_hits: &BTreeMap<u32, u32>,
-    branched: &BTreeMap<u32, BranchSummary>,
-    fns: &BTreeMap<u32, u32>,
-) -> String {
+#[derive(Clone, Copy)]
+struct SourceTableInputs<'a> {
+    lines: &'a [String],
+    line_hits: &'a BTreeMap<u32, u32>,
+    branched: &'a BTreeMap<u32, BranchSummary>,
+    fns: &'a BTreeMap<u32, u32>,
+}
+
+fn render_source_table(inputs: SourceTableInputs<'_>) -> String {
+    let SourceTableInputs { lines, line_hits, branched, fns } = inputs;
     let mut out = String::new();
     out.push_str("        <thead><tr><th class=\"line-num\">Line</th><th class=\"hits\">Hits</th><th class=\"src\">Source</th></tr></thead>\n        <tbody>\n");
     for (idx, line_html) in lines.iter().enumerate() {
