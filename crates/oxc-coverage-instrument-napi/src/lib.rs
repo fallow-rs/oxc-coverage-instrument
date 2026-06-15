@@ -281,29 +281,7 @@ pub fn instrument(
     filename: String,
     options: Option<InstrumentOptions>,
 ) -> napi::Result<InstrumentResult> {
-    let opts = match options {
-        None => oxc_coverage_instrument::InstrumentOptions::default(),
-        Some(o) => {
-            let experimental = o.experimental_decorators.unwrap_or(false);
-            let metadata = o.emit_decorator_metadata.unwrap_or(false);
-            let decorator_mode = decorator_mode_from_flags(experimental, metadata)?;
-            oxc_coverage_instrument::InstrumentOptions {
-                coverage_variable: o
-                    .coverage_variable
-                    .unwrap_or_else(|| "__coverage__".to_string()),
-                source_map: o.source_map.unwrap_or(false),
-                input_source_map: o.input_source_map,
-                compose_input_source_map: o.compose_input_source_map.unwrap_or(false),
-                report_logic: o.report_logic.unwrap_or(false),
-                track_optional_chain: o.track_optional_chain_branches.unwrap_or(true),
-                ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
-                strip_typescript: o.strip_typescript.unwrap_or(false),
-                decorator_mode,
-                function_identity_overlay: o.function_identity_overlay.unwrap_or(false),
-            }
-        }
-    };
-
+    let opts = native_instrument_options(options)?;
     let result = oxc_coverage_instrument::instrument(&source, &filename, &opts)
         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;
 
@@ -318,6 +296,30 @@ pub fn instrument(
         coverage_map: result.coverage_map_json,
         source_map: result.source_map,
         unhandled_pragmas,
+    })
+}
+
+fn native_instrument_options(
+    options: Option<InstrumentOptions>,
+) -> napi::Result<oxc_coverage_instrument::InstrumentOptions> {
+    let Some(o) = options else {
+        return Ok(oxc_coverage_instrument::InstrumentOptions::default());
+    };
+
+    let experimental = o.experimental_decorators.unwrap_or(false);
+    let metadata = o.emit_decorator_metadata.unwrap_or(false);
+    let decorator_mode = decorator_mode_from_flags(experimental, metadata)?;
+    Ok(oxc_coverage_instrument::InstrumentOptions {
+        coverage_variable: o.coverage_variable.unwrap_or_else(|| "__coverage__".to_string()),
+        source_map: o.source_map.unwrap_or(false),
+        input_source_map: o.input_source_map,
+        compose_input_source_map: o.compose_input_source_map.unwrap_or(false),
+        report_logic: o.report_logic.unwrap_or(false),
+        track_optional_chain: o.track_optional_chain_branches.unwrap_or(true),
+        ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
+        strip_typescript: o.strip_typescript.unwrap_or(false),
+        decorator_mode,
+        function_identity_overlay: o.function_identity_overlay.unwrap_or(false),
     })
 }
 
