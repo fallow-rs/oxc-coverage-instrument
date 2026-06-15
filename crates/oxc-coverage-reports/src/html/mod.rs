@@ -686,8 +686,16 @@ fn render_breadcrumb(node: &ReportNode, depth: usize) -> String {
         html_attr(&root_href),
     );
 
-    let parts: Vec<&str> = node.relative_path.split('/').collect();
+    out.push_str(&render_breadcrumb_items(&node.relative_path, depth));
+    out.push_str("        </ol>\n");
+    out.push_str("      </nav>\n");
+    out
+}
+
+fn render_breadcrumb_items(relative_path: &str, depth: usize) -> String {
+    let parts: Vec<&str> = relative_path.split('/').collect();
     let mut depth_remaining = depth;
+    let mut out = String::new();
     for (i, part) in parts.iter().enumerate() {
         let is_last = i + 1 == parts.len();
         if is_last {
@@ -707,8 +715,6 @@ fn render_breadcrumb(node: &ReportNode, depth: usize) -> String {
             );
         }
     }
-    out.push_str("        </ol>\n");
-    out.push_str("      </nav>\n");
     out
 }
 
