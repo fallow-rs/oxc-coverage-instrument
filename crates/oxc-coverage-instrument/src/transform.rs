@@ -1494,28 +1494,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             if let ClassElement::PropertyDefinition(prop) = &element
                 && let Some(hoist) = by_target.get(&prop.span.start)
             {
-                let counter = build_counter_expr(CounterKind::stmt(cov_fn, hoist.counter_id), ctx);
-                let key_name =
-                    alloc_str(&format!("__cov_{}_init_{}", cov_fn, hoist.counter_id), ctx);
-                let key =
-                    PropertyKey::StaticIdentifier(ctx.ast.alloc_identifier_name(SPAN, key_name));
-                let synthetic = ctx.ast.class_element_property_definition(
-                    SPAN,
-                    PropertyDefinitionType::PropertyDefinition,
-                    ctx.ast.vec(),
-                    key,
-                    None::<TSTypeAnnotation>,
-                    Some(counter),
-                    false,
-                    hoist.is_static,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    None,
-                );
-                body.body.push(synthetic);
+                body.body.push(build_class_field_counter(cov_fn, hoist, ctx));
             }
             body.body.push(element);
         }
@@ -2233,6 +2212,32 @@ fn declarator_function_name(decl: &VariableDeclarator<'_>) -> Option<String> {
         return Some(id.name.to_string());
     }
     None
+}
+
+fn build_class_field_counter<'a>(
+    cov_fn: &'a str,
+    hoist: &ClassFieldHoist,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) -> ClassElement<'a> {
+    let counter = build_counter_expr(CounterKind::stmt(cov_fn, hoist.counter_id), ctx);
+    let key_name = alloc_str(&format!("__cov_{}_init_{}", cov_fn, hoist.counter_id), ctx);
+    let key = PropertyKey::StaticIdentifier(ctx.ast.alloc_identifier_name(SPAN, key_name));
+    ctx.ast.class_element_property_definition(
+        SPAN,
+        PropertyDefinitionType::PropertyDefinition,
+        ctx.ast.vec(),
+        key,
+        None::<TSTypeAnnotation>,
+        Some(counter),
+        false,
+        hoist.is_static,
+        false,
+        false,
+        false,
+        false,
+        false,
+        None,
+    )
 }
 
 /// Inject a branch counter into a statement, wrapping in a block if necessary.
