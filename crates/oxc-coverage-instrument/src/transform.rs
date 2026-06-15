@@ -373,6 +373,22 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         }
     }
 
+    fn inject_conditional_arm_counter(
+        &mut self,
+        branch_id: usize,
+        arm: &mut Expression<'arena>,
+        ignored: bool,
+        ctx: &TraverseCtx<'arena, CoverageState>,
+    ) {
+        if ignored {
+            return;
+        }
+        let Some(path_idx) = self.add_branch_path(branch_id, arm.span()) else {
+            return;
+        };
+        prepend_counter(arm, CounterKind::branch(self.cov_fn_name, branch_id, path_idx), ctx);
+    }
+
     /// Record a branch arm whose istanbul-reported location and the underlying
     /// AST body span differ. Today this is only the if-arm 0 case (istanbul
     /// reports the whole `IfStatement`; the body is the consequent statement).
@@ -1740,24 +1756,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // arm drops just that location from the branch map (the other arm
         // still tracks coverage), so the branch entry survives with one
         // remaining location.
-        if !ignore_consequent
-            && let Some(path_idx) = self.add_branch_path(branch_id, expr.consequent.span())
-        {
-            prepend_counter(
-                &mut expr.consequent,
-                CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
-                ctx,
-            );
-        }
-        if !ignore_alternate
-            && let Some(path_idx) = self.add_branch_path(branch_id, expr.alternate.span())
-        {
-            prepend_counter(
-                &mut expr.alternate,
-                CounterKind::branch(self.cov_fn_name, branch_id, path_idx),
-                ctx,
-            );
-        }
+        self.inject_conditional_arm_counter(branch_id, &mut expr.consequent, ignore_consequent, ctx);
+        self.inject_conditional_arm_counter(branch_id, &mut expr.alternate, ignore_alternate, ctx);
     }
 
     fn enter_switch_statement(
