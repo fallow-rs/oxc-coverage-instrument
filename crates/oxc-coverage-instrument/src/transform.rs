@@ -317,6 +317,19 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         }
     }
 
+    fn try_hoist_named_property_initializer(&mut self, prop: &PropertyDefinition<'_>, span: Span) {
+        if let Some(name) = property_key_to_name(&prop.key, self.source) {
+            self.pending_name = Some(name);
+        }
+        if let Some(stmt_id) = self.add_statement(span) {
+            let target_start = prop.span.start;
+            let is_static = prop.r#static;
+            if let Some(top) = self.pending_class_field_hoists.last_mut() {
+                top.push(ClassFieldHoist { target_start, counter_id: stmt_id, is_static });
+            }
+        }
+    }
+
     /// Register a branch umbrella entry. In eager mode returns `None` when the
     /// umbrella `loc` start/end fails to remap (mirrors the `prune_branches`
     /// outer-loc rule); nothing is pushed and the caller must skip all of this
@@ -1440,18 +1453,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             // stays a bare function/class and NamedEvaluation can bind
             // `Function.name`. Set pending_name so `fnMap[N].name` also
             // reflects the property's source name.
-            if let Some(name) = property_key_to_name(&prop.key, self.source) {
-                self.pending_name = Some(name);
-            }
-            // Eager gate: skip the hoisted field counter if the value does not
-            // remap.
-            if let Some(stmt_id) = self.add_statement(span) {
-                let target_start = prop.span.start;
-                let is_static = prop.r#static;
-                if let Some(top) = self.pending_class_field_hoists.last_mut() {
-                    top.push(ClassFieldHoist { target_start, counter_id: stmt_id, is_static });
-                }
-            }
+            self.try_hoist_named_property_initializer(prop, span);
             return;
         }
 
