@@ -113,18 +113,21 @@ fn write_package<W: io::Write>(out: &mut W, input: PackageInput<'_>) -> io::Resu
     )?;
     writeln!(out, "      <classes>")?;
     for entry in files {
-        write_class(out, entry, root_dir)?;
+        write_class(out, ClassInput { entry, root_dir })?;
     }
     writeln!(out, "      </classes>")?;
     writeln!(out, "    </package>")?;
     Ok(())
 }
 
-fn write_class<W: io::Write>(
-    out: &mut W,
-    entry: &FileEntry<'_>,
-    root_dir: &Path,
-) -> io::Result<()> {
+#[derive(Clone, Copy)]
+struct ClassInput<'a> {
+    entry: &'a FileEntry<'a>,
+    root_dir: &'a Path,
+}
+
+fn write_class<W: io::Write>(out: &mut W, input: ClassInput<'_>) -> io::Result<()> {
+    let ClassInput { entry, root_dir } = input;
     let file = entry.coverage;
     let relative = relativize(entry.display_path, root_dir);
     let class_name = Path::new(&relative)
