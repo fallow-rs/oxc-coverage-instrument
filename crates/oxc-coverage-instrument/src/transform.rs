@@ -1439,7 +1439,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
     ) {
         let parent_ignored = self.in_ignored_subtree();
         let key_span = method.key.span();
-        if method_ignored_by_pragma(method, key_span, ctx, self.skip_next) {
+        if method_ignored_by_pragma(
+            MethodPragmaInput { method, key_span, skip_next: self.skip_next },
+            ctx,
+        ) {
             self.ignored_prop_stack.push(true);
             self.skip_next = false;
             return;
@@ -2241,12 +2244,18 @@ fn declarator_function_name(decl: &VariableDeclarator<'_>) -> Option<String> {
     None
 }
 
-fn method_ignored_by_pragma(
-    method: &MethodDefinition<'_>,
+#[derive(Clone, Copy)]
+struct MethodPragmaInput<'a> {
+    method: &'a MethodDefinition<'a>,
     key_span: Span,
-    ctx: &TraverseCtx<'_, CoverageState>,
     skip_next: bool,
+}
+
+fn method_ignored_by_pragma(
+    input: MethodPragmaInput<'_>,
+    ctx: &TraverseCtx<'_, CoverageState>,
 ) -> bool {
+    let MethodPragmaInput { method, key_span, skip_next } = input;
     !matches!(method.key, PropertyKey::PrivateIdentifier(_))
         && (ctx.state.pragmas.get(method.span.start) == Some(IgnoreType::Next)
             || ctx.state.pragmas.get(key_span.start) == Some(IgnoreType::Next)
