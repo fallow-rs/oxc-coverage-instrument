@@ -157,6 +157,12 @@ struct ElseBranchInput<'arena, 'a> {
     synthetic_anchor: u32,
 }
 
+struct ConditionalArmInput<'arena, 'a> {
+    branch_id: usize,
+    arm: &'a mut Expression<'arena>,
+    ignored: bool,
+}
+
 #[derive(Clone, Copy)]
 enum CounterType {
     Statement,
@@ -381,11 +387,10 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
 
     fn inject_conditional_arm_counter(
         &mut self,
-        branch_id: usize,
-        arm: &mut Expression<'arena>,
-        ignored: bool,
+        input: ConditionalArmInput<'arena, '_>,
         ctx: &TraverseCtx<'arena, CoverageState>,
     ) {
+        let ConditionalArmInput { branch_id, arm, ignored } = input;
         if ignored {
             return;
         }
@@ -1803,8 +1808,22 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // arm drops just that location from the branch map (the other arm
         // still tracks coverage), so the branch entry survives with one
         // remaining location.
-        self.inject_conditional_arm_counter(branch_id, &mut expr.consequent, ignore_consequent, ctx);
-        self.inject_conditional_arm_counter(branch_id, &mut expr.alternate, ignore_alternate, ctx);
+        self.inject_conditional_arm_counter(
+            ConditionalArmInput {
+                branch_id,
+                arm: &mut expr.consequent,
+                ignored: ignore_consequent,
+            },
+            ctx,
+        );
+        self.inject_conditional_arm_counter(
+            ConditionalArmInput {
+                branch_id,
+                arm: &mut expr.alternate,
+                ignored: ignore_alternate,
+            },
+            ctx,
+        );
     }
 
     fn enter_switch_statement(
