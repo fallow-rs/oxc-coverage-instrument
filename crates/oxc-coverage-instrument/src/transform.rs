@@ -163,6 +163,11 @@ struct ConditionalArmInput<'arena, 'a> {
     ignored: bool,
 }
 
+struct OptionalChainLinkInput<'arena, 'a> {
+    object: &'a mut Expression<'arena>,
+    link_span: Span,
+}
+
 #[derive(Clone, Copy)]
 enum CounterType {
     Statement,
@@ -590,10 +595,10 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
     )]
     fn wrap_optional_chain_link(
         &mut self,
-        object: &mut Expression<'arena>,
-        link_span: Span,
+        input: OptionalChainLinkInput<'arena, '_>,
         ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
+        let OptionalChainLinkInput { object, link_span } = input;
         // Eager gate (issue #106): gate ONLY at the whole-branch level. The
         // `cov_fn_oc` helper references fixed arm indices 0/1, so the two arms
         // must always be registered together when the branch is kept; skip the
@@ -2108,7 +2113,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         if self.track_optional_chain && member.optional && !self.in_ignored_subtree() {
-            self.wrap_optional_chain_link(&mut member.object, member.span, ctx);
+            self.wrap_optional_chain_link(
+                OptionalChainLinkInput { object: &mut member.object, link_span: member.span },
+                ctx,
+            );
         }
     }
 
@@ -2118,7 +2126,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         if self.track_optional_chain && member.optional && !self.in_ignored_subtree() {
-            self.wrap_optional_chain_link(&mut member.object, member.span, ctx);
+            self.wrap_optional_chain_link(
+                OptionalChainLinkInput { object: &mut member.object, link_span: member.span },
+                ctx,
+            );
         }
     }
 
@@ -2128,7 +2139,10 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         if self.track_optional_chain && call.optional && !self.in_ignored_subtree() {
-            self.wrap_optional_chain_link(&mut call.callee, call.span, ctx);
+            self.wrap_optional_chain_link(
+                OptionalChainLinkInput { object: &mut call.callee, link_span: call.span },
+                ctx,
+            );
         }
     }
 
