@@ -95,9 +95,12 @@ impl CoverageContext<'_> {
     // Branch arms need a tight V8 block range. Falling back to an enclosing
     // function/module range would over-report uncovered ternary and logical arms.
     fn arm_count_for_arm(&self, arm_loc: &Location, body_byte_span: Option<(u32, u32)>) -> u32 {
-        const TOLERANCE: u32 = 4;
+        let (arm_start, arm_end) = self.arm_byte_span(arm_loc, body_byte_span);
+        self.best_arm_range_count(arm_start, arm_end)
+    }
 
-        let (arm_start, arm_end) = match body_byte_span {
+    fn arm_byte_span(&self, arm_loc: &Location, body_byte_span: Option<(u32, u32)>) -> (u32, u32) {
+        match body_byte_span {
             Some((start, end)) if !(start == 0 && end == 0) => {
                 (start + self.wrapper_length, end + self.wrapper_length)
             }
@@ -107,7 +110,11 @@ impl CoverageContext<'_> {
                 self.position_to_byte_offset(arm_loc.end.line, arm_loc.end.column)
                     + self.wrapper_length,
             ),
-        };
+        }
+    }
+
+    fn best_arm_range_count(&self, arm_start: u32, arm_end: u32) -> u32 {
+        const TOLERANCE: u32 = 4;
 
         let mut best: Option<(V8CoverageRange, u32)> = None;
         let lower = arm_start.saturating_sub(TOLERANCE);
