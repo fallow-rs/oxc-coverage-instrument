@@ -33,16 +33,23 @@ use std::io;
 /// alphabetize the outer object, placing `"src/a.js"` before `"total"`; we
 /// hand-assemble the outer object to preserve the consumer-expected ordering.
 pub fn write<W: io::Write>(root: &ReportNode, out: &mut W) -> io::Result<()> {
-    write_inner(root, out, false)
+    write_inner(out, JsonSummaryInput { root, pretty: false })
 }
 
 /// Write a pretty-printed json-summary report. Useful for snapshot tests and
 /// human inspection; CI consumers should prefer [`write()`] for compactness.
 pub fn write_pretty<W: io::Write>(root: &ReportNode, out: &mut W) -> io::Result<()> {
-    write_inner(root, out, true)
+    write_inner(out, JsonSummaryInput { root, pretty: true })
 }
 
-fn write_inner<W: io::Write>(root: &ReportNode, out: &mut W, pretty: bool) -> io::Result<()> {
+#[derive(Clone, Copy)]
+struct JsonSummaryInput<'a> {
+    root: &'a ReportNode,
+    pretty: bool,
+}
+
+fn write_inner<W: io::Write>(out: &mut W, input: JsonSummaryInput<'_>) -> io::Result<()> {
+    let JsonSummaryInput { root, pretty } = input;
     let total = SummaryOut::from(&root.summary);
     let mut collector = FileCollector::default();
     walk(root, &mut collector).expect("FileCollector cannot fail");
