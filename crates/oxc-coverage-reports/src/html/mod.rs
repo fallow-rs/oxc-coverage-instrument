@@ -230,7 +230,7 @@ fn render_node(
             fs::create_dir_all(&detail_dir)?;
 
             let filename = format!("{}{DETAIL_SUFFIX}", &node.name);
-            let html = render_detail(node, coverage, ctx, depth);
+            let html = render_detail(RenderDetailInputs { node, coverage, ctx, depth });
             fs::write(detail_dir.join(filename), html)?;
         }
     }
@@ -394,12 +394,16 @@ fn render_summary_metric_cell(
 
 // -- File detail page -------------------------------------------------------
 
-fn render_detail(
-    node: &ReportNode,
-    coverage: &FileCoverage,
-    ctx: &RenderContext,
+#[derive(Clone, Copy)]
+struct RenderDetailInputs<'a> {
+    node: &'a ReportNode,
+    coverage: &'a FileCoverage,
+    ctx: &'a RenderContext<'a>,
     depth: usize,
-) -> String {
+}
+
+fn render_detail(inputs: RenderDetailInputs<'_>) -> String {
+    let RenderDetailInputs { node, coverage, ctx, depth } = inputs;
     let title = node.relative_path.clone();
     let source = read_source(coverage, ctx.root_dir);
     let line_hits = compute_line_hits(coverage);
