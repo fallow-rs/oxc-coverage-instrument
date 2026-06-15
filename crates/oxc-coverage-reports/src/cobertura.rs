@@ -79,7 +79,10 @@ pub fn write_with_timestamp<W: io::Write>(
 
     let grouped = group_by_package(&files, root_dir);
     for (package_name, package_files) in &grouped {
-        write_package(out, package_name, package_files, root_dir)?;
+        write_package(
+            out,
+            PackageInput { name: package_name, files: package_files, root_dir },
+        )?;
     }
 
     writeln!(out, "  </packages>")?;
@@ -87,12 +90,15 @@ pub fn write_with_timestamp<W: io::Write>(
     Ok(())
 }
 
-fn write_package<W: io::Write>(
-    out: &mut W,
-    name: &str,
-    files: &[FileEntry<'_>],
-    root_dir: &Path,
-) -> io::Result<()> {
+#[derive(Clone, Copy)]
+struct PackageInput<'a> {
+    name: &'a str,
+    files: &'a [FileEntry<'a>],
+    root_dir: &'a Path,
+}
+
+fn write_package<W: io::Write>(out: &mut W, input: PackageInput<'_>) -> io::Result<()> {
+    let PackageInput { name, files, root_dir } = input;
     let (lines_total, lines_covered) = sum_lines(files);
     let (branches_total, branches_covered) = sum_branches(files);
     let line_rate = rate(lines_covered, lines_total);
