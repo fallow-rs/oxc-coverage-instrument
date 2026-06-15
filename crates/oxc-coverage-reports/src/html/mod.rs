@@ -501,7 +501,20 @@ fn render_source_row(row: SourceRow<'_>) -> String {
     };
     let glyph = severity_glyph(class);
     let aria = row_aria_label(line_no, class, branch, fn_hits);
-    let branch_note = branch.map_or(String::new(), |b| {
+    let branch_note = render_branch_note(branch);
+    format!(
+        "          <tr class=\"line {class}\" id=\"L{line_no}\" aria-label=\"{aria}\">\
+<td class=\"line-num\">\
+<button type=\"button\" class=\"line-anchor\" data-line=\"{line_no}\" aria-label=\"Copy link to line {line_no}\">{line_no}</button>\
+</td>\
+<td class=\"hits\">{glyph}{hits_text}{fn_note}</td>\
+<td class=\"src\"><pre>{src_html}</pre>{branch_note}</td>\
+</tr>\n",
+    )
+}
+
+fn render_branch_note(branch: Option<&BranchSummary>) -> String {
+    branch.map_or(String::new(), |b| {
         if b.total == 0 {
             String::new()
         } else if let Some(detail) = b.detail_html() {
@@ -512,16 +525,7 @@ fn render_source_row(row: SourceRow<'_>) -> String {
                 b.covered, b.total
             )
         }
-    });
-    format!(
-        "          <tr class=\"line {class}\" id=\"L{line_no}\" aria-label=\"{aria}\">\
-<td class=\"line-num\">\
-<button type=\"button\" class=\"line-anchor\" data-line=\"{line_no}\" aria-label=\"Copy link to line {line_no}\">{line_no}</button>\
-</td>\
-<td class=\"hits\">{glyph}{hits_text}{fn_note}</td>\
-<td class=\"src\"><pre>{src_html}</pre>{branch_note}</td>\
-</tr>\n",
-    )
+    })
 }
 
 /// Non-color cue placed in the hits column. Coverage status is also
