@@ -1666,10 +1666,9 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
 
         let cov_fn = self.cov_fn_name;
         let mut insertions: Vec<(usize, Statement<'a>)> = Vec::new();
-        let pending = &mut self.pending_stmts;
 
         for (idx, stmt) in stmts.iter().enumerate() {
-            if pending.is_empty() {
+            if self.pending_stmts.is_empty() {
                 break;
             }
             let span = stmt.span();
@@ -1677,17 +1676,12 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             if span.start == 0 && span.end == 0 {
                 continue;
             }
-            let start = span.start;
-            let mut i = 0;
-            while i < pending.len() {
-                if pending[i].target_start == start {
-                    let p = pending.swap_remove(i);
-                    let counter = build_counter_stmt(CounterKind::from_pending(cov_fn, &p), ctx);
-                    insertions.push((idx, counter));
-                } else {
-                    i += 1;
-                }
-            }
+            insertions.extend(
+                self.drain_pending_insertions_for_target(span.start)
+                    .map(|pending| {
+                        (idx, build_counter_stmt(CounterKind::from_pending(cov_fn, &pending), ctx))
+                    }),
+            );
         }
 
         if insertions.is_empty() {
