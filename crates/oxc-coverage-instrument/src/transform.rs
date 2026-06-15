@@ -1769,11 +1769,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         }
         if pragma != Some(IgnoreType::Else) {
             self.inject_else_branch_counter(
-                ElseBranchInput {
-                    stmt,
-                    branch_id,
-                    synthetic_anchor: consequent_body_span.end,
-                },
+                ElseBranchInput { stmt, branch_id, synthetic_anchor: consequent_body_span.end },
                 ctx,
             );
         }
@@ -1821,19 +1817,11 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // still tracks coverage), so the branch entry survives with one
         // remaining location.
         self.inject_conditional_arm_counter(
-            ConditionalArmInput {
-                branch_id,
-                arm: &mut expr.consequent,
-                ignored: ignore_consequent,
-            },
+            ConditionalArmInput { branch_id, arm: &mut expr.consequent, ignored: ignore_consequent },
             ctx,
         );
         self.inject_conditional_arm_counter(
-            ConditionalArmInput {
-                branch_id,
-                arm: &mut expr.alternate,
-                ignored: ignore_alternate,
-            },
+            ConditionalArmInput { branch_id, arm: &mut expr.alternate, ignored: ignore_alternate },
             ctx,
         );
     }

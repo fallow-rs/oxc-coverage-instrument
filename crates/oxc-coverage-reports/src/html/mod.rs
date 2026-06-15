@@ -206,11 +206,7 @@ fn render_node(input: RenderNodeInput<'_>) -> io::Result<()> {
     match &node.kind {
         NodeKind::Folder { children } => {
             // Folder pages live at `<output_dir>/<node.relative_path>/index.html`.
-            let folder_dir = if node.relative_path.is_empty() {
-                output_dir.to_path_buf()
-            } else {
-                output_dir.join(&node.relative_path)
-            };
+            let folder_dir = if node.relative_path.is_empty() { output_dir.to_path_buf() } else { output_dir.join(&node.relative_path) };
             fs::create_dir_all(&folder_dir)?;
             let html = render_folder_index(FolderIndexInputs { node, children, ctx, depth });
             fs::write(folder_dir.join(INDEX_FILE), html)?;
@@ -223,10 +219,7 @@ fn render_node(input: RenderNodeInput<'_>) -> io::Result<()> {
                 .par_iter()
                 .map(|child| {
                     render_node(RenderNodeInput {
-                        node: child,
-                        ctx,
-                        output_dir,
-                        depth: depth + child_depth_delta(node, child),
+                        node: child, ctx, output_dir, depth: depth + child_depth_delta(node, child),
                     })
                 })
                 .collect::<io::Result<Vec<_>>>()?;
@@ -234,8 +227,7 @@ fn render_node(input: RenderNodeInput<'_>) -> io::Result<()> {
         NodeKind::File { coverage } => {
             // Detail page lives next to the folder index.
             let parent = node.relative_path.rsplit_once('/').map_or("", |(parent, _)| parent);
-            let detail_dir =
-                if parent.is_empty() { output_dir.to_path_buf() } else { output_dir.join(parent) };
+            let detail_dir = if parent.is_empty() { output_dir.to_path_buf() } else { output_dir.join(parent) };
             fs::create_dir_all(&detail_dir)?;
 
             let filename = format!("{}{DETAIL_SUFFIX}", &node.name);
