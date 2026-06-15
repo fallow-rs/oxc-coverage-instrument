@@ -389,6 +389,37 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         prepend_counter(arm, CounterKind::branch(self.cov_fn_name, branch_id, path_idx), ctx);
     }
 
+    fn try_instrument_logical_assignment(
+        &mut self,
+        expr: &mut AssignmentExpression<'arena>,
+        ctx: &TraverseCtx<'arena, CoverageState>,
+    ) {
+        if !is_logical_assignment_operator(expr.operator) {
+            return;
+        }
+        let left_span = expr.left.span();
+        let right_span = expr.right.span();
+        let Some(branch_id) = self.add_branch("binary-expr", expr.span) else {
+            return;
+        };
+        self.add_branch_path_location(
+            branch_id,
+            self.span_to_location(left_span),
+            (left_span.start, left_span.end),
+        );
+        self.add_branch_path_location(
+            branch_id,
+            self.span_to_location(right_span),
+            (right_span.start, right_span.end),
+        );
+        self.pending_stmts.push(PendingInsertion {
+            target_start: expr.span.start,
+            counter_id: branch_id,
+            counter_type: CounterType::BranchLeft,
+        });
+        prepend_counter(&mut expr.right, CounterKind::branch(self.cov_fn_name, branch_id, 1), ctx);
+    }
+
     /// Record a branch arm whose istanbul-reported location and the underlying
     /// AST body span differ. Today this is only the if-arm 0 case (istanbul
     /// reports the whole `IfStatement`; the body is the consequent statement).
@@ -2107,60 +2138,28 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         if self.in_ignored_subtree() {
             return;
         }
-        use oxc_syntax::operator::AssignmentOperator;
 
         if let AssignmentTargetName::Update(name) = assignment_target_name(expr) {
             self.pending_name = name;
         }
-
-        // Logical assignment operators: x ??= y, x ||= y, x &&= y
-        // These short-circuit and only assign if the condition holds.
-        // Track them as binary-expr branches with 2 locations (left, right).
-        if matches!(
-            expr.operator,
-            AssignmentOperator::LogicalOr
-                | AssignmentOperator::LogicalAnd
-                | AssignmentOperator::LogicalNullish
-        ) {
-            let left_span = expr.left.span();
-            let right_span = expr.right.span();
-            // Eager gate (issue #106): gate ONLY at the whole-branch level. The
-            // counters below reference fixed arm indices 0 (BranchLeft pending)
-            // and 1, so gating individual arms would desync those indices.
-            // Either the branch is kept with both arms or it is skipped whole.
-            let Some(branch_id) = self.add_branch("binary-expr", expr.span) else {
-                return;
-            };
-            // Bypass the per-arm gate deliberately (see comment above) to keep
-            // arm indices 0/1 aligned with the counters emitted below.
-            let left_loc = self.span_to_location(left_span);
-            self.add_branch_path_location(branch_id, left_loc, (left_span.start, left_span.end));
-            let right_loc = self.span_to_location(right_span);
-            self.add_branch_path_location(branch_id, right_loc, (right_span.start, right_span.end));
-
-            // The left branch (no assignment) is always entered, increment before
-            // the assignment. The right branch (assignment happens) is conditional.
-            // We insert the left counter as a pending statement before this expression,
-            // and wrap the right side with the right counter.
-            self.pending_stmts.push(PendingInsertion {
-                target_start: expr.span.start,
-                counter_id: branch_id,
-                counter_type: CounterType::BranchLeft,
-            });
-
-            // Wrap the right side: x ??= (++cov.b[id][1], y)
-            prepend_counter(
-                &mut expr.right,
-                CounterKind::branch(self.cov_fn_name, branch_id, 1),
-                ctx,
-            );
-        }
+        self.try_instrument_logical_assignment(expr, ctx);
     }
 }
 
 enum AssignmentTargetName {
     Unchanged,
     Update(Option<String>),
+}
+
+fn is_logical_assignment_operator(operator: oxc_syntax::operator::AssignmentOperator) -> bool {
+    use oxc_syntax::operator::AssignmentOperator;
+
+    matches!(
+        operator,
+        AssignmentOperator::LogicalOr
+            | AssignmentOperator::LogicalAnd
+            | AssignmentOperator::LogicalNullish
+    )
 }
 
 fn assignment_target_name(expr: &AssignmentExpression<'_>) -> AssignmentTargetName {
