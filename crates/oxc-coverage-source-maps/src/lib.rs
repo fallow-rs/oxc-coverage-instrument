@@ -624,6 +624,13 @@ fn original_position_try_both(
         })
 }
 
+#[derive(Clone, Copy)]
+struct OriginalLookup<'a> {
+    source: &'a str,
+    line: u32,
+    column: u32,
+}
+
 /// `allGeneratedPositionsFor({ ..., bias: LEAST_UPPER_BOUND })`: all generated
 /// positions that map to the original `(source, line)` at the least-upper-bound
 /// of `column` (the exact column when a segment exists there, otherwise the
@@ -640,10 +647,9 @@ fn original_position_try_both(
 /// future profile shows it matters.
 fn all_generated_positions_for_lub(
     sm: &srcmap_sourcemap::SourceMap,
-    source: &str,
-    line: u32,
-    column: u32,
+    lookup: OriginalLookup<'_>,
 ) -> Vec<srcmap_sourcemap::GeneratedLocation> {
+    let OriginalLookup { source, line, column } = lookup;
     // Key the scan by name -> index (not the caller's raw mapping index): istanbul
     // and trace-mapping look up the source by name too, so for a map where the
     // same name appears at multiple indices this matches the library's first-match
@@ -687,7 +693,10 @@ fn original_end_position_for(
     // afterEndMappings = allGeneratedPositionsFor(LUB) one column to the right;
     // map each back (GLB) and take the first that lands on the same original
     // line: that segment's start is our exclusive end.
-    let after = all_generated_positions_for_lub(sm, source, before.line, before.column + 1);
+    let after = all_generated_positions_for_lub(
+        sm,
+        OriginalLookup { source, line: before.line, column: before.column + 1 },
+    );
     for gen_pos in &after {
         if let Some(orig) = sm.original_position_for_with_bias(
             gen_pos.line,
