@@ -541,14 +541,7 @@ pub(crate) fn collect_for_v8_to_istanbul(
 
     let (pragmas, _unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
     if pragmas.ignore_file {
-        let coverage_map = build_file_coverage(CoverageMaps {
-            path: filename.to_string(),
-            statement_locs: Vec::new(),
-            fn_entries: Vec::new(),
-            branch_entries: Vec::new(),
-            logical_branch_ids: Vec::new(),
-        });
-        return Ok(V8CollectResult { coverage_map, arm_body_byte_spans: BTreeMap::new() });
+        return Ok(empty_v8_collect_result(filename));
     }
 
     let scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
@@ -575,17 +568,35 @@ pub(crate) fn collect_for_v8_to_istanbul(
     // empty `locations` and preserves the original sequential id via
     // `enumerate` (filter runs AFTER), so the keys here use the same
     // pre-filter index and only retain surviving entries.
-    let mut arm_body_byte_spans: BTreeMap<String, Vec<(u32, u32)>> = BTreeMap::new();
+    let arm_body_byte_spans = collect_arm_body_byte_spans(&transform);
+
+    let coverage_map = build_coverage_map(filename, transform, None);
+    Ok(V8CollectResult { coverage_map, arm_body_byte_spans })
+}
+
+fn empty_v8_collect_result(filename: &str) -> V8CollectResult {
+    let coverage_map = build_file_coverage(CoverageMaps {
+        path: filename.to_string(),
+        statement_locs: Vec::new(),
+        fn_entries: Vec::new(),
+        branch_entries: Vec::new(),
+        logical_branch_ids: Vec::new(),
+    });
+    V8CollectResult { coverage_map, arm_body_byte_spans: BTreeMap::new() }
+}
+
+fn collect_arm_body_byte_spans(
+    transform: &CoverageTransform<'_, '_>,
+) -> BTreeMap<String, Vec<(u32, u32)>> {
+    let mut spans: BTreeMap<String, Vec<(u32, u32)>> = BTreeMap::new();
     for (idx, body_spans) in transform.branch_arm_body_byte_spans.iter().enumerate() {
         let surviving =
             transform.branch_map.get(idx).is_some_and(|entry| !entry.locations.is_empty());
         if surviving {
-            arm_body_byte_spans.insert(idx.to_string(), body_spans.clone());
+            spans.insert(idx.to_string(), body_spans.clone());
         }
     }
-
-    let coverage_map = build_coverage_map(filename, transform, None);
-    Ok(V8CollectResult { coverage_map, arm_body_byte_spans })
+    spans
 }
 
 struct EmitInputs<'a, 'arena> {
