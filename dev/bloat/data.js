@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781723046604,
+  "lastUpdate": 1781723321046,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1357,6 +1357,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/7b3c6c83bbe8368fa04a7b08465b5970b975d047"
         },
         "date": 1781723046250,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86970112,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "203673da4f929e43ae4cb0905c691ca65e62ea12",
+          "message": "perf: restore v8 range ordering",
+          "timestamp": "2026-06-17T21:06:22+02:00",
+          "tree_id": "421ba1d4516ee4dbf7ff695bc438fe4e3da9c2b4",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/203673da4f929e43ae4cb0905c691ca65e62ea12"
+        },
+        "date": 1781723320011,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
