@@ -461,6 +461,16 @@ impl SourceMapStore {
         self.maps.insert(file.into(), parsed);
     }
 
+    /// Add a source map from its JSON string form.
+    ///
+    /// This is equivalent to [`SourceMapStore::add_map`] but avoids a
+    /// Value parse plus serialization round-trip when callers already have
+    /// source map JSON, as JavaScript bindings and disk loaders commonly do.
+    pub fn add_map_json(&mut self, file: impl Into<String>, source_map_json: &str) {
+        let parsed = srcmap_sourcemap::SourceMap::from_json(source_map_json).ok();
+        self.maps.insert(file.into(), parsed);
+    }
+
     /// Whether the store has a map registered for `file`.
     #[must_use]
     pub fn contains(&self, file: &str) -> bool {
