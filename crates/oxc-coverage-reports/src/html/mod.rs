@@ -127,8 +127,14 @@ pub fn write(
     output_dir: &Path,
     options: &HtmlOptions,
 ) -> io::Result<()> {
-    let remapped = remap_coverage_map(coverage_map);
-    let root = summarize(&remapped);
+    let remapped;
+    let report_map = if coverage_map.values().any(|coverage| coverage.input_source_map.is_some()) {
+        remapped = remap_coverage_map(coverage_map);
+        &remapped
+    } else {
+        coverage_map
+    };
+    let root = summarize(report_map);
 
     fs::create_dir_all(output_dir)?;
     fs::write(output_dir.join("base.css"), BASE_CSS)?;
