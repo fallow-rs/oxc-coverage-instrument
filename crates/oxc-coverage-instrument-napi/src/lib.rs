@@ -68,11 +68,31 @@ fn looks_like_single_file_coverage(coverage_json: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::looks_like_single_file_coverage;
+    use super::{
+        InstrumentOptions, RemapOptions, core_remap_options_from, decorator_mode_from_flags,
+        invalid_coverage_json_error, looks_like_single_file_coverage, native_instrument_options,
+    };
+    use oxc_coverage_instrument::DecoratorMode;
 
     const SINGLE_FC: &str =
         r#"{"path":"app.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}"#;
     const COVERAGE_MAP: &str = r#"{"app.js":{"path":"app.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+
+    fn empty_options() -> InstrumentOptions {
+        InstrumentOptions {
+            coverage_variable: None,
+            source_map: None,
+            input_source_map: None,
+            compose_input_source_map: None,
+            report_logic: None,
+            track_optional_chain_branches: None,
+            ignore_class_methods: None,
+            strip_typescript: None,
+            experimental_decorators: None,
+            emit_decorator_metadata: None,
+            function_identity_overlay: None,
+        }
+    }
 
     #[test]
     fn detects_single_file_coverage() {
@@ -113,6 +133,115 @@ mod tests {
         assert!(!looks_like_single_file_coverage(
             r#"{"path":42,"statementMap":{},"fnMap":{},"branchMap":{}}"#,
         ));
+    }
+
+    #[test]
+    fn invalid_coverage_json_error_adds_single_file_hint() {
+        let err = invalid_coverage_json_error(SINGLE_FC, "outer container mismatch");
+        let message = err.to_string();
+        assert!(message.contains("invalid coverage JSON: outer container mismatch"));
+        assert!(message.contains("input parses as a single FileCoverage"));
+        assert!(message.contains("expects an Istanbul CoverageMap shape"));
+    }
+
+    #[test]
+    fn invalid_coverage_json_error_omits_hint_for_coverage_map_shape() {
+        let err = invalid_coverage_json_error(COVERAGE_MAP, "bad inner entry");
+        let message = err.to_string();
+        assert!(message.contains("invalid coverage JSON: bad inner entry"));
+        assert!(!message.contains("input parses as a single FileCoverage"));
+    }
+
+    #[test]
+    fn decorator_flags_map_to_core_modes() {
+        assert_eq!(
+            decorator_mode_from_flags(false, false).expect("pass-through mode"),
+            DecoratorMode::PassThrough,
+        );
+        assert_eq!(
+            decorator_mode_from_flags(true, false).expect("experimental mode"),
+            DecoratorMode::Experimental,
+        );
+        assert_eq!(
+            decorator_mode_from_flags(true, true).expect("metadata mode"),
+            DecoratorMode::ExperimentalWithMetadata,
+        );
+    }
+
+    #[test]
+    fn decorator_metadata_requires_experimental_decorators() {
+        let err = decorator_mode_from_flags(false, true).expect_err("metadata alone is invalid");
+        assert_eq!(
+            err.to_string(),
+            "InvalidArg, emitDecoratorMetadata: true requires experimentalDecorators: true",
+        );
+    }
+
+    #[test]
+    fn remap_options_default_to_keep_unmapped() {
+        assert!(!core_remap_options_from(None).drop_unmapped);
+        assert!(!core_remap_options_from(Some(RemapOptions { drop_unmapped: None })).drop_unmapped);
+        assert!(
+            !core_remap_options_from(Some(RemapOptions { drop_unmapped: Some(false) }))
+                .drop_unmapped
+        );
+        assert!(
+            core_remap_options_from(Some(RemapOptions { drop_unmapped: Some(true) })).drop_unmapped
+        );
+    }
+
+    #[test]
+    fn native_options_fill_core_defaults() {
+        let opts = native_instrument_options(None).expect("default options");
+        assert_eq!(opts.coverage_variable, "__coverage__");
+        assert!(!opts.source_map);
+        assert!(!opts.compose_input_source_map);
+        assert!(!opts.report_logic);
+        assert!(opts.track_optional_chain);
+        assert!(opts.ignore_class_methods.is_empty());
+        assert!(!opts.strip_typescript);
+        assert_eq!(opts.decorator_mode, DecoratorMode::PassThrough);
+        assert!(!opts.function_identity_overlay);
+    }
+
+    #[test]
+    fn native_options_map_js_flags_to_core_options() {
+        let mut input = empty_options();
+        input.coverage_variable = Some("__cov".to_string());
+        input.source_map = Some(true);
+        input.input_source_map = Some(r#"{"version":3}"#.to_string());
+        input.compose_input_source_map = Some(true);
+        input.report_logic = Some(true);
+        input.track_optional_chain_branches = Some(false);
+        input.ignore_class_methods = Some(vec!["render".to_string(), "toJSON".to_string()]);
+        input.strip_typescript = Some(true);
+        input.experimental_decorators = Some(true);
+        input.emit_decorator_metadata = Some(true);
+        input.function_identity_overlay = Some(true);
+
+        let opts = native_instrument_options(Some(input)).expect("mapped options");
+        assert_eq!(opts.coverage_variable, "__cov");
+        assert!(opts.source_map);
+        assert_eq!(opts.input_source_map.as_deref(), Some(r#"{"version":3}"#));
+        assert!(opts.compose_input_source_map);
+        assert!(opts.report_logic);
+        assert!(!opts.track_optional_chain);
+        assert_eq!(opts.ignore_class_methods, ["render", "toJSON"]);
+        assert!(opts.strip_typescript);
+        assert_eq!(opts.decorator_mode, DecoratorMode::ExperimentalWithMetadata);
+        assert!(opts.function_identity_overlay);
+    }
+
+    #[test]
+    fn native_options_reject_metadata_without_experimental_decorators() {
+        let mut input = empty_options();
+        input.emit_decorator_metadata = Some(true);
+
+        let err = native_instrument_options(Some(input)).expect_err("invalid decorator flags");
+        assert_eq!(
+            err.to_string(),
+            "InvalidArg, emitDecoratorMetadata: true requires experimentalDecorators: true",
+        );
     }
 }
 
