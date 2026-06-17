@@ -248,6 +248,36 @@ where
     out
 }
 
+struct RemapContext<'a> {
+    sm: &'a srcmap_sourcemap::SourceMap,
+    mapping_cache: BTreeMap<LocationKey, Option<Location>>,
+}
+
+impl<'a> RemapContext<'a> {
+    fn new(sm: &'a srcmap_sourcemap::SourceMap) -> Self {
+        Self { sm, mapping_cache: BTreeMap::new() }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct LocationKey {
+    start_line: u32,
+    start_column: u32,
+    end_line: u32,
+    end_column: u32,
+}
+
+impl From<&Location> for LocationKey {
+    fn from(loc: &Location) -> Self {
+        Self {
+            start_line: loc.start.line,
+            start_column: loc.start.column,
+            end_line: loc.end.line,
+            end_column: loc.end.column,
+        }
+    }
+}
+
 /// Apply a parsed `SourceMap` to a `FileCoverage`. Returns `None` when the
 /// map declares no usable source (matches the bail in `resolve_primary_source`).
 fn apply_source_map(
@@ -260,18 +290,19 @@ fn apply_source_map(
     let mut out = coverage.clone();
     out.path = primary_source;
     out.input_source_map = None;
+    let mut ctx = RemapContext::new(sm);
 
     if options.drop_unmapped {
-        prune_unmapped(&mut out, sm);
+        prune_unmapped(&mut out, &mut ctx);
     } else {
         for loc in out.statement_map.values_mut() {
-            remap_location(loc, sm);
+            remap_location(loc, &mut ctx);
         }
         for fn_entry in out.fn_map.values_mut() {
-            remap_fn_entry(fn_entry, sm);
+            remap_fn_entry(fn_entry, &mut ctx);
         }
         for branch_entry in out.branch_map.values_mut() {
-            remap_branch_entry(branch_entry, sm);
+            remap_branch_entry(branch_entry, &mut ctx);
         }
     }
 
@@ -293,18 +324,18 @@ fn apply_source_map(
 /// up in the source map, taking matching `s` / `f` / `b` / `bT` slots with
 /// them. Mirrors `istanbul-lib-source-maps`'s `transformer.js`. See
 /// [`RemapOptions::drop_unmapped`] for the exact per-kind rules.
-fn prune_unmapped(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap) {
-    prune_statements(coverage, sm);
-    prune_functions(coverage, sm);
-    prune_branches(coverage, sm);
+fn prune_unmapped(coverage: &mut FileCoverage, ctx: &mut RemapContext<'_>) {
+    prune_statements(coverage, ctx);
+    prune_functions(coverage, ctx);
+    prune_branches(coverage, ctx);
 }
 
 /// Statements: drop when either start or end fails to remap, taking the
 /// matching `s` hit slot with the dropped entry.
-fn prune_statements(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap) {
+fn prune_statements(coverage: &mut FileCoverage, ctx: &mut RemapContext<'_>) {
     let mut dropped_statements: Vec<String> = Vec::new();
     coverage.statement_map.retain(|key, loc| {
-        if try_remap_location(loc, sm) {
+        if try_remap_location(loc, ctx) {
             true
         } else {
             dropped_statements.push(key.clone());
@@ -319,11 +350,11 @@ fn prune_statements(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMa
 /// Functions: drop when any of decl.start, decl.end, loc.start, loc.end fails
 /// to remap. `FnEntry::line` is refreshed from the remapped `loc.start.line`
 /// on the surviving entries; the matching `f` hit slot follows the drop.
-fn prune_functions(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap) {
+fn prune_functions(coverage: &mut FileCoverage, ctx: &mut RemapContext<'_>) {
     let mut dropped_fns: Vec<String> = Vec::new();
     coverage.fn_map.retain(|key, fn_entry| {
-        let decl_ok = try_remap_location(&mut fn_entry.decl, sm);
-        let loc_ok = try_remap_location(&mut fn_entry.loc, sm);
+        let decl_ok = try_remap_location(&mut fn_entry.decl, ctx);
+        let loc_ok = try_remap_location(&mut fn_entry.loc, ctx);
         if decl_ok && loc_ok {
             fn_entry.line = fn_entry.loc.start.line;
             true
@@ -348,17 +379,17 @@ fn prune_functions(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap
 /// whole branch when no arms survive OR when the umbrella `loc` start/end fails
 /// to remap. The `b` / `bT` arm vectors track surviving arms by position so
 /// their hit counts stay aligned.
-fn prune_branches(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap) {
+fn prune_branches(coverage: &mut FileCoverage, ctx: &mut RemapContext<'_>) {
     let mut dropped_branches: Vec<String> = Vec::new();
     let mut surviving_arms: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     coverage.branch_map.retain(|key, branch_entry| {
-        let loc_ok = try_remap_location(&mut branch_entry.loc, sm);
+        let loc_ok = try_remap_location(&mut branch_entry.loc, ctx);
         if !loc_ok {
             dropped_branches.push(key.clone());
             return false;
         }
 
-        let (kept_indices, kept_locations) = surviving_branch_arms(branch_entry, sm);
+        let (kept_indices, kept_locations) = surviving_branch_arms(branch_entry, ctx);
         if kept_locations.is_empty() {
             dropped_branches.push(key.clone());
             return false;
@@ -383,12 +414,12 @@ fn prune_branches(coverage: &mut FileCoverage, sm: &srcmap_sourcemap::SourceMap)
 
 fn surviving_branch_arms(
     branch_entry: &mut oxc_coverage_types::BranchEntry,
-    sm: &srcmap_sourcemap::SourceMap,
+    ctx: &mut RemapContext<'_>,
 ) -> (Vec<usize>, Vec<Location>) {
     let mut kept_indices: Vec<usize> = Vec::new();
     let mut kept_locations: Vec<Location> = Vec::new();
     for (idx, arm) in branch_entry.locations.iter_mut().enumerate() {
-        if try_remap_location(arm, sm) {
+        if try_remap_location(arm, ctx) {
             kept_indices.push(idx);
             kept_locations.push(arm.clone());
         }
@@ -846,18 +877,28 @@ fn legacy_try_remap_location(loc: &mut Location, sm: &srcmap_sourcemap::SourceMa
 
 // --- remap entry points (route through getMapping) ----------------------------
 
+fn get_mapping_location_cached(ctx: &mut RemapContext<'_>, loc: &Location) -> Option<Location> {
+    let key = LocationKey::from(loc);
+    if let Some(cached) = ctx.mapping_cache.get(&key) {
+        return cached.clone();
+    }
+    let remapped = get_mapping_location(loc, ctx.sm);
+    ctx.mapping_cache.insert(key, remapped.clone());
+    remapped
+}
+
 /// Remap a location through `getMapping` (no-drop mode). On the `line: 0`
 /// sentinel or when `getMapping` cannot resolve the span, fall back to the
 /// legacy direct lookup so existing callers see no change on entries istanbul
 /// would have dropped.
-fn remap_location(loc: &mut Location, sm: &srcmap_sourcemap::SourceMap) {
+fn remap_location(loc: &mut Location, ctx: &mut RemapContext<'_>) {
     if loc.start.line == 0 || loc.end.line == 0 {
-        legacy_remap_location(loc, sm);
+        legacy_remap_location(loc, ctx.sm);
         return;
     }
-    match get_mapping_location(loc, sm) {
+    match get_mapping_location_cached(ctx, loc) {
         Some(remapped) => *loc = remapped,
-        None => legacy_remap_location(loc, sm),
+        None => legacy_remap_location(loc, ctx.sm),
     }
 }
 
@@ -865,11 +906,11 @@ fn remap_location(loc: &mut Location, sm: &srcmap_sourcemap::SourceMap) {
 /// rewrites in place) when `getMapping` resolves the span, `false` (drop) when
 /// it does not. The `line: 0` sentinel routes to the legacy helper, which keeps
 /// it as a successful no-op.
-fn try_remap_location(loc: &mut Location, sm: &srcmap_sourcemap::SourceMap) -> bool {
+fn try_remap_location(loc: &mut Location, ctx: &mut RemapContext<'_>) -> bool {
     if loc.start.line == 0 || loc.end.line == 0 {
-        return legacy_try_remap_location(loc, sm);
+        return legacy_try_remap_location(loc, ctx.sm);
     }
-    match get_mapping_location(loc, sm) {
+    match get_mapping_location_cached(ctx, loc) {
         Some(remapped) => {
             *loc = remapped;
             true
@@ -878,16 +919,16 @@ fn try_remap_location(loc: &mut Location, sm: &srcmap_sourcemap::SourceMap) -> b
     }
 }
 
-fn remap_fn_entry(fn_entry: &mut FnEntry, sm: &srcmap_sourcemap::SourceMap) {
-    remap_location(&mut fn_entry.decl, sm);
-    remap_location(&mut fn_entry.loc, sm);
+fn remap_fn_entry(fn_entry: &mut FnEntry, ctx: &mut RemapContext<'_>) {
+    remap_location(&mut fn_entry.decl, ctx);
+    remap_location(&mut fn_entry.loc, ctx);
     fn_entry.line = fn_entry.loc.start.line;
 }
 
-fn remap_branch_entry(branch_entry: &mut BranchEntry, sm: &srcmap_sourcemap::SourceMap) {
-    remap_location(&mut branch_entry.loc, sm);
+fn remap_branch_entry(branch_entry: &mut BranchEntry, ctx: &mut RemapContext<'_>) {
+    remap_location(&mut branch_entry.loc, ctx);
     for loc in &mut branch_entry.locations {
-        remap_location(loc, sm);
+        remap_location(loc, ctx);
     }
     branch_entry.line = branch_entry.loc.start.line;
 }
