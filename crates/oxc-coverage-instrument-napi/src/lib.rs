@@ -68,9 +68,12 @@ fn looks_like_single_file_coverage(coverage_json: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::{
         InstrumentOptions, RemapOptions, core_remap_options_from, decorator_mode_from_flags,
         invalid_coverage_json_error, looks_like_single_file_coverage, native_instrument_options,
+        remap_coverage_map, remap_coverage_map_with_loader,
     };
     use oxc_coverage_instrument::DecoratorMode;
 
@@ -92,6 +95,31 @@ mod tests {
             emit_decorator_metadata: None,
             function_identity_overlay: None,
         }
+    }
+
+    fn one_line_coverage_map_json() -> String {
+        r#"{
+            "intermediate.js": {
+                "path": "intermediate.js",
+                "statementMap": {
+                    "0": {
+                        "start": {"line": 1, "column": 0},
+                        "end": {"line": 1, "column": 1}
+                    }
+                },
+                "fnMap": {},
+                "branchMap": {},
+                "s": {"0": 1},
+                "f": {},
+                "b": {}
+            }
+        }"#
+        .to_string()
+    }
+
+    fn one_line_source_map_json() -> String {
+        r#"{"version":3,"sources":["src/app.ts"],"sourcesContent":["x"],"mappings":"AAAA","names":[]}"#
+            .to_string()
     }
 
     #[test]
@@ -150,6 +178,36 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("invalid coverage JSON: bad inner entry"));
         assert!(!message.contains("input parses as a single FileCoverage"));
+    }
+
+    #[test]
+    fn remap_coverage_map_reports_single_file_hint() {
+        let err = remap_coverage_map(SINGLE_FC.to_string(), None)
+            .expect_err("single FileCoverage is not a CoverageMap");
+        let message = err.to_string();
+        assert!(message.contains("input parses as a single FileCoverage"));
+        assert!(message.contains("Wrap with `{ [fc.path]: fc }` before calling"));
+    }
+
+    #[test]
+    fn remap_coverage_map_with_loader_uses_json_string_maps() {
+        let mut source_maps = HashMap::new();
+        source_maps.insert("intermediate.js".to_string(), one_line_source_map_json());
+
+        let remapped = remap_coverage_map_with_loader(
+            one_line_coverage_map_json(),
+            source_maps,
+            Some(RemapOptions { drop_unmapped: Some(false) }),
+        )
+        .expect("loader-backed remap succeeds");
+        let value: serde_json::Value =
+            serde_json::from_str(&remapped).expect("remapped coverage is valid JSON");
+
+        assert!(value.get("src/app.ts").is_some(), "entry is rekeyed by source path");
+        assert!(
+            value["src/app.ts"].get("inputSourceMap").is_none(),
+            "consumed source map is not serialized back",
+        );
     }
 
     #[test]
