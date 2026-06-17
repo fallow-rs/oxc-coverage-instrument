@@ -108,7 +108,8 @@ impl PositionRemapper {
         if loc.start.line == 0 || loc.end.line == 0 {
             return self.legacy_position_maps(&loc.start) && self.legacy_position_maps(&loc.end);
         }
-        get_mapping_location(loc, &self.sm).is_some()
+        let mut ctx = RemapContext::new(&self.sm);
+        get_mapping_location(loc, &mut ctx).is_some()
     }
 
     /// Non-mutating mirror of [`legacy_try_remap_position`]: `true` when the
@@ -251,11 +252,12 @@ where
 struct RemapContext<'a> {
     sm: &'a srcmap_sourcemap::SourceMap,
     mapping_cache: BTreeMap<LocationKey, Option<Location>>,
+    original_line_columns: BTreeMap<OriginalLineKey, Vec<u32>>,
 }
 
 impl<'a> RemapContext<'a> {
     fn new(sm: &'a srcmap_sourcemap::SourceMap) -> Self {
-        Self { sm, mapping_cache: BTreeMap::new() }
+        Self { sm, mapping_cache: BTreeMap::new(), original_line_columns: BTreeMap::new() }
     }
 }
 
@@ -276,6 +278,12 @@ impl From<&Location> for LocationKey {
             end_column: loc.end.column,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct OriginalLineKey {
+    source: u32,
+    line: u32,
 }
 
 /// Apply a parsed `SourceMap` to a `FileCoverage`. Returns `None` when the
@@ -684,10 +692,10 @@ struct OriginalLookup<'a> {
 /// That scan is linear in the map's mapping count; resolving the matched column
 /// this way (rather than via a generated-position round-trip) is what keeps the
 /// result faithful when several mappings share a generated column. A
-/// per-`(source, line)` original-column index would make it logarithmic if a
-/// future profile shows it matters.
+/// The first lookup for a `(source, line)` pair builds a sorted original-column
+/// index in [`RemapContext`]; following lookups on that line are logarithmic.
 fn all_generated_positions_for_lub(
-    sm: &srcmap_sourcemap::SourceMap,
+    ctx: &mut RemapContext<'_>,
     lookup: OriginalLookup<'_>,
 ) -> Vec<srcmap_sourcemap::GeneratedLocation> {
     let OriginalLookup { source, line, column } = lookup;
@@ -695,30 +703,45 @@ fn all_generated_positions_for_lub(
     // and trace-mapping look up the source by name too, so for a map where the
     // same name appears at multiple indices this matches the library's first-match
     // behaviour. Well-formed maps have unique source names, so the two coincide.
-    let Some(source_idx) = sm.source_index(source) else {
+    let Some(source_idx) = ctx.sm.source_index(source) else {
         return Vec::new();
     };
-    // matchedColumn: the exact column when a segment exists there, else the
-    // smallest original column strictly greater on this original line.
-    let matched_column = sm
-        .all_mappings()
-        .iter()
-        .filter(|m| {
-            m.source == source_idx && m.original_line == line && m.original_column >= column
-        })
-        .map(|m| m.original_column)
-        .min();
+    let matched_column = matched_original_column(ctx, source_idx, line, column);
     let Some(matched_column) = matched_column else {
         return Vec::new();
     };
-    sm.all_generated_positions_for(source, line, matched_column)
+    ctx.sm.all_generated_positions_for(source, line, matched_column)
+}
+
+fn matched_original_column(
+    ctx: &mut RemapContext<'_>,
+    source_idx: u32,
+    line: u32,
+    column: u32,
+) -> Option<u32> {
+    let key = OriginalLineKey { source: source_idx, line };
+    if !ctx.original_line_columns.contains_key(&key) {
+        let mut columns: Vec<u32> = ctx
+            .sm
+            .all_mappings()
+            .iter()
+            .filter(|m| m.source == source_idx && m.original_line == line)
+            .map(|m| m.original_column)
+            .collect();
+        columns.sort_unstable();
+        columns.dedup();
+        ctx.original_line_columns.insert(key, columns);
+    }
+    let columns = ctx.original_line_columns.get(&key)?;
+    let idx = columns.partition_point(|mapped| *mapped < column);
+    columns.get(idx).copied()
 }
 
 /// `originalEndPositionFor`: resolve the exclusive end of a generated range to
 /// the start of the next original segment, or the end of the original line.
 /// `gen_end_line` / `gen_end_col` are 0-based (srcmap space).
 fn original_end_position_for(
-    sm: &srcmap_sourcemap::SourceMap,
+    ctx: &mut RemapContext<'_>,
     gen_end_line: u32,
     gen_end_col: u32,
 ) -> Option<EndResult> {
@@ -728,18 +751,18 @@ fn original_end_position_for(
     // "no mapping" so the caller drops the entry (drop mode) or keeps the
     // generated position (no-drop mode) instead of panicking.
     let before_col = gen_end_col.checked_sub(1)?;
-    let before = original_position_try_both(sm, gen_end_line, before_col)?;
-    let source = sm.source(before.source);
+    let before = original_position_try_both(ctx.sm, gen_end_line, before_col)?;
+    let source = ctx.sm.source(before.source);
 
     // afterEndMappings = allGeneratedPositionsFor(LUB) one column to the right;
     // map each back (GLB) and take the first that lands on the same original
     // line: that segment's start is our exclusive end.
     let after = all_generated_positions_for_lub(
-        sm,
+        ctx,
         OriginalLookup { source, line: before.line, column: before.column + 1 },
     );
     for gen_pos in &after {
-        if let Some(orig) = sm.original_position_for_with_bias(
+        if let Some(orig) = ctx.sm.original_position_for_with_bias(
             gen_pos.line,
             gen_pos.column,
             srcmap_sourcemap::Bias::GreatestLowerBound,
@@ -784,14 +807,14 @@ fn original_line_end_column(sm: &srcmap_sourcemap::SourceMap, source_idx: u32, l
 ///
 /// The `line: 0` "unknown" sentinel is handled by the callers, not here:
 /// `getMapping` has no notion of it and `line - 1` would underflow.
-fn get_mapping_location(loc: &Location, sm: &srcmap_sourcemap::SourceMap) -> Option<Location> {
-    let start = original_position_try_both(sm, loc.start.line - 1, loc.start.column)?;
-    let end = original_end_position_for(sm, loc.end.line - 1, loc.end.column)?;
+fn get_mapping_location(loc: &Location, ctx: &mut RemapContext<'_>) -> Option<Location> {
+    let start = original_position_try_both(ctx.sm, loc.start.line - 1, loc.start.column)?;
+    let end = original_end_position_for(ctx, loc.end.line - 1, loc.end.column)?;
 
     let (end_source, mut end_line, mut end_col, end_is_eol) = match end {
         EndResult::Mapped { source, line, column } => (source, line, column, false),
         EndResult::EndOfLine { source, line } => {
-            (source, line, original_line_end_column(sm, source, line), true)
+            (source, line, original_line_end_column(ctx.sm, source, line), true)
         }
     };
 
@@ -806,7 +829,7 @@ fn get_mapping_location(loc: &Location, sm: &srcmap_sourcemap::SourceMap) -> Opt
     // end-of-line case: istanbul's `Infinity` can never equal `start.column`,
     // so the guard never fires there.
     if !end_is_eol && start.line == end_line && start.column == end_col {
-        let lub = original_position_for_lub(sm, loc.end.line - 1, loc.end.column)?;
+        let lub = original_position_for_lub(ctx.sm, loc.end.line - 1, loc.end.column)?;
         end_line = lub.line;
         // get-mapping.js does `end.column -= 1` unconditionally; when LUB lands on
         // column 0 it yields a JS `-1`, which can never round-trip through our
@@ -882,7 +905,7 @@ fn get_mapping_location_cached(ctx: &mut RemapContext<'_>, loc: &Location) -> Op
     if let Some(cached) = ctx.mapping_cache.get(&key) {
         return cached.clone();
     }
-    let remapped = get_mapping_location(loc, ctx.sm);
+    let remapped = get_mapping_location(loc, ctx);
     ctx.mapping_cache.insert(key, remapped.clone());
     remapped
 }
