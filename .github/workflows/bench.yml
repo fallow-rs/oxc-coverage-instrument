@@ -51,10 +51,6 @@ jobs:
             cache_key: v8
             package: oxc_coverage_v8
             bench: apply
-          - label: html reports
-            cache_key: reports-html
-            package: oxc_coverage_reports
-            bench: html
           - label: napi remap
             cache_key: napi-remap
             package: oxc_coverage_instrument_napi
