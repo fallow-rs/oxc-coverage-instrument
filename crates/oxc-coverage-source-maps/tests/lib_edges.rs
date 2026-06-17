@@ -163,6 +163,37 @@ fn source_map_store_hit_takes_precedence_over_embedded_map() {
 }
 
 #[test]
+fn source_map_store_add_map_json_remaps_without_value_round_trip() {
+    let fc = full_shape_file_coverage(None);
+    let map_json = identity_three_line_map(None).to_string();
+    let mut store = SourceMapStore::new();
+
+    store.add_map_json(fc.path.clone(), &map_json);
+
+    let remapped =
+        store.transform_coverage(&fc).expect("JSON string map should drive a successful remap");
+    assert_eq!(remapped.path, SRC_PATH);
+    assert!(remapped.input_source_map.is_none());
+}
+
+#[test]
+fn source_map_store_add_map_json_keeps_invalid_maps_unusable() {
+    let fc = full_shape_file_coverage(None);
+    let mut store = SourceMapStore::new();
+
+    store.add_map_json(fc.path.clone(), "{ not valid source map json");
+
+    assert!(
+        store.contains(&fc.path),
+        "invalid maps are still registered so later inserts can replace them",
+    );
+    assert!(
+        store.transform_coverage(&fc).is_none(),
+        "invalid registered map must not fall back to a generated remap",
+    );
+}
+
+#[test]
 fn source_map_store_transform_coverage_map_routes_both_branches() {
     let store_hit = full_shape_file_coverage(None);
     let store_miss = full_shape_file_coverage(None);
