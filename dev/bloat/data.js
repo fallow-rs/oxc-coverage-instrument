@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781724880339,
+  "lastUpdate": 1781725327990,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1444,6 +1444,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/08fab76386b9f9ba3fb41cef5ca790b45948d3a2"
         },
         "date": 1781724880007,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86970112,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "b862a818d88b39e4d6ccb5081c942cb3211901a5",
+          "message": "test: keep html codspeed benchmark compact",
+          "timestamp": "2026-06-17T21:40:19+02:00",
+          "tree_id": "10236d7e7b8cb688a5285267ba9eaae17d7ea050",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/b862a818d88b39e4d6ccb5081c942cb3211901a5"
+        },
+        "date": 1781725327338,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
