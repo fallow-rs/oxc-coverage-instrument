@@ -79,10 +79,7 @@ pub fn write_with_timestamp<W: io::Write>(
 
     let grouped = group_by_package(&files, root_dir);
     for (package_name, package_files) in &grouped {
-        write_package(
-            out,
-            PackageInput { name: package_name, files: package_files, root_dir },
-        )?;
+        write_package(out, PackageInput { name: package_name, files: package_files, root_dir })?;
     }
 
     writeln!(out, "  </packages>")?;

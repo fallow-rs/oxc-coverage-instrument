@@ -1708,12 +1708,11 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             if span.start == 0 && span.end == 0 {
                 continue;
             }
-            insertions.extend(
-                self.drain_pending_insertions_for_target(span.start)
-                    .map(|pending| {
-                        (idx, build_counter_stmt(CounterKind::from_pending(cov_fn, &pending), ctx))
-                    }),
-            );
+            insertions.extend(self.drain_pending_insertions_for_target(span.start).map(
+                |pending| {
+                    (idx, build_counter_stmt(CounterKind::from_pending(cov_fn, &pending), ctx))
+                },
+            ));
         }
 
         if insertions.is_empty() {
@@ -1817,7 +1816,11 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         // still tracks coverage), so the branch entry survives with one
         // remaining location.
         self.inject_conditional_arm_counter(
-            ConditionalArmInput { branch_id, arm: &mut expr.consequent, ignored: ignore_consequent },
+            ConditionalArmInput {
+                branch_id,
+                arm: &mut expr.consequent,
+                ignored: ignore_consequent,
+            },
             ctx,
         );
         self.inject_conditional_arm_counter(

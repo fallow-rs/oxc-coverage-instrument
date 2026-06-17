@@ -21,7 +21,6 @@ rules:
   # default checkout credentials.
   secrets-outside-env:
     ignore:
-      - bench.yml
       - bloat.yml
       - coverage.yml
       - release-npm.yml

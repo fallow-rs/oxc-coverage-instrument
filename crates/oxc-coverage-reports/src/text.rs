@@ -47,10 +47,7 @@ struct TextWriter<'a, W: io::Write> {
 impl<W: io::Write> Visitor for TextWriter<'_, W> {
     fn on_summary(&mut self, node: &ReportNode) -> io::Result<()> {
         let display = if self.depth == 0 { "All files".to_owned() } else { node.name.clone() };
-        write_row(
-            self.out,
-            TextRow { name: &display, depth: self.depth, node, uncovered: None },
-        )?;
+        write_row(self.out, TextRow { name: &display, depth: self.depth, node, uncovered: None })?;
         self.depth += 1;
         Ok(())
     }

@@ -10,7 +10,6 @@ on:
       - 'rust-toolchain.toml'
       - '.github/workflows/bench.yml'
       - '.github/actions/setup-rust/**'
-      - '.github/actions/store-benchmark/**'
   push:
     branches: [main]
     paths:
@@ -20,7 +19,6 @@ on:
       - 'rust-toolchain.toml'
       - '.github/workflows/bench.yml'
       - '.github/actions/setup-rust/**'
-      - '.github/actions/store-benchmark/**'
   workflow_dispatch:
 
 concurrency:
@@ -34,57 +32,52 @@ env:
 
 jobs:
   benchmark:
-    name: Instrumentation throughput
+    name: CodSpeed simulation (${{ matrix.label }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: write
-      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: instrumentation
+            cache_key: instrument
+            package: oxc_coverage_instrument
+            bench: instrument
+          - label: source maps
+            cache_key: source-maps
+            package: oxc_coverage_source_maps
+            bench: remap
+          - label: v8 coverage
+            cache_key: v8
+            package: oxc_coverage_v8
+            bench: apply
+          - label: html reports
+            cache_key: reports-html
+            package: oxc_coverage_reports
+            bench: html
+          - label: napi remap
+            cache_key: napi-remap
+            package: oxc_coverage_instrument_napi
+            bench: remap
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-rust
         with:
-          cache-key: bench
+          cache-key: bench-${{ matrix.cache_key }}
 
-      - name: Run criterion benchmarks
-        run: cargo bench --bench instrument -- --output-format bencher | tee bench-output.txt
-
-      - name: Store benchmark result
-        uses: ./.github/actions/store-benchmark
+      - name: Install cargo-codspeed
+        uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
         with:
-          name: oxc-coverage-instrument benchmarks
-          tool: cargo
-          output-file-path: bench-output.txt
-          data-dir: bench
-          alert-threshold: '150%'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          continue-on-error: ${{ github.event_name == 'pull_request' }}
+          tool: cargo-codspeed@4.7.0
 
-      - name: Deploy dashboard
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          set -euo pipefail
+      - name: Build benchmark shard
+        run: cargo codspeed build -p ${{ matrix.package }} --bench ${{ matrix.bench }}
 
-          # Save the dashboard page before switching branches.
-          cp .github/pages/index.html /tmp/dashboard-index.html
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Fetch latest gh-pages (benchmark-action may have just pushed).
-          git fetch origin gh-pages
-
-          # Use a worktree to avoid clobbering the main checkout.
-          git worktree add /tmp/gh-pages origin/gh-pages
-          cd /tmp/gh-pages
-
-          cp /tmp/dashboard-index.html index.html
-          git add index.html
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: update dashboard index.html"
-            git push origin HEAD:gh-pages
-          fi
-
-          cd "$GITHUB_WORKSPACE"
-          git worktree remove /tmp/gh-pages
+      - name: Run benchmark shard
+        uses: CodSpeedHQ/action@c145068895e045cc725ee76fcd2307624b65c3af # v4.17.5
+        with:
+          mode: simulation
+          run: cargo codspeed run -p ${{ matrix.package }} --bench ${{ matrix.bench }}

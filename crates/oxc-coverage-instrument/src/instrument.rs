@@ -288,13 +288,21 @@ pub fn instrument(
     }
 
     let scoping = prepare_scoping(PrepareScopingInput {
-        allocator: &allocator, filename, program: &mut parsed.program, options,
+        allocator: &allocator,
+        filename,
+        program: &mut parsed.program,
+        options,
     })?;
     let cov_fn_name = generate_cov_fn_name(filename);
 
     let (transform, scoping) = run_coverage_transform(CoverageTransformRun {
-        allocator: &allocator, program: &mut parsed.program, scoping, pragmas, source,
-        cov_fn_name: &cov_fn_name, options,
+        allocator: &allocator,
+        program: &mut parsed.program,
+        scoping,
+        pragmas,
+        source,
+        cov_fn_name: &cov_fn_name,
+        options,
     });
 
     let coverage_map = finalize_coverage_map(filename, transform, options);
@@ -302,7 +310,12 @@ pub fn instrument(
     let (coverage_json, preamble) = build_instrument_preamble(&coverage_map, options, &cov_fn_name);
 
     let (code, source_map) = emit_instrument_output(EmitInputs {
-        program: &parsed.program, scoping, source, filename, preamble: &preamble, options,
+        program: &parsed.program,
+        scoping,
+        source,
+        filename,
+        preamble: &preamble,
+        options,
     });
 
     Ok(InstrumentResult {
@@ -364,15 +377,8 @@ struct CoverageTransformRun<'src, 'arena, 'a> {
 fn run_coverage_transform<'src, 'arena>(
     input: CoverageTransformRun<'src, 'arena, '_>,
 ) -> (CoverageTransform<'src, 'arena>, Scoping) {
-    let CoverageTransformRun {
-        allocator,
-        program,
-        scoping,
-        pragmas,
-        source,
-        cov_fn_name,
-        options,
-    } = input;
+    let CoverageTransformRun { allocator, program, scoping, pragmas, source, cov_fn_name, options } =
+        input;
     let mut transform = CoverageTransform::new(TransformInit {
         allocator,
         source,
