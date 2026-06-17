@@ -55,3 +55,9 @@ name = "html"
 harness = false
 test = false
 required-features = ["codspeed"]
+
+[[bench]]
+name = "formats"
+harness = false
+test = false
+required-features = ["codspeed"]
