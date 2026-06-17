@@ -73,7 +73,7 @@ struct CoverageContext<'a> {
     source: &'a str,
     line_offsets: &'a [u32],
     ranges: &'a [V8CoverageRange],
-    ranges_by_width: &'a [usize],
+    arm_ranges: &'a [V8CoverageRange],
     wrapper_length: u32,
 }
 
@@ -89,7 +89,7 @@ impl CoverageContext<'_> {
         let start =
             self.position_to_byte_offset(loc.start.line, loc.start.column) + self.wrapper_length;
         let end = self.position_to_byte_offset(loc.end.line, loc.end.column) + self.wrapper_length;
-        smallest_containing_range_count(start, end, self.ranges, self.ranges_by_width)
+        smallest_containing_range_count(start, end, self.ranges)
     }
 
     // Branch arms need a tight V8 block range. Falling back to an enclosing
@@ -119,8 +119,8 @@ impl CoverageContext<'_> {
         let mut best: Option<(V8CoverageRange, u32)> = None;
         let lower = arm_start.saturating_sub(TOLERANCE);
         let upper = arm_start.saturating_add(TOLERANCE);
-        let start = self.ranges.partition_point(|r| r.start_offset < lower);
-        for r in &self.ranges[start..] {
+        let start = self.arm_ranges.partition_point(|r| r.start_offset < lower);
+        for r in &self.arm_ranges[start..] {
             if r.start_offset > upper {
                 break;
             }
@@ -207,15 +207,14 @@ fn apply_v8_coverage_inner(file_coverage: &mut FileCoverage, input: &CoverageInp
     let line_offsets = compute_line_offsets(input.source);
     let mut ranges: Vec<V8CoverageRange> =
         input.functions.iter().flat_map(|f| f.ranges.iter().copied()).collect();
-    ranges.sort_by_key(|r| r.start_offset);
-    let mut ranges_by_width: Vec<usize> = (0..ranges.len()).collect();
-    ranges_by_width
-        .sort_by_key(|idx| ranges[*idx].end_offset.saturating_sub(ranges[*idx].start_offset));
+    ranges.sort_by_key(|r| r.end_offset.saturating_sub(r.start_offset));
+    let mut arm_ranges = ranges.clone();
+    arm_ranges.sort_by_key(|r| r.start_offset);
     let context = CoverageContext {
         source: input.source,
         line_offsets: &line_offsets,
         ranges: &ranges,
-        ranges_by_width: &ranges_by_width,
+        arm_ranges: &arm_ranges,
         wrapper_length: input.wrapper_length,
     };
 
@@ -385,14 +384,8 @@ fn compute_line_offsets(source: &str) -> Vec<u32> {
 /// (`endOffset` / `end` are exclusive). The containment predicate is therefore
 /// `r.start <= start && r.end >= end`: a range whose exclusive end is equal
 /// to the statement's exclusive end is the smallest possible exact container.
-fn smallest_containing_range_count(
-    start: u32,
-    end: u32,
-    ranges: &[V8CoverageRange],
-    ranges_by_width: &[usize],
-) -> u32 {
-    for idx in ranges_by_width {
-        let r = ranges[*idx];
+fn smallest_containing_range_count(start: u32, end: u32, ranges: &[V8CoverageRange]) -> u32 {
+    for r in ranges {
         if r.start_offset <= start && r.end_offset >= end {
             return r.count;
         }
