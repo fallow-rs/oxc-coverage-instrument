@@ -8,7 +8,7 @@ use oxc_coverage_reports::html::{self, HtmlOptions};
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
 use tempfile::TempDir;
 
-const CASES: &[(&str, usize, u32)] = &[("small", 16, 80), ("large", 80, 120)];
+const CASES: &[(&str, usize, u32)] = &[("small", 4, 40), ("medium", 16, 80)];
 
 fn loc(line: u32, start_col: u32, end_col: u32) -> Location {
     Location {
