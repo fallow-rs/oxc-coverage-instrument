@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781723321046,
+  "lastUpdate": 1781724158140,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1386,6 +1386,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/203673da4f929e43ae4cb0905c691ca65e62ea12"
         },
         "date": 1781723320011,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86970112,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "1f632f31324353a9da5ed7f7400928a7d78b1df7",
+          "message": "test: cover napi remap wrappers",
+          "timestamp": "2026-06-17T21:20:28+02:00",
+          "tree_id": "dd71ce7fdbb656762e55ac17fe77cf8154050ab0",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/1f632f31324353a9da5ed7f7400928a7d78b1df7"
+        },
+        "date": 1781724157240,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
