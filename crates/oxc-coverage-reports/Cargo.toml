@@ -22,6 +22,7 @@ workspace = true
 # cobertura / json-summary can opt out with `default-features = false`.
 default = ["html"]
 html = ["dep:syntect", "dep:two-face", "dep:rayon"]
+codspeed = ["criterion2/codspeed"]
 
 [dependencies]
 oxc_coverage_report = { path = "../oxc-coverage-report", version = "0.2.0" }
@@ -44,7 +45,7 @@ two-face = { version = "0.5", default-features = false, features = ["syntect-fan
 rayon = { version = "1.12", optional = true }
 
 [dev-dependencies]
-divan = { package = "codspeed-divan-compat", version = "4.7" }
+criterion2 = { version = "3.0.2", default-features = false }
 insta = { version = "1", features = ["json"] }
 lcov = "0.8"
 tempfile = "3"
@@ -52,3 +53,5 @@ tempfile = "3"
 [[bench]]
 name = "html"
 harness = false
+test = false
+required-features = ["codspeed"]

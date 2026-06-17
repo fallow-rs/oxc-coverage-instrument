@@ -15,6 +15,9 @@ categories = ["development-tools::testing", "web-programming"]
 [lints]
 workspace = true
 
+[features]
+codspeed = ["criterion2/codspeed"]
+
 [dependencies]
 # Suite crates. Path + version: path for workspace builds, version for
 # `cargo publish` so the lib crate can publish standalone from crates.io.
@@ -42,7 +45,7 @@ srcmap-remapping = "=0.3.7"
 srcmap-sourcemap = "=0.3.8"
 
 [dev-dependencies]
-divan = { package = "codspeed-divan-compat", version = "4.7" }
+criterion2 = { version = "3.0.2", default-features = false }
 insta = { version = "1", features = ["json"] }
 oxc_sourcemap = "7.0"
 serde = { version = "1", features = ["derive"] }
@@ -50,3 +53,5 @@ serde = { version = "1", features = ["derive"] }
 [[bench]]
 name = "instrument"
 harness = false
+test = false
+required-features = ["codspeed"]

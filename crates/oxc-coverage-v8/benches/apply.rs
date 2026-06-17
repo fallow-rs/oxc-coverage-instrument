@@ -1,15 +1,11 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use divan::Bencher;
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
 use oxc_coverage_v8::{V8CoverageRange, V8FunctionCoverage, apply_v8_coverage};
 
 const RANGE_CASES: &[(&str, bool)] = &[("ascii", false), ("unicode", true)];
-
-fn main() {
-    divan::main();
-}
 
 /// Return shape of `branch_heavy_fixture`: instrumented source, the coverage
 /// map, the V8 function ranges, and the per-branch span table.
@@ -177,24 +173,31 @@ fn digits(n: u32) -> u32 {
     n.ilog10() + 1
 }
 
-#[divan::bench(args = RANGE_CASES)]
-fn ranges(bencher: Bencher, case: &(&str, bool)) {
-    let (_, unicode) = *case;
-    let (source, coverage, functions) = fixture(1_000, unicode);
+fn bench_apply(c: &mut Criterion) {
+    let mut group = c.benchmark_group("v8_apply");
 
-    bencher.bench(|| {
-        let mut coverage = coverage.clone();
-        apply_v8_coverage(&mut coverage, &source, &functions, 0, &BTreeMap::new());
-        coverage
-    });
-}
+    for (label, unicode) in RANGE_CASES {
+        let (source, coverage, functions) = fixture(1_000, *unicode);
+        group.bench_with_input(BenchmarkId::new("ranges", label), &coverage, |b, coverage| {
+            b.iter(|| {
+                let mut coverage = coverage.clone();
+                apply_v8_coverage(&mut coverage, &source, &functions, 0, &BTreeMap::new());
+                coverage
+            });
+        });
+    }
 
-#[divan::bench]
-fn branches_dense(bencher: Bencher) {
     let (source, coverage, functions, spans) = branch_heavy_fixture(1_000);
-    bencher.bench(|| {
-        let mut coverage = coverage.clone();
-        apply_v8_coverage(&mut coverage, &source, &functions, 0, &spans);
-        coverage
+    group.bench_with_input(BenchmarkId::new("branches", "dense"), &coverage, |b, coverage| {
+        b.iter(|| {
+            let mut coverage = coverage.clone();
+            apply_v8_coverage(&mut coverage, &source, &functions, 0, &spans);
+            coverage
+        });
     });
+
+    group.finish();
 }
+
+criterion_group!(benches, bench_apply);
+criterion_main!(benches);

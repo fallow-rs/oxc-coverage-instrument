@@ -1,16 +1,12 @@
 use std::collections::{BTreeMap, HashMap};
 
-use divan::Bencher;
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use oxc_coverage_instrument::{BranchEntry, FileCoverage, FnEntry, Location, Position};
 use oxc_coverage_instrument_napi::remap_coverage_map_with_loader;
 use srcmap_generator::SourceMapGenerator;
 
 const SOURCE_PATH: &str = "src/app.ts";
 const CASES: &[(&str, usize, u32)] = &[("small", 4, 80), ("large", 20, 200)];
-
-fn main() {
-    divan::main();
-}
 
 fn loc(line: u32, start_col: u32, end_col: u32) -> Location {
     Location {
@@ -90,13 +86,25 @@ fn fixture(file_count: usize, entries: u32) -> (String, HashMap<String, String>)
     (coverage_json, source_maps)
 }
 
-#[divan::bench(args = CASES)]
-fn with_loader(bencher: Bencher, case: &(&str, usize, u32)) {
-    let (_, files, entries) = *case;
-    let (coverage_json, source_maps) = fixture(files, entries);
+fn bench_napi_remap(c: &mut Criterion) {
+    let mut group = c.benchmark_group("napi_remap");
 
-    bencher.bench(|| {
-        remap_coverage_map_with_loader(coverage_json.clone(), source_maps.clone(), None)
-            .expect("napi remap succeeds")
-    });
+    for (label, files, entries) in CASES {
+        let (coverage_json, source_maps) = fixture(*files, *entries);
+        group.bench_with_input(
+            BenchmarkId::new("with_loader", label),
+            &coverage_json,
+            |b, coverage_json| {
+                b.iter(|| {
+                    remap_coverage_map_with_loader(coverage_json.clone(), source_maps.clone(), None)
+                        .expect("napi remap succeeds")
+                });
+            },
+        );
+    }
+
+    group.finish();
 }
+
+criterion_group!(benches, bench_napi_remap);
+criterion_main!(benches);

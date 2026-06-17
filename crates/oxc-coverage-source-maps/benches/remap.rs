@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use divan::Bencher;
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use oxc_coverage_source_maps::{
     RemapOptions, SourceMapStore, remap_coverage, remap_coverage_with_options,
 };
@@ -10,10 +10,6 @@ use srcmap_generator::SourceMapGenerator;
 const SOURCE_PATH: &str = "src/app.ts";
 const GENERATED_PATH: &str = "dist/app.js";
 const CASES: &[(&str, u32)] = &[("medium", 200), ("large", 1_000)];
-
-fn main() {
-    divan::main();
-}
 
 fn loc(start_line: u32, start_col: u32, end_line: u32, end_col: u32) -> Location {
     Location {
@@ -99,37 +95,44 @@ fn file_coverage(entry_count: u32, map: serde_json::Value) -> FileCoverage {
     }
 }
 
-#[divan::bench(args = CASES)]
-fn embedded(bencher: Bencher, case: &(&str, u32)) {
-    let (_, entry_count) = *case;
-    let map = source_map_json(entry_count, 32);
-    let coverage = file_coverage(entry_count, map);
+fn bench_remap(c: &mut Criterion) {
+    let mut group = c.benchmark_group("remap");
 
-    bencher.bench(|| remap_coverage(&coverage).expect("embedded remap succeeds"));
+    for (label, entry_count) in CASES {
+        let map = source_map_json(*entry_count, 32);
+        let coverage = file_coverage(*entry_count, map.clone());
+
+        group.bench_with_input(BenchmarkId::new("embedded", label), &coverage, |b, coverage| {
+            b.iter(|| remap_coverage(coverage).expect("embedded remap succeeds"));
+        });
+
+        let mut store = SourceMapStore::new();
+        store.add_map(GENERATED_PATH, &map);
+        let mut coverage_without_map = coverage.clone();
+        coverage_without_map.input_source_map = None;
+
+        group.bench_with_input(
+            BenchmarkId::new("store", label),
+            &coverage_without_map,
+            |b, coverage| {
+                b.iter(|| store.transform_coverage(coverage).expect("store remap succeeds"));
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("drop_unmapped", label),
+            &coverage,
+            |b, coverage| {
+                b.iter(|| {
+                    remap_coverage_with_options(coverage, RemapOptions { drop_unmapped: true })
+                        .expect("drop remap succeeds")
+                });
+            },
+        );
+    }
+
+    group.finish();
 }
 
-#[divan::bench(args = CASES)]
-fn store(bencher: Bencher, case: &(&str, u32)) {
-    let (_, entry_count) = *case;
-    let map = source_map_json(entry_count, 32);
-    let mut store = SourceMapStore::new();
-    store.add_map(GENERATED_PATH, &map);
-    let mut coverage_without_map = file_coverage(entry_count, map);
-    coverage_without_map.input_source_map = None;
-
-    bencher.bench_local(|| {
-        store.transform_coverage(&coverage_without_map).expect("store remap succeeds")
-    });
-}
-
-#[divan::bench(args = CASES)]
-fn drop_unmapped(bencher: Bencher, case: &(&str, u32)) {
-    let (_, entry_count) = *case;
-    let map = source_map_json(entry_count, 32);
-    let coverage = file_coverage(entry_count, map);
-
-    bencher.bench(|| {
-        remap_coverage_with_options(&coverage, RemapOptions { drop_unmapped: true })
-            .expect("drop remap succeeds")
-    });
-}
+criterion_group!(benches, bench_remap);
+criterion_main!(benches);

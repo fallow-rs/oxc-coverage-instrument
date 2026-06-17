@@ -2,17 +2,13 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 
-use divan::Bencher;
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use oxc_coverage_report::CoverageMap;
 use oxc_coverage_reports::html::{self, HtmlOptions};
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
 use tempfile::TempDir;
 
 const CASES: &[(&str, usize, u32)] = &[("small", 16, 80), ("large", 80, 120)];
-
-fn main() {
-    divan::main();
-}
 
 fn loc(line: u32, start_col: u32, end_col: u32) -> Location {
     Location {
@@ -102,13 +98,21 @@ fn fixture(file_count: usize, lines: u32) -> (TempDir, TempDir, CoverageMap) {
     (root, output, map)
 }
 
-#[divan::bench(args = CASES)]
-fn write(bencher: Bencher, case: &(&str, usize, u32)) {
-    let (_, files, lines) = *case;
+fn bench_html(c: &mut Criterion) {
     let options = HtmlOptions::default();
-    let (root, output, map) = fixture(files, lines);
+    let mut group = c.benchmark_group("html_report");
 
-    bencher.bench(|| {
-        html::write(&map, root.path(), output.path(), &options).expect("html report writes");
-    });
+    for (label, files, lines) in CASES {
+        let (root, output, map) = fixture(*files, *lines);
+        group.bench_with_input(BenchmarkId::new("write", label), &map, |b, map| {
+            b.iter(|| {
+                html::write(map, root.path(), output.path(), &options).expect("html report writes");
+            });
+        });
+    }
+
+    group.finish();
 }
+
+criterion_group!(benches, bench_html);
+criterion_main!(benches);

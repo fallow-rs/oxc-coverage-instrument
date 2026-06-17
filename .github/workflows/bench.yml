@@ -70,10 +70,16 @@ jobs:
           tool: cargo-codspeed@4.7.0
 
       - name: Build benchmark shard
-        run: cargo codspeed build -p ${{ matrix.package }} --bench ${{ matrix.bench }}
+        env:
+          RUSTFLAGS: "-C debuginfo=1 -C strip=none -g --cfg codspeed"
+        run: |
+          cargo build --release -p ${{ matrix.package }} --bench ${{ matrix.bench }} --features codspeed
+          mkdir -p target/codspeed/analysis/${{ matrix.package }}
+          mv target/release/deps/${{ matrix.bench }}-* target/codspeed/analysis/${{ matrix.package }}
+          rm target/codspeed/analysis/${{ matrix.package }}/*.d
 
       - name: Run benchmark shard
         uses: CodSpeedHQ/action@c145068895e045cc725ee76fcd2307624b65c3af # v4.17.5
         with:
           mode: simulation
-          run: cargo codspeed run -p ${{ matrix.package }} --bench ${{ matrix.bench }}
+          run: cargo codspeed run ${{ matrix.bench }}
