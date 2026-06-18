@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781725327990,
+  "lastUpdate": 1781773497670,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1473,6 +1473,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/b862a818d88b39e4d6ccb5081c942cb3211901a5"
         },
         "date": 1781725327338,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86970112,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "b7a81671e5563135ebb5d7836a56634114fdaa77",
+          "message": "perf: streamline v8 source map helpers",
+          "timestamp": "2026-06-18T11:03:06+02:00",
+          "tree_id": "ce1b3b64709872532e467780e390442fb4f853b6",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/b7a81671e5563135ebb5d7836a56634114fdaa77"
+        },
+        "date": 1781773497303,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
