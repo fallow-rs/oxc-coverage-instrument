@@ -84,6 +84,11 @@ fn inline_source_map_returns_none_on_malformed_payloads() {
 
     // Garbage after the comma: not valid JSON in either alphabet.
     assert!(extract_inline_source_map("//# sourceMappingURL=data:application/json,@@@@").is_none(),);
+
+    // A single base64 sextet is structurally invalid and must fail closed.
+    assert!(
+        extract_inline_source_map("//# sourceMappingURL=data:application/json;base64,A").is_none(),
+    );
 }
 
 #[test]

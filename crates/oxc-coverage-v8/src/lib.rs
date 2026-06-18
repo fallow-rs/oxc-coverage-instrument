@@ -247,20 +247,19 @@ fn apply_branch_counts(
     context: &CoverageContext<'_>,
 ) {
     for (id, branch_entry) in &file_coverage.branch_map {
+        let Some(slot) = file_coverage.b.get_mut(id) else {
+            continue;
+        };
         let body_spans = input.arm_body_byte_spans.get(id);
-        let arm_counts: Vec<u32> = branch_entry
-            .locations
-            .iter()
-            .enumerate()
-            .map(|(arm_idx, loc)| {
+        slot.clear();
+        slot.reserve(branch_entry.locations.len());
+        for (arm_idx, loc) in branch_entry.locations.iter().enumerate() {
+            slot.push(
                 context.arm_count_for_arm(
                     loc,
                     body_spans.and_then(|spans| spans.get(arm_idx).copied()),
-                )
-            })
-            .collect();
-        if let Some(slot) = file_coverage.b.get_mut(id) {
-            *slot = arm_counts;
+                ),
+            );
         }
     }
 }
@@ -321,20 +320,37 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, ()> {
             _ => Err(()),
         }
     }
-    let trimmed: Vec<u8> =
-        input.bytes().filter(|b| *b != b'=' && !b.is_ascii_whitespace()).collect();
-    let mut out = Vec::with_capacity(trimmed.len() * 3 / 4);
-    for chunk in trimmed.chunks(4) {
+
+    let mut out = Vec::with_capacity(input.len() * 3 / 4);
+    let mut chunk = [0u8; 4];
+    let mut len = 0usize;
+    for byte in input.bytes() {
+        if byte == b'=' || byte.is_ascii_whitespace() {
+            continue;
+        }
+        chunk[len] = byte;
+        len += 1;
+        if len == 4 {
+            let n0 = value(chunk[0])?;
+            let n1 = value(chunk[1])?;
+            let n2 = value(chunk[2])?;
+            let n3 = value(chunk[3])?;
+            out.push((n0 << 2) | (n1 >> 4));
+            out.push((n1 << 4) | (n2 >> 2));
+            out.push((n2 << 6) | n3);
+            len = 0;
+        }
+    }
+    if len == 1 {
+        return Err(());
+    }
+    if len > 1 {
         let n0 = value(chunk[0])?;
         let n1 = value(chunk[1])?;
         out.push((n0 << 2) | (n1 >> 4));
-        if let Some(&c2) = chunk.get(2) {
-            let n2 = value(c2)?;
+        if len > 2 {
+            let n2 = value(chunk[2])?;
             out.push((n1 << 4) | (n2 >> 2));
-            if let Some(&c3) = chunk.get(3) {
-                let n3 = value(c3)?;
-                out.push((n2 << 6) | n3);
-            }
         }
     }
     Ok(out)

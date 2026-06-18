@@ -3,9 +3,20 @@ use std::fmt::Write as _;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
-use oxc_coverage_v8::{V8CoverageRange, V8FunctionCoverage, apply_v8_coverage};
+use oxc_coverage_v8::{
+    V8CoverageRange, V8FunctionCoverage, apply_v8_coverage, extract_external_source_mapping_url,
+    extract_inline_source_map,
+};
 
 const RANGE_CASES: &[(&str, bool)] = &[("ascii", false), ("unicode", true)];
+const INLINE_SOURCE_MAP_CASES: &[(&str, InlineSourceMapEncoding)] =
+    &[("base64", InlineSourceMapEncoding::Base64), ("percent", InlineSourceMapEncoding::Percent)];
+
+#[derive(Clone, Copy)]
+enum InlineSourceMapEncoding {
+    Base64,
+    Percent,
+}
 
 /// Return shape of `branch_heavy_fixture`: instrumented source, the coverage
 /// map, the V8 function ranges, and the per-branch span table.
@@ -173,6 +184,63 @@ fn digits(n: u32) -> u32 {
     n.ilog10() + 1
 }
 
+fn source_map_json(sources: u32) -> String {
+    let source_list =
+        (0..sources).map(|id| format!(r#""src/file{id}.ts""#)).collect::<Vec<_>>().join(",");
+    format!(r#"{{"version":3,"sources":[{source_list}],"mappings":"","names":[]}}"#)
+}
+
+fn base64_urlsafe(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = *chunk.get(1).unwrap_or(&0);
+        let b2 = *chunk.get(2).unwrap_or(&0);
+        out.push(ALPHABET[(b0 >> 2) as usize] as char);
+        out.push(ALPHABET[(((b0 & 0b11) << 4) | (b1 >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[(((b1 & 0b1111) << 2) | (b2 >> 6)) as usize] as char);
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[(b2 & 0b11_1111) as usize] as char);
+        }
+    }
+    out
+}
+
+fn percent_encode_json(input: &str) -> String {
+    let mut out = String::new();
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => {
+                let _ = write!(out, "%{byte:02X}");
+            }
+        }
+    }
+    out
+}
+
+fn inline_source_map_source(encoding: InlineSourceMapEncoding) -> String {
+    let payload = source_map_json(200);
+    let encoded = match encoding {
+        InlineSourceMapEncoding::Base64 => base64_urlsafe(payload.as_bytes()),
+        InlineSourceMapEncoding::Percent => percent_encode_json(&payload),
+    };
+    let marker = match encoding {
+        InlineSourceMapEncoding::Base64 => "data:application/json;base64,",
+        InlineSourceMapEncoding::Percent => "data:application/json,",
+    };
+    format!("{}\n//# sourceMappingURL={marker}{encoded}", "const x = 1;\n".repeat(500))
+}
+
+fn external_source_map_source() -> String {
+    format!("{}\n//# sourceMappingURL=dist/app.js.map", "const x = 1;\n".repeat(2_000))
+}
+
 fn bench_apply(c: &mut Criterion) {
     let mut group = c.benchmark_group("v8_apply");
 
@@ -199,5 +267,23 @@ fn bench_apply(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_apply);
+fn bench_source_map_trailers(c: &mut Criterion) {
+    let mut group = c.benchmark_group("source_map_trailer");
+
+    for (label, encoding) in INLINE_SOURCE_MAP_CASES {
+        let source = inline_source_map_source(*encoding);
+        group.bench_with_input(BenchmarkId::new("inline", label), &source, |b, source| {
+            b.iter(|| extract_inline_source_map(std::hint::black_box(source)));
+        });
+    }
+
+    let source = external_source_map_source();
+    group.bench_function("external", |b| {
+        b.iter(|| extract_external_source_mapping_url(std::hint::black_box(&source)));
+    });
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_apply, bench_source_map_trailers);
 criterion_main!(benches);
