@@ -63,7 +63,7 @@
     "@napi-rs/wasm-runtime": "^1.1.4"
   },
   "devDependencies": {
-    "@babel/core": "^7.29.0",
+    "@babel/core": "^8.0.0",
     "@jridgewell/gen-mapping": "^0.3.13",
     "@napi-rs/cli": "3.7.2",
     "istanbul-lib-coverage": "^3.2.2",
