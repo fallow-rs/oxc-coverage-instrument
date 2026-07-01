@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# commit-msg hook: lint the commit message against the Conventional Commits
+# rules (commitlint.config.mjs), mirroring the CI "Commit messages" job that
+# blocks PR merges. Catching a malformed subject here saves an amend + repush.
+#
+# Setup (one-time, per clone):
+#   git config core.hooksPath .githooks
+#
+# commitlint is a root devDependency; run `npm ci` at the repo root to install
+# it. This is a Rust-first repo, so the hook SKIPS (does not block) when
+# commitlint is absent, so a pure-Rust contributor is not forced to install the
+# JS toolchain. CI still enforces the rule on every PR.
+#
+# Bypass (use sparingly):
+#   SKIP_COMMIT_MSG=1 git commit ...   (or git commit --no-verify)
+
+set -euo pipefail
+
+if [ "${SKIP_COMMIT_MSG:-0}" = "1" ]; then
+  echo "[commit-msg] SKIP_COMMIT_MSG=1, skipping commitlint"
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+if [ ! -x node_modules/.bin/commitlint ]; then
+  echo "[commit-msg] commitlint not installed (run 'npm ci' at repo root to enable); skipping"
+  exit 0
+fi
+
+echo "[commit-msg] commitlint"
+node_modules/.bin/commitlint --edit "$1"
