@@ -31,7 +31,9 @@ jobs:
         with:
           key: coverage
 
-      - uses: taiki-e/install-action@2d15d02e710b40b6332201aba6af30d595b5cd96 # cargo-llvm-cov
+      - uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
+        with:
+          tool: cargo-llvm-cov
 
       - name: Run tests with coverage
         run: |
