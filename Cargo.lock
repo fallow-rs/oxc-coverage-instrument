@@ -1716,9 +1716,9 @@ dependencies = [
 
 [[package]]
 name = "srcmap-remapping"
-version = "0.3.7"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4e547cb651c93a5af5cf78223ad176d912c905db4423a3bed3bd680bd990f9a"
+checksum = "9ba5fc7dd285ffd6d1ce55ec4748ac033d22f5b707ed3828dcb80cab474215fe"
 dependencies = [
  "srcmap-generator",
  "srcmap-sourcemap",
