@@ -677,10 +677,18 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
 /// so a leading string literal (route path, test name) is not accessible here.
 fn callback_argument_name(ctx: &TraverseCtx<'_, CoverageState>) -> Option<String> {
     use oxc_traverse::Ancestor;
-    let callee = match ctx.ancestors().next()? {
-        Ancestor::CallExpressionArguments(call) => call.callee(),
-        Ancestor::NewExpressionArguments(new_expr) => new_expr.callee(),
-        _ => return None,
+    // Skip `ParenthesizedExpression` wrappers: Oxc keeps them as real nodes, so
+    // `foo((cb))` nests the callback inside a paren whose parent is the
+    // arguments position. Any non-paren, non-arguments ancestor (e.g. a callee
+    // position for an IIFE) means this is not a callback and stays anonymous.
+    let mut ancestors = ctx.ancestors();
+    let callee = loop {
+        match ancestors.next()? {
+            Ancestor::ParenthesizedExpressionExpression(_) => {}
+            Ancestor::CallExpressionArguments(call) => break call.callee(),
+            Ancestor::NewExpressionArguments(new_expr) => break new_expr.callee(),
+            _ => return None,
+        }
     };
     callee_name(callee)
 }
@@ -688,8 +696,9 @@ fn callback_argument_name(ctx: &TraverseCtx<'_, CoverageState>) -> Option<String
 /// Extract a display name from a call/`new` callee expression. Mirrors the
 /// binding-name rules used elsewhere: a bare identifier keeps its name, a
 /// member access uses the (last) property name, and a computed access uses the
-/// string-literal key. Anything else (a computed non-string index, a call
-/// result, a parenthesized expression) yields no name.
+/// string-literal key. Oxc preserves `ParenthesizedExpression` nodes (Babel
+/// strips them), so `(foo)(cb)` is unwrapped to `foo`. Anything else (a
+/// computed non-string index, a call result) yields no name.
 fn callee_name(callee: &Expression<'_>) -> Option<String> {
     match callee {
         Expression::Identifier(ident) => Some(ident.name.to_string()),
@@ -698,6 +707,7 @@ fn callee_name(callee: &Expression<'_>) -> Option<String> {
             Expression::StringLiteral(lit) => Some(lit.value.to_string()),
             _ => None,
         },
+        Expression::ParenthesizedExpression(paren) => callee_name(&paren.expression),
         _ => None,
     }
 }
