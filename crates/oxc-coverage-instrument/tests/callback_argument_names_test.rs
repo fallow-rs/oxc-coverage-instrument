@@ -118,3 +118,33 @@ fn repeated_callee_names_are_stable_and_repeat() {
     let got = names("a.map((x) => x);\nb.map((y) => y);", true);
     assert_eq!(got, vec!["map", "map"]);
 }
+
+#[test]
+fn parenthesized_identifier_callee_names_the_callback() {
+    // Oxc keeps `ParenthesizedExpression` as a real node; `(foo)(cb)` unwraps
+    // the paren to name the callback "foo".
+    assert_eq!(names("(foo)(() => run());", true), vec!["foo"]);
+}
+
+#[test]
+fn parenthesized_member_callee_names_the_callback() {
+    // The paren wraps a member access: `(a.b)(cb)` -> "b".
+    assert_eq!(names("(a.b)(() => run());", true), vec!["b"]);
+}
+
+#[test]
+fn parenthesized_argument_is_named_from_callee() {
+    // The callback itself is parenthesized in the arguments position:
+    // `foo((function () {}))`. The paren ancestor is skipped to reach the call.
+    assert_eq!(names("foo((function () { return 1; }));", true), vec!["foo"]);
+}
+
+#[test]
+fn iife_with_parenthesized_callee_stays_anonymous() {
+    // `(() => 1)()` is an IIFE: the arrow is the (parenthesized) callee, not an
+    // argument, so skipping the paren lands on the callee position and it stays
+    // anonymous. Guards that paren-unwrapping does not misname an IIFE.
+    let got = names("(() => 1)();", true);
+    assert_eq!(got.len(), 1);
+    assert!(got[0].starts_with("(anonymous_"), "IIFE must stay anonymous, got {}", got[0]);
+}
