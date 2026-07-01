@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781773803471,
+  "lastUpdate": 1782898177345,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1531,6 +1531,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/be38e0fb656ada69d2cbc99986b18ce0ad862fb2"
         },
         "date": 1781773802477,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86970096,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fcfc8196da6aa4ee7c2bde35a967e337adc8d32a",
+          "message": "fix(ci): unbreak wasm builds (emnapi pin) and Actions Security (zizmor) (#149)\n\n* fix(napi): pin emnapi packages to keep wasm builds consistent\n\nThe napi lockfile falls out of sync once the binding optionalDependencies\nare bumped at release time (the sibling binding packages publish after the\nrelease commit, so the release-time lockfile cannot resolve them). CI\ninstalls with `npm ci || npm install`, so the failed sync check falls back\nto `npm install`, which re-resolves the floating `emnapi ^1.10.0` to a\nnewer minor while `@emnapi/core`/`@emnapi/runtime` stay pinned. napi-rs\nthen aborts every wasm build with \"emnapi version mismatch\".\n\nPin emnapi, @emnapi/core and @emnapi/runtime to the same lockstep version\nvia overrides so the install fallback can never split them again, and\nregenerate the lockfile so `npm ci` passes cleanly.\n\n* ci: ignore zizmor adhoc-packages for release-npm bootstrap\n\nzizmor 1.26.x added the adhoc-packages audit, which flags the\n`npm install -g npm@latest` step in release-npm.yml. That step bootstraps\na recent npm so OIDC trusted publishing / provenance works (the runner's\nnpm is too old); it is a first-party toolchain bootstrap, not an untrusted\nad-hoc dependency install. Ignore the audit for that workflow, matching the\nexisting per-file rationale entries. The workflow runs zizmor via unpinned\n`uvx`, so the new audit started failing the Actions Security job with no\ncode change.",
+          "timestamp": "2026-07-01T11:26:53+02:00",
+          "tree_id": "ac297f25d0826cc0c8e22210c1327288b54d26fb",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/fcfc8196da6aa4ee7c2bde35a967e337adc8d32a"
+        },
+        "date": 1782898177012,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
