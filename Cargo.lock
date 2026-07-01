@@ -24,12 +24,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
-name = "anes"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc43e46599f3d77fcf2f2ca89e4d962910b0c19c44e7b58679cbbdfd1820a662"
-
-[[package]]
 name = "anyhow"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -287,11 +281,10 @@ dependencies = [
 
 [[package]]
 name = "criterion2"
-version = "3.0.3"
+version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "861a56bb48e3ba7a2a38580a91577e17d90db946649f5c342fd74ba864180def"
+checksum = "b961b72d7eaf7444d1eb98d353d5c2aa08e2443d77fef6bff0e6e97064162482"
 dependencies = [
- "anes",
  "bpaf",
  "cast",
  "ciborium",
@@ -301,7 +294,6 @@ dependencies = [
  "oorandom",
  "serde",
  "serde_json",
- "walkdir",
 ]
 
 [[package]]
