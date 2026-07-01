@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782899764556,
+  "lastUpdate": 1782899997805,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1623,6 +1623,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 86968056,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a210549b14a036dbf6a7c58b59a323641369c3e",
+          "message": "chore(deps): bump srcmap-sourcemap from 0.3.8 to 0.3.9 (#143)\n\nRebased onto current main (the original dependabot branch conflicted on\nCargo.lock after the srcmap-remapping bump landed). Bumps the exact pins in\nboth consumer crates and refreshes srcmap-codec / srcmap-scopes to 0.3.9.\n\nCo-authored-by: Bart Waardenburg <bart@waardenburg.dev>",
+          "timestamp": "2026-07-01T11:57:40+02:00",
+          "tree_id": "36b6dc6be34fff2e7002a36decc05bf056a21a52",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/8a210549b14a036dbf6a7c58b59a323641369c3e"
+        },
+        "date": 1782899997484,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86984976,
             "unit": "bytes"
           }
         ]
