@@ -322,6 +322,21 @@ Each `?.` link surfaces in `branchMap` as an `optional-chain` entry with two arm
 
 Set `trackOptionalChainBranches: false` (Rust: `track_optional_chain: false`; vitest adapter: `createOxcInstrumenter({ trackOptionalChainBranches: false })`) to opt out: optional chains are left native, with no `_oc` helper and no `optional-chain` branches. This matches `istanbul-lib-instrument` byte-for-byte on `?.` and removes the per-operand helper-call overhead in optional-chain-dense hot paths. Statement, function, and other branch coverage are unaffected. Defaults to `true`.
 
+### 6. Callback-argument names from the callee (opt-in, off by default)
+
+Section 2 recovers names from a binding (variable declarator, property key, class method, assignment target). A function that is passed *directly as a call or `new` argument* has no such binding, so both `istanbul-lib-instrument` and this instrumenter fall back to `(anonymous_N)`. In callback-heavy code (route handlers, `.map`/`.filter`, promise `.then`, `describe`/`it`, `new Promise`) that fallback dominates the `fnMap`.
+
+Set `nameCallbackArguments: true` (Rust: `name_callback_arguments: true`; vitest adapter: `createOxcInstrumenter({ nameCallbackArguments: true })`) to name these from the callee:
+
+| Source | `fnMap[].name` with the option | default |
+|---|---|---|
+| `arr.map((x) => x)` | `map` | `(anonymous_0)` |
+| `el.addEventListener("click", () => {})` | `addEventListener` | `(anonymous_0)` |
+| `new Promise((resolve) => {})` | `Promise` | `(anonymous_0)` |
+| `(function () {})()` (IIFE, callee not argument) | `(anonymous_0)` | `(anonymous_0)` |
+
+Only the callee is used, never a sibling string argument (a route path or a test description): the traversal ancestor for an argument position exposes the callee but not the other arguments. A binding name (section 2) and an explicit named function expression both still take precedence; this only replaces the `(anonymous_N)` fallback. Because the name comes from the callee rather than a running counter, it is also **stable across rebuilds** (the `(anonymous_N)` index renumbers whenever an unrelated function is added), which matters for tools that key function identity on the name. Defaults to `false`, so the default output stays byte-identical to what Istanbul consumers expect.
+
 **Migration from `@vitest/coverage-istanbul`:** a codebase that uses `??=`/`||=`/`&&=` heavily will see a higher branch-coverage denominator (and so a slightly lower branch %) after switching providers. To rebaseline CI thresholds after the swap:
 
 ```bash

@@ -134,6 +134,27 @@ pub struct InstrumentOptions {
     /// Defaults to false. The default JSON output stays byte-identical to
     /// what Istanbul consumers expect.
     pub function_identity_overlay: bool,
+    /// When true, give a name to a function/arrow expression that is a direct
+    /// argument of a call or `new` expression and has no other inferable name,
+    /// derived from the callee: `arr.map(x => x)` -> `"map"`,
+    /// `el.addEventListener("click", () => {})` -> `"addEventListener"`,
+    /// `new Promise((res) => {})` -> `"Promise"`. `istanbul-lib-instrument`
+    /// leaves these `(anonymous_N)`, so this is an opt-in enhancement (like
+    /// `track_optional_chain` being more complete than Istanbul) rather than
+    /// the default. Names inferred from a binding (variable declarator,
+    /// property key, assignment target, default value) still take precedence;
+    /// this only replaces the `(anonymous_N)` fallback. Because the name comes
+    /// from the callee, it is stable across rebuilds (the `(anonymous_N)`
+    /// counter renumbers when unrelated functions are added), which matters for
+    /// downstream tools that key function identity on the name.
+    ///
+    /// Only the callee is used, never a sibling string argument (e.g. a route
+    /// path or a test description): the traversal ancestor for an argument
+    /// position exposes the callee but not the other arguments.
+    ///
+    /// Defaults to false. The default JSON output stays byte-identical to what
+    /// Istanbul consumers expect.
+    pub name_callback_arguments: bool,
 }
 
 /// How `strip_typescript` handles decorator syntax.
@@ -207,6 +228,7 @@ impl Default for InstrumentOptions {
             strip_typescript: false,
             decorator_mode: DecoratorMode::PassThrough,
             function_identity_overlay: false,
+            name_callback_arguments: false,
         }
     }
 }
@@ -386,6 +408,7 @@ fn run_coverage_transform<'src, 'arena>(
         report_logic: options.report_logic,
         track_optional_chain: options.track_optional_chain,
         ignore_class_methods: options.ignore_class_methods.clone(),
+        name_callback_arguments: options.name_callback_arguments,
         eager_remapper: eager_remapper(options),
     });
     let state = CoverageState { pragmas };
@@ -628,6 +651,10 @@ pub(crate) fn collect_for_v8_to_istanbul(
         // path emits no runtime helper, only the maps.
         track_optional_chain: true,
         ignore_class_methods: Vec::new(),
+        // V8-collect builds only the position maps that V8 byte ranges
+        // intersect against; the fnMap names never reach a consumer here, so
+        // it stays Istanbul-exact (no callback naming) with no options to wire.
+        name_callback_arguments: false,
         // V8-collect never composes an input source map; gate is a no-op.
         eager_remapper: None,
     });

@@ -74,6 +74,10 @@ const TS_EXTENSION_REGEX = /\.([mc]ts|tsx?)$/i;
  *   adapter preserves the tsconfig-style ergonomics for the vitest UX.
  * @param {boolean} [options.functionIdentityOverlay] Attach the optional
  *   `x_fallow_functionMap` extension to the last file coverage object.
+ * @param {boolean} [options.nameCallbackArguments] Name an otherwise-anonymous
+ *   function/arrow that is a direct call/`new` argument from the callee
+ *   (`arr.map(cb)` -> `"map"`). Binding names still take precedence. Defaults
+ *   to false.
  * @returns {{ instrumentSync, lastSourceMap, lastFileCoverage }}
  */
 function createOxcInstrumenter(options) {
@@ -98,6 +102,12 @@ function createOxcInstrumenter(options) {
   if (typeof functionIdentityOverlay !== 'boolean') {
     throw new TypeError(
       `oxc-coverage-instrument: createOxcInstrumenter({ functionIdentityOverlay }) must be a boolean or undefined, got ${typeof options.functionIdentityOverlay}`,
+    );
+  }
+  const nameCallbackArguments = options.nameCallbackArguments || false;
+  if (typeof nameCallbackArguments !== 'boolean') {
+    throw new TypeError(
+      `oxc-coverage-instrument: createOxcInstrumenter({ nameCallbackArguments }) must be a boolean or undefined, got ${typeof options.nameCallbackArguments}`,
     );
   }
   const stripTypescriptOverride = options.stripTypescript;
@@ -166,6 +176,7 @@ function createOxcInstrumenter(options) {
         experimentalDecorators,
         emitDecoratorMetadata,
         functionIdentityOverlay,
+        nameCallbackArguments,
       });
 
       // Store raw JSON — defer parsing until actually needed.

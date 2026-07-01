@@ -1625,6 +1625,54 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] createOxcInstrumenter forwards/validates trackOptionalChainBranches');
 }
 
+// Test: nameCallbackArguments names callback arguments from the callee
+{
+  const source = 'arr.map((x) => x + 1);\nnew Promise((resolve) => resolve(1));';
+
+  const off = instrument(source, 'cb.js');
+  const offNames = Object.values(JSON.parse(off.coverageMap).fnMap).map((f) => f.name);
+  assert.ok(
+    offNames.every((n) => n.startsWith('(anonymous_')),
+    `default leaves callback args anonymous, got ${JSON.stringify(offNames)}`,
+  );
+
+  const on = instrument(source, 'cb.js', { nameCallbackArguments: true });
+  const onNames = Object.values(JSON.parse(on.coverageMap).fnMap).map((f) => f.name);
+  assert.deepEqual(onNames, ['map', 'Promise'], 'callee names surface with the option on');
+
+  console.log('  [PASS] nameCallbackArguments names callback arguments from the callee');
+}
+
+// Test: createOxcInstrumenter forwards nameCallbackArguments and validates it
+{
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  const source = 'export const f = (arr) => arr.filter((x) => x > 0);';
+
+  const off = createOxcInstrumenter();
+  off.instrumentSync(source, 'cb.ts');
+  const offNames = Object.values(off.lastFileCoverage().fnMap).map((f) => f.name);
+  assert.ok(
+    offNames.includes('f') && offNames.some((n) => n.startsWith('(anonymous_')),
+    `adapter defaults to leaving callback args anonymous, got ${JSON.stringify(offNames)}`,
+  );
+
+  const on = createOxcInstrumenter({ nameCallbackArguments: true });
+  on.instrumentSync(source, 'cb.ts');
+  const onNames = Object.values(on.lastFileCoverage().fnMap).map((f) => f.name);
+  assert.ok(
+    onNames.includes('f') && onNames.includes('filter'),
+    `adapter honors nameCallbackArguments: true, got ${JSON.stringify(onNames)}`,
+  );
+
+  assert.throws(
+    () => createOxcInstrumenter({ nameCallbackArguments: 'yes' }),
+    /nameCallbackArguments.*must be a boolean/,
+    'non-boolean nameCallbackArguments throws TypeError',
+  );
+
+  console.log('  [PASS] createOxcInstrumenter forwards/validates nameCallbackArguments');
+}
+
 // Test: istanbul-lib-source-maps getMapping byte-parity (issue #111)
 //
 // The remap path now resolves surviving positions through an istanbul
