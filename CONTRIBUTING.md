@@ -13,9 +13,12 @@ cargo test --workspace
 cargo run --example instrument
 ```
 
-## Pre-push hook
+## Git hooks
 
-A versioned pre-push hook at `.githooks/pre-push` runs the fast CI checks (`cargo fmt --check`, `cargo clippy -D warnings`, `typos .`) before every push. It mirrors the CI jobs that block PR merges, so catching the failure locally saves a round-trip.
+Versioned hooks under `.githooks/` mirror the CI jobs that block PR merges, so catching a failure locally saves a round-trip:
+
+- **`pre-push`** runs the fast checks (`cargo fmt --check`, `cargo clippy -D warnings`, `typos .`) before every push.
+- **`commit-msg`** lints the commit message against the Conventional Commits rules (the CI "Commit messages" job). It skips itself when commitlint is not installed, so a pure-Rust contributor is never blocked.
 
 **Enable once per clone:**
 
@@ -27,6 +30,12 @@ git config core.hooksPath .githooks
 
 ```bash
 cargo install typos-cli
+```
+
+**Enable `commit-msg` linting (optional):** install the commitlint toolchain at the repo root.
+
+```bash
+npm ci   # installs @commitlint/cli from package.json
 ```
 
 **Opt-in extras:**
