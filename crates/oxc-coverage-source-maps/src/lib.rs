@@ -32,6 +32,7 @@
 //! end of line), matching `istanbul-lib-source-maps`'s
 //! `createSourceMapStore().transformCoverage` byte-for-byte.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
@@ -73,6 +74,12 @@ pub struct RemapOptions {
 /// later compose agree by construction.
 pub struct PositionRemapper {
     sm: srcmap_sourcemap::SourceMap,
+    /// Lookup caches shared across every `location_maps` call for this map. The
+    /// eager gate queries one node at a time on a hot traversal path; without a
+    /// persistent context the per-`(source, line)` column index (issue #122
+    /// getMapping) would be rebuilt and discarded on every node. `RefCell`
+    /// because `location_maps` takes `&self` (the transform visits with `&self`).
+    caches: RefCell<RemapCaches>,
 }
 
 impl PositionRemapper {
@@ -84,7 +91,7 @@ impl PositionRemapper {
     pub fn from_json(input_sm_json: &str) -> Option<Self> {
         let sm = srcmap_sourcemap::SourceMap::from_json(input_sm_json).ok()?;
         resolve_primary_source(&sm)?;
-        Some(Self { sm })
+        Some(Self { sm, caches: RefCell::new(RemapCaches::default()) })
     }
 
     /// Whether an istanbul `Location` survives `getMapping` resolution, i.e.
@@ -108,8 +115,9 @@ impl PositionRemapper {
         if loc.start.line == 0 || loc.end.line == 0 {
             return self.legacy_position_maps(&loc.start) && self.legacy_position_maps(&loc.end);
         }
-        let mut ctx = RemapContext::new(&self.sm);
-        get_mapping_location(loc, &mut ctx).is_some()
+        let mut caches = self.caches.borrow_mut();
+        let mut ctx = RemapContext::new(&self.sm, &mut caches);
+        get_mapping_location_cached(&mut ctx, loc).is_some()
     }
 
     /// Non-mutating mirror of [`legacy_try_remap_position`]: `true` when the
@@ -249,15 +257,24 @@ where
     out
 }
 
-struct RemapContext<'a> {
-    sm: &'a srcmap_sourcemap::SourceMap,
+/// getMapping lookup caches. Kept separate from the `&SourceMap` borrow so they
+/// can outlive a single [`RemapContext`]: [`PositionRemapper`] owns one set and
+/// reuses it across every eager-gate call, while `apply_source_map` uses a fresh
+/// set per coverage map.
+#[derive(Default)]
+struct RemapCaches {
     mapping_cache: BTreeMap<LocationKey, Option<Location>>,
     original_line_columns: BTreeMap<OriginalLineKey, Vec<u32>>,
 }
 
+struct RemapContext<'a> {
+    sm: &'a srcmap_sourcemap::SourceMap,
+    caches: &'a mut RemapCaches,
+}
+
 impl<'a> RemapContext<'a> {
-    fn new(sm: &'a srcmap_sourcemap::SourceMap) -> Self {
-        Self { sm, mapping_cache: BTreeMap::new(), original_line_columns: BTreeMap::new() }
+    fn new(sm: &'a srcmap_sourcemap::SourceMap, caches: &'a mut RemapCaches) -> Self {
+        Self { sm, caches }
     }
 }
 
@@ -298,7 +315,8 @@ fn apply_source_map(
     let mut out = coverage.clone();
     out.path = primary_source;
     out.input_source_map = None;
-    let mut ctx = RemapContext::new(sm);
+    let mut caches = RemapCaches::default();
+    let mut ctx = RemapContext::new(sm, &mut caches);
 
     if options.drop_unmapped {
         prune_unmapped(&mut out, &mut ctx);
@@ -720,7 +738,7 @@ fn matched_original_column(
     column: u32,
 ) -> Option<u32> {
     let key = OriginalLineKey { source: source_idx, line };
-    if !ctx.original_line_columns.contains_key(&key) {
+    if !ctx.caches.original_line_columns.contains_key(&key) {
         let mut columns: Vec<u32> = ctx
             .sm
             .all_mappings()
@@ -730,9 +748,9 @@ fn matched_original_column(
             .collect();
         columns.sort_unstable();
         columns.dedup();
-        ctx.original_line_columns.insert(key, columns);
+        ctx.caches.original_line_columns.insert(key, columns);
     }
-    let columns = ctx.original_line_columns.get(&key)?;
+    let columns = ctx.caches.original_line_columns.get(&key)?;
     let idx = columns.partition_point(|mapped| *mapped < column);
     columns.get(idx).copied()
 }
@@ -902,11 +920,11 @@ fn legacy_try_remap_location(loc: &mut Location, sm: &srcmap_sourcemap::SourceMa
 
 fn get_mapping_location_cached(ctx: &mut RemapContext<'_>, loc: &Location) -> Option<Location> {
     let key = LocationKey::from(loc);
-    if let Some(cached) = ctx.mapping_cache.get(&key) {
+    if let Some(cached) = ctx.caches.mapping_cache.get(&key) {
         return cached.clone();
     }
     let remapped = get_mapping_location(loc, ctx);
-    ctx.mapping_cache.insert(key, remapped.clone());
+    ctx.caches.mapping_cache.insert(key, remapped.clone());
     remapped
 }
 
