@@ -79,6 +79,11 @@
     "test": "node test.mjs && node scripts/patch-wasi-browser-shim.test.mjs",
     "test:browser-loader": "node scripts/browser-loader.test.mjs"
   },
+  "overrides": {
+    "emnapi": "1.11.1",
+    "@emnapi/core": "1.11.1",
+    "@emnapi/runtime": "1.11.1"
+  },
   "optionalDependencies": {
     "@oxc-coverage-instrument/binding-darwin-arm64": "0.9.1",
     "@oxc-coverage-instrument/binding-darwin-x64": "0.9.1",
