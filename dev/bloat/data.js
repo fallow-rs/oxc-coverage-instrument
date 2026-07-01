@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782916630515,
+  "lastUpdate": 1782919488842,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1768,6 +1768,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 87046616,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "498f9613c8aeac7e1f207b753c6a52c1e4ca5dd8",
+          "message": "fix(instrument): resolve parenthesized callees in callback naming (#153)\n\n* fix(instrument): resolve parenthesized callees in callback naming\n\nThe opt-in `name_callback_arguments` (#151) left `(foo)(cb)` and\n`foo((cb))` as `(anonymous_N)` because Oxc keeps `ParenthesizedExpression`\nas a real AST node (Babel strips it). Unwrap parens in `callee_name`\n(`(foo)(cb)` -> foo, `(a.b)(cb)` -> b) and skip `ParenthesizedExpression`\nancestors in `callback_argument_name` (`foo((function(){}))` -> foo). An\nIIFE whose parenthesized callee is a function stays anonymous (the callee\nposition is not an argument), guarded by a new test. Naming only; no counter,\nspan, or default-path change.\n\n* test(instrument): reword IIFE comment to satisfy typos",
+          "timestamp": "2026-07-01T17:22:11+02:00",
+          "tree_id": "9f1899e235b0cf42a59afd7b9a8cd353e4964286",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/498f9613c8aeac7e1f207b753c6a52c1e4ca5dd8"
+        },
+        "date": 1782919488517,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 87047216,
             "unit": "bytes"
           }
         ]
