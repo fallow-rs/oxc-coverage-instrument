@@ -127,6 +127,14 @@ pub fn write(
     output_dir: &Path,
     options: &HtmlOptions,
 ) -> io::Result<()> {
+    // Only pay for the remap (and its clone + orphan-counter prune) when at
+    // least one entry carries an `inputSourceMap`; a map with none renders
+    // identically from the borrowed original. The skipped branch therefore does
+    // NOT run `FileCoverage::prune_orphan_counters`, which is safe here because
+    // every counter consumer below (`compute_line_hits`, the `*_metric`
+    // helpers, ...) iterates `statementMap`/`fnMap`/`branchMap` and reads the
+    // `s`/`f`/`b` slot via `.get(id).unwrap_or(0)`, so an orphan slot is never
+    // observed. Revisit if `write` ever re-serializes a raw `FileCoverage`.
     let remapped;
     let report_map = if coverage_map.values().any(|coverage| coverage.input_source_map.is_some()) {
         remapped = remap_coverage_map(coverage_map);
