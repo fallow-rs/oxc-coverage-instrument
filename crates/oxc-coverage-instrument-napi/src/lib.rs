@@ -94,6 +94,7 @@ mod tests {
             experimental_decorators: None,
             emit_decorator_metadata: None,
             function_identity_overlay: None,
+            name_callback_arguments: None,
         }
     }
 
@@ -260,6 +261,7 @@ mod tests {
         assert!(!opts.strip_typescript);
         assert_eq!(opts.decorator_mode, DecoratorMode::PassThrough);
         assert!(!opts.function_identity_overlay);
+        assert!(!opts.name_callback_arguments);
     }
 
     #[test]
@@ -276,6 +278,7 @@ mod tests {
         input.experimental_decorators = Some(true);
         input.emit_decorator_metadata = Some(true);
         input.function_identity_overlay = Some(true);
+        input.name_callback_arguments = Some(true);
 
         let opts = native_instrument_options(Some(input)).expect("mapped options");
         assert_eq!(opts.coverage_variable, "__cov");
@@ -288,6 +291,7 @@ mod tests {
         assert!(opts.strip_typescript);
         assert_eq!(opts.decorator_mode, DecoratorMode::ExperimentalWithMetadata);
         assert!(opts.function_identity_overlay);
+        assert!(opts.name_callback_arguments);
     }
 
     #[test]
@@ -406,6 +410,20 @@ pub struct InstrumentOptions {
     /// Defaults to false. The default JSON output stays byte-identical to
     /// what Istanbul consumers expect.
     pub function_identity_overlay: Option<bool>,
+    /// When true, name an otherwise-anonymous function/arrow that is a direct
+    /// argument of a call or `new` expression from its callee: `arr.map(cb)`
+    /// -> `"map"`, `el.addEventListener("click", () => {})` ->
+    /// `"addEventListener"`, `new Promise((res) => {})` -> `"Promise"`.
+    /// `istanbul-lib-instrument` leaves these `(anonymous_N)`, so this is an
+    /// opt-in enhancement. Names inferred from a binding (variable declarator,
+    /// property key, assignment target, default value) still win; this only
+    /// replaces the `(anonymous_N)` fallback with a callee-derived name that is
+    /// also stable across rebuilds (the `(anonymous_N)` counter renumbers).
+    /// Only the callee is used, never a sibling string argument.
+    ///
+    /// Defaults to false. The default JSON output stays byte-identical to what
+    /// Istanbul consumers expect.
+    pub name_callback_arguments: Option<bool>,
 }
 
 /// Options for `remapCoverageMap` and `remapCoverageMapWithLoader`.
@@ -507,6 +525,7 @@ fn native_instrument_options(
         strip_typescript: o.strip_typescript.unwrap_or(false),
         decorator_mode,
         function_identity_overlay: o.function_identity_overlay.unwrap_or(false),
+        name_callback_arguments: o.name_callback_arguments.unwrap_or(false),
     })
 }
 

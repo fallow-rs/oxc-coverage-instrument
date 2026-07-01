@@ -6,16 +6,23 @@
  */
 export interface OxcInstrumenterOptions {
   /** Global variable name for coverage data (Vitest passes `__VITEST_COVERAGE__`). */
-  coverageVariable?: string
+  coverageVariable?: string;
   /** Class method names to exclude from coverage instrumentation. */
-  ignoreClassMethods?: string[]
+  ignoreClassMethods?: string[];
   /** When true, adds truthy-value tracking (bT) for logical expressions. */
-  reportLogic?: boolean
+  reportLogic?: boolean;
   /**
    * Attach the optional `x_fallow_functionMap` extension to the last file
    * coverage object. Defaults to false.
    */
-  functionIdentityOverlay?: boolean
+  functionIdentityOverlay?: boolean;
+  /**
+   * Name an otherwise-anonymous function/arrow that is a direct call/`new`
+   * argument from the callee (`arr.map(cb)` -> `"map"`), instead of the
+   * `(anonymous_N)` fallback. Binding names still take precedence. Defaults to
+   * false (byte-identical to Istanbul).
+   */
+  nameCallbackArguments?: boolean;
   /**
    * Run the TypeScript-strip pass before instrumentation. When omitted
    * (default), the adapter auto-detects: it strips when the filename matches
@@ -25,7 +32,7 @@ export interface OxcInstrumenterOptions {
    * TypeScript but do not produce an `inputSourceMap`. Set to `true` to force
    * strip. Non-boolean values throw `TypeError`.
    */
-  stripTypescript?: boolean
+  stripTypescript?: boolean;
 }
 
 /**
@@ -48,9 +55,9 @@ export interface OxcInstrumenterOptions {
  * ```
  */
 export declare function createOxcInstrumenter(options?: OxcInstrumenterOptions): {
-  instrumentSync(code: string, filename: string, inputSourceMap?: any): string
-  lastSourceMap(): any
-  lastFileCoverage(): any
+  instrumentSync(code: string, filename: string, inputSourceMap?: any): string;
+  lastSourceMap(): any;
+  lastFileCoverage(): any;
   /** Property alias for compatibility with vite-plugin-istanbul. */
-  readonly fileCoverage: any
-}
+  readonly fileCoverage: any;
+};

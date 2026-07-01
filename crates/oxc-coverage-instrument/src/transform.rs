@@ -120,6 +120,9 @@ pub struct CoverageTransform<'src, 'arena> {
     track_optional_chain: bool,
     /// Class method names to exclude from coverage instrumentation.
     ignore_class_methods: Vec<String>,
+    /// When true, an anonymous function/arrow that is a direct call/`new`
+    /// argument is named from the callee instead of `(anonymous_N)`.
+    name_callback_arguments: bool,
     /// Branch IDs of logical expression branches (for building the `bT` map).
     pub logical_branch_ids: Vec<usize>,
     /// Per-class stack of class-field counters to hoist as synthetic
@@ -195,6 +198,10 @@ pub struct TransformInit<'src, 'arena> {
     /// Class method and named-function-expression identifiers to skip,
     /// matching Istanbul's `ignoreClassMethods` semantics.
     pub ignore_class_methods: Vec<String>,
+    /// When true, name an otherwise-anonymous function/arrow that is a direct
+    /// call/`new` argument from the callee (`arr.map(cb)` -> `"map"`). Opt-in;
+    /// Istanbul leaves these `(anonymous_N)`.
+    pub name_callback_arguments: bool,
     /// Eager-compose position-remap gate (issue #106). `Some` only in eager
     /// mode (`compose_input_source_map == true` with an input map present);
     /// `None` for every other caller, where gating is a strict no-op.
@@ -210,6 +217,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             report_logic,
             track_optional_chain,
             ignore_class_methods,
+            name_callback_arguments,
             eager_remapper,
         } = init;
         let cov_fn_name = allocator.alloc_str(cov_fn_name);
@@ -241,6 +249,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             report_logic,
             track_optional_chain,
             ignore_class_methods,
+            name_callback_arguments,
             logical_branch_ids: Vec::new(),
             pending_class_field_hoists: Vec::new(),
             eager_remapper,
@@ -635,14 +644,61 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         );
     }
 
-    fn resolve_function_name(&mut self, func: &Function) -> String {
+    fn resolve_function_name(
+        &mut self,
+        func: &Function,
+        ctx: &TraverseCtx<'arena, CoverageState>,
+    ) -> String {
         if let Some(name) = self.pending_name.take() {
             return name;
         }
         if let Some(id) = &func.id {
             return id.name.to_string();
         }
+        if self.name_callback_arguments
+            && let Some(name) = callback_argument_name(ctx)
+        {
+            return name;
+        }
         format!("(anonymous_{})", self.fn_map.len())
+    }
+}
+
+/// When `name_callback_arguments` is enabled, derive a name for an
+/// otherwise-anonymous function/arrow that is a direct argument of a call or
+/// `new` expression, taken from the callee: `arr.map(cb)` -> `"map"`,
+/// `foo(cb)` -> `"foo"`, `new Promise(cb)` -> `"Promise"`. Istanbul leaves
+/// these `(anonymous_N)`.
+///
+/// The immediate ancestor must be the call/`new` *arguments* position, so an
+/// IIFE callee (`(() => {})()`) or a function returned from another function
+/// is not treated as a callback and stays anonymous. Only the callee is read;
+/// the argument-position ancestor deliberately excludes the sibling arguments,
+/// so a leading string literal (route path, test name) is not accessible here.
+fn callback_argument_name(ctx: &TraverseCtx<'_, CoverageState>) -> Option<String> {
+    use oxc_traverse::Ancestor;
+    let callee = match ctx.ancestors().next()? {
+        Ancestor::CallExpressionArguments(call) => call.callee(),
+        Ancestor::NewExpressionArguments(new_expr) => new_expr.callee(),
+        _ => return None,
+    };
+    callee_name(callee)
+}
+
+/// Extract a display name from a call/`new` callee expression. Mirrors the
+/// binding-name rules used elsewhere: a bare identifier keeps its name, a
+/// member access uses the (last) property name, and a computed access uses the
+/// string-literal key. Anything else (a computed non-string index, a call
+/// result, a parenthesized expression) yields no name.
+fn callee_name(callee: &Expression<'_>) -> Option<String> {
+    match callee {
+        Expression::Identifier(ident) => Some(ident.name.to_string()),
+        Expression::StaticMemberExpression(member) => Some(member.property.name.to_string()),
+        Expression::ComputedMemberExpression(member) => match &member.expression {
+            Expression::StringLiteral(lit) => Some(lit.value.to_string()),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -1210,7 +1266,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             return;
         }
 
-        let name = self.resolve_function_name(func);
+        let name = self.resolve_function_name(func, ctx);
         // `decl` should point at the identifier itself, matching istanbul-lib-instrument:
         //   `function foo(…)`               → decl is the `foo` identifier span
         //   class methods `bar(…) {…}`      → decl is the method key span (set by
@@ -1280,6 +1336,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         let name = self
             .pending_name
             .take()
+            .or_else(|| self.name_callback_arguments.then(|| callback_argument_name(ctx)).flatten())
             .unwrap_or_else(|| format!("(anonymous_{})", self.fn_map.len()));
         let fn_id = self.add_function(
             name,
