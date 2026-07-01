@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782899997805,
+  "lastUpdate": 1782912575778,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1652,6 +1652,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 86984976,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4708b72592ad5b217604dbd18005ca4c3358cc81",
+          "message": "feat(instrument): name callback arguments from the callee (opt-in) (#151)\n\nA function or arrow passed directly as a call or `new` argument has no\nbinding to inherit a name from, so both istanbul-lib-instrument and this\ninstrumenter fall back to `(anonymous_N)`. In callback-heavy code (route\nhandlers, `.map`/`.filter`, promise `.then`, `describe`/`it`,\n`new Promise`) that fallback dominates the fnMap.\n\nAdd an opt-in `name_callback_arguments` option (napi:\n`nameCallbackArguments`, vitest adapter: same) that names these from the\ncallee: `arr.map(cb)` -> \"map\", `new Promise(cb)` -> \"Promise\",\n`el.addEventListener(\"click\", cb)` -> \"addEventListener\". A binding name\nand an explicit named function expression still take precedence; this only\nreplaces the `(anonymous_N)` fallback.\n\nOnly the callee is used, never a sibling string argument: the traversal\nancestor for an argument position exposes the callee but not the other\narguments. The name is also stable across rebuilds (the `(anonymous_N)`\ncounter renumbers when unrelated functions are added), which matters for\ntools that key function identity on the name.\n\nDefaults to false, so default output stays byte-identical to Istanbul.\nDocumented under README \"Differences from istanbul-lib-instrument\".",
+          "timestamp": "2026-07-01T15:26:55+02:00",
+          "tree_id": "3c1a76cef758b2529696438c81eaec91828be1df",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/4708b72592ad5b217604dbd18005ca4c3358cc81"
+        },
+        "date": 1782912575167,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86991128,
             "unit": "bytes"
           }
         ]
