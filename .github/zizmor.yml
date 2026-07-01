@@ -39,3 +39,10 @@ rules:
   template-injection:
     ignore:
       - ci.yml
+  # release-npm.yml bootstraps a recent npm (npm@latest) so OIDC trusted
+  # publishing / provenance works; the base runner's npm is too old. This is a
+  # CI toolchain bootstrap of a first-party tool, not an untrusted ad-hoc
+  # dependency install.
+  adhoc-packages:
+    ignore:
+      - release-npm.yml
