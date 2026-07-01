@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782912964822,
+  "lastUpdate": 1782913979623,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1710,6 +1710,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 86982368,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b316b48de1e30972a568f4a5b3bce3dd8fb18568",
+          "message": "perf(source-maps): reuse getMapping caches across eager-gate calls (#152)\n\n* perf(source-maps): reuse getMapping caches across eager-gate calls\n\nThe eager AST-level drop gate (issue #106/#122) calls\n`PositionRemapper::location_maps` once per coverage node on a hot\ntraversal path. Each call built a fresh `RemapContext`, so the per-(source,\nline) original-column index (issue #122 getMapping, populated by scanning\nevery mapping in the map) was rebuilt and thrown away on every node, making\nthe b5e1264/7b3c6c8 caches dead weight on this path.\n\nGive `PositionRemapper` a `RefCell<RemapCaches>` (mapping cache +\ncolumn index) that persists across every `location_maps` call for one map,\nand route the gate through `get_mapping_location_cached`. The caches are a\npure function of (location, source map) and the source map is fixed per\nremapper, so results are unchanged; only redundant per-node work is\nremoved. `apply_source_map` keeps a fresh per-call cache set. `RefCell`\nbecause `location_maps` takes `&self` (the transform visits with `&self`).\n\n* docs(reports): note html skip path intentionally omits orphan prune\n\nThe no-source-map fast path (3f10800) renders from the borrowed original\ncoverage map and skips `remap_coverage_map`, so it also skips\n`FileCoverage::prune_orphan_counters`. Document why that is safe (every\nhtml counter consumer looks up `s`/`f`/`b` via\n`.get(id).unwrap_or(0)` keyed by the corresponding map, so orphan slots\nare never observed) and when to revisit (if `write` ever re-serializes a\nraw `FileCoverage`). No behavior change.",
+          "timestamp": "2026-07-01T15:48:15+02:00",
+          "tree_id": "2ee8172b6fc46349379cbb345ac77e191be4e7e3",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/b316b48de1e30972a568f4a5b3bce3dd8fb18568"
+        },
+        "date": 1782913978998,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 87035376,
             "unit": "bytes"
           }
         ]
