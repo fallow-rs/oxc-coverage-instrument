@@ -125,7 +125,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: taiki-e/install-action@9b29ffac42f36c4efe76140737435c61cfb92383 # cargo-audit
+      - uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # cargo-audit
       - run: cargo audit
 
   deny:
@@ -146,7 +146,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: taiki-e/install-action@b9da40722b5dc25d162879fdf6a098f2d71926cc # cargo-shear
+      - uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # cargo-shear
       - run: cargo shear
 
   zizmor:
