@@ -143,7 +143,7 @@ fn parenthesized_argument_is_named_from_callee() {
 fn iife_with_parenthesized_callee_stays_anonymous() {
     // `(() => 1)()` is an IIFE: the arrow is the (parenthesized) callee, not an
     // argument, so skipping the paren lands on the callee position and it stays
-    // anonymous. Guards that paren-unwrapping does not misname IIFEs.
+    // anonymous. Guards that paren-unwrapping does not misname an IIFE.
     let got = names("(() => 1)();", true);
     assert_eq!(got.len(), 1);
     assert!(got[0].starts_with("(anonymous_"), "IIFE must stay anonymous, got {}", got[0]);
