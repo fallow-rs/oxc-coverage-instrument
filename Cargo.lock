@@ -1026,7 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_instrument"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "criterion2",
  "insta",
@@ -1072,7 +1072,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_reports"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "criterion2",
  "insta",
@@ -1090,7 +1090,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_source_maps"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "criterion2",
  "oxc_coverage_types",

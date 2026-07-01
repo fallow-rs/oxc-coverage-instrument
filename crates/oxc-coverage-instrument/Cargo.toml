@@ -1,6 +1,6 @@
 [package]
 name = "oxc_coverage_instrument"
-version = "0.10.0"
+version = "0.10.1"
 authors.workspace = true
 edition.workspace = true
 description = "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST"
@@ -22,7 +22,7 @@ codspeed = ["criterion2/codspeed"]
 # Suite crates. Path + version: path for workspace builds, version for
 # `cargo publish` so the lib crate can publish standalone from crates.io.
 oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.2.2" }
-oxc_coverage_source_maps = { path = "../oxc-coverage-source-maps", version = "0.5.1" }
+oxc_coverage_source_maps = { path = "../oxc-coverage-source-maps", version = "0.5.2" }
 oxc_coverage_v8 = { path = "../oxc-coverage-v8", version = "0.2.2" }
 oxc_allocator = "0.126"
 oxc_ast = "0.126"
