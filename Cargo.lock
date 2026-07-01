@@ -1695,9 +1695,9 @@ checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
 
 [[package]]
 name = "srcmap-codec"
-version = "0.3.8"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc773726ade5bee96ae3fbcb2cef616582d59c9d628ef79cf6624eaa0023338e"
+checksum = "9d7b0249b887e89e93ea7c2f195214e213eda1d35f2cb39264ed2e53f521967a"
 dependencies = [
  "memchr",
 ]
@@ -1726,18 +1726,18 @@ dependencies = [
 
 [[package]]
 name = "srcmap-scopes"
-version = "0.3.8"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c4114b385ff68a4c523f0c1f760f0267b8a5b956ef226041835479963297787"
+checksum = "3cdfe41caa18fc53ab7ffe9d43deb3d0e3e5f18e8f72b543458c6aab3ac7a7bf"
 dependencies = [
  "srcmap-codec",
 ]
 
 [[package]]
 name = "srcmap-sourcemap"
-version = "0.3.8"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "101536dcd7a8d629d6025c53c03a3b07d220753b6462aa82364b196e12896257"
+checksum = "e70e195bfeab4c71045e1f7a42043de45fffcd3d6d6930f48a73689fdc1ef030"
 dependencies = [
  "memchr",
  "serde",
