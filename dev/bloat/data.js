@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782898354724,
+  "lastUpdate": 1782899764556,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1589,6 +1589,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/df3d11baed087caa619cd97a1ef3f63cf2767bca"
         },
         "date": 1782898353698,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 86968056,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3be071cc268d4983c99b627ca61fe2d1a01830be",
+          "message": "chore(deps-dev): support @babel/core 7 and 8 (#148)\n\n@babel/core is a test-only devDependency (test.mjs uses it to emit a real\ntranspiler source map for the remap smoke). Babel 8 dropped the CommonJS\ndefault export, so `(await import('@babel/core')).default` is undefined and\nthe real-transpiler test threw \"Cannot read properties of undefined\".\n\nSince we only touch `transformSync` (a named export on both majors), make\nthe import version-agnostic (`mod.default ?? mod`) and widen the range to\n`^7.29.0 || ^8.0.0` instead of pinning to 8, so both majors keep working.\nLockfile moves to 8.0.1 so CI exercises the new major. Validated: test.mjs\npasses on both 7.29.7 and 8.0.1.\n\nCo-authored-by: Bart Waardenburg <bart@waardenburg.dev>",
+          "timestamp": "2026-07-01T11:53:38+02:00",
+          "tree_id": "af2e7d9ee5f73392467d64d1a9d6707a70e25dc6",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/3be071cc268d4983c99b627ca61fe2d1a01830be"
+        },
+        "date": 1782899763633,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
