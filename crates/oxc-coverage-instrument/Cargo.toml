@@ -47,7 +47,7 @@ srcmap-sourcemap = "=0.3.8"
 [dev-dependencies]
 criterion2 = { version = "3.0.2", default-features = false }
 insta = { version = "1", features = ["json"] }
-oxc_sourcemap = "7.0"
+oxc_sourcemap = "8.0"
 serde = { version = "1", features = ["derive"] }
 
 [[bench]]
