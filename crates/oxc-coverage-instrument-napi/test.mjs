@@ -1643,7 +1643,11 @@ function runInstrumented(result, filename, callExpression) {
   const { GenMapping, addMapping, setSourceContent, toEncodedMap } = await import(
     '@jridgewell/gen-mapping'
   );
-  const babel = (await import('@babel/core')).default;
+  // @babel/core 7 is CJS (transformSync lives on the dynamic-import `.default`
+  // namespace); @babel/core 8 is ESM with no default export and named exports
+  // on the top-level namespace. Support both by preferring `.default`.
+  const babelMod = await import('@babel/core');
+  const babel = babelMod.default ?? babelMod;
 
   const utf16LineLength = (content, line1) => {
     const raw = content.split('\n')[line1 - 1] ?? '';
