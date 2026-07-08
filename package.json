@@ -29,7 +29,7 @@
   "homepage": "https://github.com/fallow-rs/oxc-coverage-instrument#readme",
   "devDependencies": {
     "@commitlint/cli": "21.1.0",
-    "@commitlint/config-conventional": "21.1.0",
+    "@commitlint/config-conventional": "21.2.0",
     "istanbul-lib-instrument": "^6.0.3"
   }
 }
