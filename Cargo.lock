@@ -1704,9 +1704,9 @@ dependencies = [
 
 [[package]]
 name = "srcmap-generator"
-version = "0.3.8"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "631b47d31519c3e0b847c8b615ef57495bf4809377f0bcab31b8ae3b24820806"
+checksum = "ceb9043924adb7a987cbe5cf467a93463c8dcb177e97c169d78f586d66fd8191"
 dependencies = [
  "rustc-hash",
  "srcmap-codec",
