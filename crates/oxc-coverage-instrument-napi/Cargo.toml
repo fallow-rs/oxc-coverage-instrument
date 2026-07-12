@@ -31,7 +31,7 @@ napi-build = "2"
 
 [dev-dependencies]
 criterion2 = { version = "3.0.2", default-features = false }
-srcmap-generator = "=0.3.8"
+srcmap-generator = "=0.3.9"
 
 [[bench]]
 name = "remap"
