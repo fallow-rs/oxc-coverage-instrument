@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782919488842,
+  "lastUpdate": 1783881333750,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1797,6 +1797,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 87047216,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af6d5ec71ac781ffc4f7b2b402e18954c6266436",
+          "message": "chore(deps): update Dependabot queue",
+          "timestamp": "2026-07-12T20:32:08+02:00",
+          "tree_id": "6fb4c2b84ffb6f7a1c9c253b7587de8aac1ff9f7",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/af6d5ec71ac781ffc4f7b2b402e18954c6266436"
+        },
+        "date": 1783881332798,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 87063280,
             "unit": "bytes"
           }
         ]
