@@ -102,7 +102,7 @@ jobs:
           version: 0.14.1
 
       - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@65851e10cd6c377f11a60e600abc07cb08643468 # v2
+        uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2
         if: contains(matrix.target, 'musl')
         with:
           tool: cargo-zigbuild
