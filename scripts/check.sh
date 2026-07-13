@@ -11,8 +11,8 @@ usage() {
 Usage: ./scripts/check.sh <profile>
        ./scripts/check.sh --list
 
-Run one repository verification profile. The runner never installs tools or
-dependencies. Direct profiles fail when a prerequisite is missing.
+Run one repository check or preparation profile. The runner never installs
+tools or dependencies. Direct profiles fail when a prerequisite is missing.
 USAGE
 }
 
@@ -31,6 +31,7 @@ napi-test           primitive  Native Node binding tests
 wasi-shim-test      primitive  Generated WASI shim patch behavior
 browser-loader-test primitive  Browser loader package selection
 istanbul-diff        primitive  Istanbul byte-for-byte comparison
+prepare-package-surface preparation  Build generated WASI package artifacts
 package-surface     primitive  npm package file surfaces
 audit               primitive  RustSec advisory audit
 shear               primitive  Unused Rust dependencies
@@ -197,12 +198,17 @@ run_istanbul_diff() {
   node scripts/istanbul-diff.mjs
 }
 
+run_prepare_package_surface() {
+  echo "[check:prepare-package-surface] ./scripts/prepare-package-surface.sh"
+  ./scripts/prepare-package-surface.sh
+}
+
 run_package_surface() {
   require_tool node "Install Node.js 22."
   require_tool npm "Install npm with Node.js."
   require_file "$NAPI_DIR/index.js" "Build and prepare the N-API packages first."
-  require_file "$NAPI_DIR/npm/wasm32-wasi/coverage-instrument.wasm32-wasi.wasm" "Prepare the threaded WASI package first."
-  require_file "$NAPI_DIR/npm/wasm32-wasi-singlethreaded/coverage-instrument.wasm32-wasi.wasm" "Prepare the single-threaded WASI package first."
+  require_file "$NAPI_DIR/npm/wasm32-wasi/coverage-instrument.wasm32-wasi.wasm" "Run './scripts/check.sh prepare-package-surface' first."
+  require_file "$NAPI_DIR/npm/wasm32-wasi-singlethreaded/coverage-instrument.wasm32-wasi.wasm" "Run './scripts/check.sh prepare-package-surface' first."
   echo "[check:package-surface] node scripts/npm-pack-surface-check.mjs"
   node scripts/npm-pack-surface-check.mjs
 }
@@ -364,6 +370,7 @@ case "$profile" in
   wasi-shim-test) run_wasi_shim_test ;;
   browser-loader-test) run_browser_loader_test ;;
   istanbul-diff) run_istanbul_diff ;;
+  prepare-package-surface) run_prepare_package_surface ;;
   package-surface) run_package_surface ;;
   audit) run_audit ;;
   shear) run_shear ;;

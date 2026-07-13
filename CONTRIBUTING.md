@@ -74,22 +74,24 @@ List the canonical repository checks and run focused profiles as needed:
 # Docs
 ./scripts/check.sh rust-doc
 
-# Show every primitive and aggregate profile
+# Show every check and preparation profile
 ./scripts/check.sh --list
 ```
 
 The full local profile requires Rust, Node.js 22, npm dependencies at the
 repository root, N-API package, and Vitest example, plus `typos`, `cargo-audit`,
-`cargo-shear`, `actionlint`, and `zizmor`. Build the native N-API artifact
-before running it. The package-surface primitive also requires the generated
-threaded and single-threaded WASI package artifacts prepared by the release
-tooling.
+`cargo-shear`, `actionlint`, and `zizmor`. Build the native N-API artifact and
+prepare both generated WASI package surfaces before running it. The preparation
+profile uses the repository's release build, patch, and validation helpers. It
+never installs missing Rust targets or npm dependencies, and reports the exact
+prerequisite command when one is missing.
 
 ```bash
 npm install
 npm --prefix crates/oxc-coverage-instrument-napi install
 npm --prefix crates/oxc-coverage-instrument-napi run build:debug
 npm --prefix examples/vitest-typescript install
+./scripts/check.sh prepare-package-surface
 ./scripts/check.sh all-local
 ```
 
@@ -177,6 +179,7 @@ node crates/oxc-coverage-instrument/tests/conformance/generate-reference.mjs
 - `scripts/benchmark-comparison.sh`: performance comparison against Istanbul, Babel, and SWC coverage instrumenters.
 - `scripts/real-world-parity.mjs`: count-level parity check over the benchmark corpus populated by `benchmark-comparison.sh`.
 - `scripts/compare-istanbul.mjs`: ad hoc reference-output dumper used when investigating Istanbul shape differences.
+- `scripts/prepare-package-surface.sh`: builds and prepares both generated WASI packages required by `package-surface`.
 - `scripts/sync-npm-versions.sh`: syncs the N-API package and platform package versions during release prep.
 
 ## Code conventions
