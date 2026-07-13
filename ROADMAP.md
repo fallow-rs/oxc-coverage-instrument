@@ -26,8 +26,8 @@ Correct instrumented output via AST mutation. Istanbul-conformant. Published to 
 - [x] **npm package**: Node.js bindings via napi-rs, 7 platform binaries, trusted publishing
 - [x] **CLI binary**: `oxc-coverage-instrument <file>` for standalone use
 - [x] **Coverage ingestion**: `parse_coverage_map()` and `FileCoverage::from_json()` for reading coverage data
-- [x] **Conformance test suite**: 175 automated checks against Istanbul reference output
-- [x] **282 tests**, 97% line coverage, strict clippy (all+pedantic+nursery, Oxc-level restrictions)
+- [x] **Conformance test suite**: automated validation against Istanbul reference output
+- [x] **Validation**: broad unit, conformance, integration, and end-to-end checks, plus strict clippy (all+pedantic+nursery, Oxc-level restrictions)
 - [x] **CI**: cross-platform tests, MSRV, cargo-deny, napi test, typos, doc checks, coverage badge
 - [x] **Published to crates.io**: automated publishing via CI on each release
 
@@ -65,8 +65,8 @@ Coverage suite (umbrella [#45](https://github.com/fallow-rs/oxc-coverage-instrum
   - New `html` Cargo feature (default-enabled) gates `syntect` + `two-face` + `rayon` so downstream consumers that only want text / lcov / cobertura / json-summary can drop the grammar payload via `default-features = false`
   - `~+2.2 MiB` binary delta for the bundled grammar set; acceptable for a CI-class tool
 - [x] **PR G5**: configurable line-coverage threshold
-  - New `HtmlOptions { high_threshold: f64 }` struct with `Default` (80.0, matching Istanbul's traditional cutoff). Constructed via struct-update syntax so future fields are additive without breaking callers
-  - New `html::write_with_options()` companion to `html::write()`; new `Format::write_to_dir_with_options()` companion to `Format::write_to_dir()`. The original entry points keep their signatures for backward compat and dispatch through `HtmlOptions::default()`
+  - `HtmlOptions::new(green_threshold)` validates a finite percentage in the inclusive `0..=100` range. `HtmlOptions::default()` uses 80.0, matching Istanbul's traditional cutoff, and `green_threshold()` exposes the configured value
+  - The existing `html::write()` and `Format::write_to_dir()` entry points accept `&HtmlOptions`, keeping default and custom rendering on one configured path
   - Threshold drives both the index page's "N of M files fall below the X% line-coverage threshold" sentence AND the high/medium/low colour bucketing on every metric pill, row, and inline coverage meter, so the visual story stays consistent. Medium / low boundary stays fixed at 50%
   - CLI `--threshold <pct>` flag on `report` subcommand; validates `0 <= x <= 100` at parse time with a friendly error message
 - [x] **PR G4**: fallow "Mode B" visual pass
@@ -84,8 +84,8 @@ Reproduce-locally targets for every CI gate live in `CONTRIBUTING.md` under *Dev
 
 - **`ci.yml`**: cross-platform `check` matrix (ubuntu / macos / windows), `msrv` (1.92), `doc` (`RUSTDOCFLAGS=-D warnings`), `typos`, `audit` (cargo-audit / RustSec), `deny` (cargo-deny per `deny.toml`), `shear` (unused / misplaced deps), `zizmor` (workflow security), `napi` (build + `node test.mjs`), `istanbul-diff` (byte parity against `istanbul-lib-instrument` on 27 fixtures), `vitest-typescript-example` (end-to-end Vitest adapter smoke), and a single `ci-ok` aggregator job for branch protection
 - **`coverage.yml`**: `cargo llvm-cov` on every push to `main`, publishes a shields.io-compatible JSON badge to the `badges` branch
-- **`bench.yml`**: criterion run on push / PR with `crates/**` paths, pushes results + dashboard to `gh-pages` via `benchmark-action/github-action-benchmark`
-- **`bloat.yml`**: CLI binary size tracking via cargo-bloat, alert threshold 120%
+- **`bench.yml`**: CodSpeed simulations on push / PR with `crates/**` paths, covering instrumentation, source maps, V8 conversion, N-API remapping, and report generation
+- **`bloat.yml`**: CLI binary size tracking via cargo-bloat, with size history stored separately on `gh-pages` through `github-action-benchmark` and alert threshold 120%
 - **`cross-arch.yml`**: cross-compile check on `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`
 - **`commitlint.yml`**: conventional-commit lint on every PR title + commit range (config in `commitlint.config.mjs`)
 - **`scorecard.yml`**: OSSF Scorecard scan, weekly + on push to main
@@ -93,7 +93,7 @@ Reproduce-locally targets for every CI gate live in `CONTRIBUTING.md` under *Dev
 - **`require-issue-link.yml`**: requires `Closes/Fixes/Resolves #N` (or `N/A`) in every non-draft, non-bot PR body
 - **`release-npm.yml`**: tag-triggered multi-platform napi build matrix (7 targets) + crates.io publish in topological order + npm publish with provenance
 
-Every external action is SHA-pinned with a version comment; the `dtolnay/rust-toolchain` pin tracks `stable` HEAD and is re-pinned when dependabot's github-actions scanner reports the SHA orphaned (see `.github/actions/setup-rust/action.yml`). Reusable composites live under `.github/actions/`. The `gh-pages` dashboard is served at `https://fallow-rs.github.io/oxc-coverage-instrument/`.
+Every external action is SHA-pinned with a version comment; the `dtolnay/rust-toolchain` pin tracks `stable` HEAD and is re-pinned when dependabot's github-actions scanner reports the SHA orphaned (see `.github/actions/setup-rust/action.yml`). Reusable composites live under `.github/actions/`.
 
 ## Future
 

@@ -10,6 +10,9 @@
 
 ## Status
 
+- **Status**: DONE
+- **Resolution note**: `bench.yml` now documents CodSpeed simulation, while
+  `bloat.yml` retains its separately verified `gh-pages` size history.
 - **Priority**: P3
 - **Effort**: S
 - **Risk**: LOW
@@ -137,8 +140,9 @@ rewriting.
 ## Test plan
 
 ```bash
-if rg -n "high_threshold|write_with_options|write_to_dir_with_options|github-action-benchmark|gh-pages|282 tests|97%" ROADMAP.md README.md; then exit 1; fi
-rg -n "HtmlOptions::new|green_threshold|CodSpeed|simulation" ROADMAP.md
+if rg -n "high_threshold|write_with_options|write_to_dir_with_options|175 automated checks|282 tests|97%" ROADMAP.md README.md; then exit 1; fi
+if rg -n '\*\*`bench\.yml`\*\*:.*(github-action-benchmark|gh-pages|dashboard)' ROADMAP.md; then exit 1; fi
+rg -n "HtmlOptions::new|green_threshold|CodSpeed|simulation|bloat.*gh-pages" ROADMAP.md
 cargo test --workspace --doc > /tmp/oxc-roadmap-doctest.log 2>&1
 tail -80 /tmp/oxc-roadmap-doctest.log
 typos ROADMAP.md README.md
@@ -154,7 +158,8 @@ roadmap text changed.
 
 - HTML roadmap prose matches public symbols and threshold semantics.
 - Benchmark prose matches the active CodSpeed simulation workflow.
-- Obsolete GitHub Pages benchmark dashboard claims are removed.
+- Obsolete GitHub Pages performance benchmark dashboard claims are removed,
+  while the separately verified binary-size history remains documented.
 - Volatile test and coverage totals are replaced with durable capabilities.
 - Unfinished roadmap items remain intact unless live evidence justifies a
   status change.
