@@ -13,7 +13,7 @@ Keep changes scoped, preserve unrelated worktree edits, and use checked-in polic
 
 ## Generated artifacts
 
-The root `index.js`, `index.d.ts`, `browser.js`, native binaries, WebAssembly files, and WASI loaders and workers are build outputs owned by the N-API tooling and repository patch scripts. Do not treat generated files as primary sources. Update the owning input or patch script, regenerate the artifacts, and verify that no unexpected drift remains.
+At the `crates/oxc-coverage-instrument-napi/` package root, `index.js`, `index.d.ts`, `browser.js`, native binaries, WebAssembly files, and WASI loaders and workers are build outputs owned by the N-API tooling and repository patch scripts. Do not treat generated files as primary sources. Update the owning input or patch script, regenerate the artifacts, and verify that no unexpected drift remains.
 
 ## Version synchronization
 
