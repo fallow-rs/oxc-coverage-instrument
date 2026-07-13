@@ -11,6 +11,8 @@
 //! - **Mode A (remap-at-report-time)**: [`remap_coverage`] /
 //!   [`remap_coverage_map`] walk a single `FileCoverage` (or every entry of a
 //!   coverage-final.json shaped map) through the embedded `inputSourceMap`.
+//!   [`remap_coverage_to_map`] exposes the one-to-many form for callers that
+//!   start with one generated file containing several original sources.
 //!   When the input map is not embedded on the `FileCoverage`,
 //!   [`remap_coverage_with_loader`] / [`remap_coverage_map_with_loader`]
 //!   accept a caller-supplied loader that reads the map JSON from disk or
@@ -33,15 +35,16 @@
 //! `createSourceMapStore().transformCoverage` byte-for-byte.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
 
 /// Options for the remap helpers. The default value preserves the legacy
 /// keep-generated-position behaviour for positions whose source-map lookup
 /// returns `None`, so existing callers that pass [`RemapOptions::default`] (or
-/// rely on the parameterless [`remap_coverage`] / [`remap_coverage_map`]
-/// helpers) see no change.
+/// rely on the parameterless [`remap_coverage`] helper) see no change for
+/// single-source maps. In a multi-source map, an unmapped entry has no safe
+/// original owner and is omitted by the map-returning helpers in both modes.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RemapOptions {
     /// When `true`, statement / function / branch entries whose positions
@@ -131,12 +134,12 @@ impl PositionRemapper {
 /// Remap a single `FileCoverage` through its embedded `inputSourceMap`.
 ///
 /// Returns `None` when the entry has no `inputSourceMap`, when that map fails
-/// to parse, or when it declares no usable source. Callers should fall back to
-/// the original coverage entry in those cases.
+/// to parse, when it declares no usable source, or when mappings resolve to
+/// several original files. Callers that need a complete multi-source result
+/// must use [`remap_coverage_to_map`].
 ///
-/// When the input map declares a `sourceRoot`, the resolved `path` is the
-/// `sourceRoot` joined with the first entry in `sources` (matching
-/// `istanbul-lib-source-maps` semantics).
+/// When the input map declares a `sourceRoot`, the sole resolved output path
+/// joins that root using `istanbul-lib-source-maps` semantics.
 ///
 /// The returned coverage always satisfies the Istanbul merge invariant
 /// `keys(s) ⊆ keys(statementMap)` (and `f`/`fnMap`, `b`/`bT`/`branchMap`):
@@ -181,12 +184,80 @@ pub fn remap_coverage_with_loader_and_options<L>(
 where
     L: Fn(&str) -> Option<String>,
 {
+    let sm = source_map_with_loader(coverage, loader)?;
+    let remapped = apply_source_map_to_map(coverage, &sm, options)?;
+    select_single_remap(coverage, &sm, options, remapped)
+}
+
+/// Remap one `FileCoverage` into every original source represented by its
+/// mappings. Returns `None` only when no usable source map is available.
+///
+/// Unlike [`remap_coverage`], this API can represent a true multi-source
+/// result. Each returned file has contiguous metadata ids, aligned counters,
+/// and no `inputSourceMap`.
+pub fn remap_coverage_to_map(coverage: &FileCoverage) -> Option<BTreeMap<String, FileCoverage>> {
+    remap_coverage_to_map_with_loader_and_options(coverage, |_| None, RemapOptions::default())
+}
+
+/// Like [`remap_coverage_to_map`], with a [`RemapOptions`] argument.
+pub fn remap_coverage_to_map_with_options(
+    coverage: &FileCoverage,
+    options: RemapOptions,
+) -> Option<BTreeMap<String, FileCoverage>> {
+    remap_coverage_to_map_with_loader_and_options(coverage, |_| None, options)
+}
+
+/// Like [`remap_coverage_to_map`], with a source-map loader fallback.
+pub fn remap_coverage_to_map_with_loader<L>(
+    coverage: &FileCoverage,
+    loader: L,
+) -> Option<BTreeMap<String, FileCoverage>>
+where
+    L: Fn(&str) -> Option<String>,
+{
+    remap_coverage_to_map_with_loader_and_options(coverage, loader, RemapOptions::default())
+}
+
+/// Like [`remap_coverage_to_map_with_loader`], with remap options.
+pub fn remap_coverage_to_map_with_loader_and_options<L>(
+    coverage: &FileCoverage,
+    loader: L,
+    options: RemapOptions,
+) -> Option<BTreeMap<String, FileCoverage>>
+where
+    L: Fn(&str) -> Option<String>,
+{
+    let sm = source_map_with_loader(coverage, loader)?;
+    apply_source_map_to_map(coverage, &sm, options)
+}
+
+fn source_map_with_loader<L>(
+    coverage: &FileCoverage,
+    loader: L,
+) -> Option<srcmap_sourcemap::SourceMap>
+where
+    L: Fn(&str) -> Option<String>,
+{
     let input_sm_json = match coverage.input_source_map.as_ref() {
         Some(value) => serde_json::to_string(value).ok()?,
         None => loader(&coverage.path)?,
     };
-    let sm = srcmap_sourcemap::SourceMap::from_json(&input_sm_json).ok()?;
-    apply_source_map(coverage, &sm, options)
+    srcmap_sourcemap::SourceMap::from_json(&input_sm_json).ok()
+}
+
+fn select_single_remap(
+    coverage: &FileCoverage,
+    sm: &srcmap_sourcemap::SourceMap,
+    options: RemapOptions,
+    mut remapped: BTreeMap<String, FileCoverage>,
+) -> Option<FileCoverage> {
+    if let Some(path) = sole_resolved_source_path(sm) {
+        return Some(apply_source_map_single(coverage, sm, options, path));
+    }
+    if remapped.len() != 1 {
+        return None;
+    }
+    remapped.pop_first().map(|(_, coverage)| coverage)
 }
 
 /// Remap every `FileCoverage` in a coverage map. Entries without an
@@ -194,10 +265,9 @@ where
 /// with an `inputSourceMap` are rewritten and re-keyed by their resolved
 /// original source path.
 ///
-/// When two entries remap to the same original path (rare but possible for
-/// bundled output where multiple instrumented chunks share a source), the
-/// later entry replaces the earlier; richer merging belongs to a future
-/// `istanbul-lib-coverage` successor and is out of scope here.
+/// Entries that fan into the same original path merge by remapped location.
+/// Equivalent hit counts use saturating `u32` addition, matching the counter
+/// representation without allowing debug and release overflow to diverge.
 pub fn remap_coverage_map(
     coverage_map: &BTreeMap<String, FileCoverage>,
 ) -> BTreeMap<String, FileCoverage> {
@@ -238,9 +308,11 @@ where
 {
     let mut out = BTreeMap::new();
     for (path, fc) in coverage_map {
-        match remap_coverage_with_loader_and_options(fc, &loader, options) {
+        match remap_coverage_to_map_with_loader_and_options(fc, &loader, options) {
             Some(remapped) => {
-                out.insert(remapped.path.clone(), remapped);
+                for (_, coverage) in remapped {
+                    insert_or_merge_coverage(&mut out, coverage);
+                }
             }
             None => {
                 // Entry has no usable map (no embedded `inputSourceMap`, or an
@@ -250,7 +322,8 @@ where
                 // slip through unchanged and crash a downstream `nyc` merge.
                 let mut passthrough = fc.clone();
                 passthrough.prune_orphan_counters();
-                out.insert(path.clone(), passthrough);
+                passthrough.path.clone_from(path);
+                insert_or_merge_coverage(&mut out, passthrough);
             }
         }
     }
@@ -259,12 +332,18 @@ where
 
 /// getMapping lookup caches. Kept separate from the `&SourceMap` borrow so they
 /// can outlive a single [`RemapContext`]: [`PositionRemapper`] owns one set and
-/// reuses it across every eager-gate call, while `apply_source_map` uses a fresh
+/// reuses it across every eager-gate call, while a file remap uses a fresh
 /// set per coverage map.
 #[derive(Default)]
 struct RemapCaches {
-    mapping_cache: BTreeMap<LocationKey, Option<Location>>,
+    mapping_cache: BTreeMap<LocationKey, Option<MappedLocation>>,
     original_line_columns: BTreeMap<OriginalLineKey, Vec<u32>>,
+}
+
+#[derive(Clone)]
+struct MappedLocation {
+    source: u32,
+    location: Location,
 }
 
 struct RemapContext<'a> {
@@ -303,170 +382,527 @@ struct OriginalLineKey {
     line: u32,
 }
 
-/// Apply a parsed `SourceMap` to a `FileCoverage`. Returns `None` when the
-/// map declares no usable source (matches the bail in `resolve_primary_source`).
-fn apply_source_map(
+fn apply_source_map_single(
     coverage: &FileCoverage,
     sm: &srcmap_sourcemap::SourceMap,
     options: RemapOptions,
-) -> Option<FileCoverage> {
-    let primary_source = resolve_primary_source(sm)?;
-
-    let mut out = coverage.clone();
-    out.path = primary_source;
-    out.input_source_map = None;
+    path: String,
+) -> FileCoverage {
+    let mut output = coverage.clone();
+    output.path = path;
+    output.input_source_map = None;
     let mut caches = RemapCaches::default();
     let mut ctx = RemapContext::new(sm, &mut caches);
 
     if options.drop_unmapped {
-        prune_unmapped(&mut out, &mut ctx);
+        prune_single_source_unmapped(&mut output, &mut ctx);
     } else {
-        for loc in out.statement_map.values_mut() {
-            remap_location(loc, &mut ctx);
+        for location in output.statement_map.values_mut() {
+            remap_single_source_location(location, &mut ctx);
         }
-        for fn_entry in out.fn_map.values_mut() {
-            remap_fn_entry(fn_entry, &mut ctx);
+        for function in output.fn_map.values_mut() {
+            remap_single_source_location(&mut function.decl, &mut ctx);
+            remap_single_source_location(&mut function.loc, &mut ctx);
+            function.line = function.loc.start.line;
         }
-        for branch_entry in out.branch_map.values_mut() {
-            remap_branch_entry(branch_entry, &mut ctx);
+        for branch in output.branch_map.values_mut() {
+            remap_single_source_location(&mut branch.loc, &mut ctx);
+            for arm in &mut branch.locations {
+                remap_single_source_location(arm, &mut ctx);
+            }
+            branch.line = branch.loc.start.line;
         }
     }
-
-    // Enforce the Istanbul merge invariant on every coverage object we emit
-    // (issue #107): drop any `s`/`f`/`b`/`bT` counter whose location-map entry
-    // is absent. `prune_unmapped` already removes the counters it drops in
-    // lockstep, so this is a no-op for the drop path; the no-drop path never
-    // removes location entries, so a counter is only orphaned here if the INPUT
-    // coverage already carried one (a runtime-collected `++cov.s[id]` against a
-    // slot a prior tool pruned, which deserializes back as a `null`-valued
-    // orphan). Passing such an orphan through unchanged would crash any
-    // `istanbul-lib-coverage` / `nyc` consumer that merges the result.
-    out.prune_orphan_counters();
-
-    Some(out)
+    output.prune_orphan_counters();
+    output
 }
 
-/// Drop statement / function / branch entries whose positions cannot be looked
-/// up in the source map, taking matching `s` / `f` / `b` / `bT` slots with
-/// them. Mirrors `istanbul-lib-source-maps`'s `transformer.js`. See
-/// [`RemapOptions::drop_unmapped`] for the exact per-kind rules.
-fn prune_unmapped(coverage: &mut FileCoverage, ctx: &mut RemapContext<'_>) {
-    prune_statements(coverage, ctx);
-    prune_functions(coverage, ctx);
-    prune_branches(coverage, ctx);
+fn remap_single_source_location(location: &mut Location, ctx: &mut RemapContext<'_>) {
+    if location.start.line != 0
+        && location.end.line != 0
+        && let Some(mapped) = get_mapping_location_cached(ctx, location)
+    {
+        *location = mapped;
+        return;
+    }
+    legacy_remap_location(location, ctx.sm);
 }
 
-/// Statements: drop when either start or end fails to remap, taking the
-/// matching `s` hit slot with the dropped entry.
-fn prune_statements(coverage: &mut FileCoverage, ctx: &mut RemapContext<'_>) {
-    let mut dropped_statements: Vec<String> = Vec::new();
-    coverage.statement_map.retain(|key, loc| {
-        if try_remap_location(loc, ctx) {
+fn try_remap_single_source_location(location: &mut Location, ctx: &mut RemapContext<'_>) -> bool {
+    if location.start.line == 0 || location.end.line == 0 {
+        legacy_remap_location(location, ctx.sm);
+        return true;
+    }
+    let Some(mapped) = get_mapping_location_cached(ctx, location) else {
+        return false;
+    };
+    *location = mapped;
+    true
+}
+
+fn prune_single_source_unmapped(coverage: &mut FileCoverage, ctx: &mut RemapContext<'_>) {
+    let mut dropped = Vec::new();
+    coverage.statement_map.retain(|id, location| {
+        if try_remap_single_source_location(location, ctx) {
             true
         } else {
-            dropped_statements.push(key.clone());
+            dropped.push(id.clone());
             false
         }
     });
-    for key in &dropped_statements {
-        coverage.s.remove(key);
+    for id in std::mem::take(&mut dropped) {
+        coverage.s.remove(&id);
     }
-}
 
-/// Functions: drop when any of decl.start, decl.end, loc.start, loc.end fails
-/// to remap. `FnEntry::line` is refreshed from the remapped `loc.start.line`
-/// on the surviving entries; the matching `f` hit slot follows the drop.
-fn prune_functions(coverage: &mut FileCoverage, ctx: &mut RemapContext<'_>) {
-    let mut dropped_fns: Vec<String> = Vec::new();
-    coverage.fn_map.retain(|key, fn_entry| {
-        let decl_ok = try_remap_location(&mut fn_entry.decl, ctx);
-        let loc_ok = try_remap_location(&mut fn_entry.loc, ctx);
-        if decl_ok && loc_ok {
-            fn_entry.line = fn_entry.loc.start.line;
+    coverage.fn_map.retain(|id, function| {
+        let decl_maps = try_remap_single_source_location(&mut function.decl, ctx);
+        let loc_maps = try_remap_single_source_location(&mut function.loc, ctx);
+        if decl_maps && loc_maps {
+            function.line = function.loc.start.line;
             true
         } else {
-            dropped_fns.push(key.clone());
+            dropped.push(id.clone());
             false
         }
     });
-    for key in &dropped_fns {
-        coverage.f.remove(key);
-        // Keep the `x_fallow_functionMap` overlay 1:1 with `fnMap`: a dropped
-        // function must not leave an orphan identity entry that consumers
-        // joining on `fnMap` keys would never resolve. The overlay shares the
-        // fn-id keyspace with `fnMap` (see `build_function_identity_map`).
-        if let Some(fallow_map) = coverage.x_fallow_function_map.as_mut() {
-            fallow_map.remove(key);
+    for id in std::mem::take(&mut dropped) {
+        coverage.f.remove(&id);
+        if let Some(overlay) = coverage.x_fallow_function_map.as_mut() {
+            overlay.remove(&id);
         }
     }
-}
 
-/// Branches: per-arm prune when either arm endpoint fails to remap; drop the
-/// whole branch when no arms survive OR when the umbrella `loc` start/end fails
-/// to remap. The `b` / `bT` arm vectors track surviving arms by position so
-/// their hit counts stay aligned.
-fn prune_branches(coverage: &mut FileCoverage, ctx: &mut RemapContext<'_>) {
-    let mut dropped_branches: Vec<String> = Vec::new();
-    let mut surviving_arms: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    coverage.branch_map.retain(|key, branch_entry| {
-        let loc_ok = try_remap_location(&mut branch_entry.loc, ctx);
-        if !loc_ok {
-            dropped_branches.push(key.clone());
+    let mut surviving_arms = BTreeMap::new();
+    coverage.branch_map.retain(|id, branch| {
+        if !try_remap_single_source_location(&mut branch.loc, ctx) {
+            dropped.push(id.clone());
             return false;
         }
-
-        let (kept_indices, kept_locations) = surviving_branch_arms(branch_entry, ctx);
-        if kept_locations.is_empty() {
-            dropped_branches.push(key.clone());
+        let mut indices = Vec::new();
+        let mut locations = Vec::new();
+        for (index, arm) in branch.locations.iter_mut().enumerate() {
+            if try_remap_single_source_location(arm, ctx) {
+                indices.push(index);
+                locations.push(arm.clone());
+            }
+        }
+        if locations.is_empty() {
+            dropped.push(id.clone());
             return false;
         }
-
-        branch_entry.locations = kept_locations;
-        branch_entry.line = branch_entry.loc.start.line;
-        surviving_arms.insert(key.clone(), kept_indices);
+        branch.locations = locations;
+        branch.line = branch.loc.start.line;
+        surviving_arms.insert(id.clone(), indices);
         true
     });
-    for key in &dropped_branches {
-        coverage.b.remove(key);
+    for id in dropped {
+        coverage.b.remove(&id);
         if let Some(b_t) = coverage.b_t.as_mut() {
-            b_t.remove(key);
+            b_t.remove(&id);
         }
     }
-    realign_arm_vec_map(&mut coverage.b, &surviving_arms);
+    project_branch_counters(&mut coverage.b, &surviving_arms);
     if let Some(b_t) = coverage.b_t.as_mut() {
-        realign_arm_vec_map(b_t, &surviving_arms);
+        project_branch_counters(b_t, &surviving_arms);
     }
 }
 
-fn surviving_branch_arms(
-    branch_entry: &mut oxc_coverage_types::BranchEntry,
-    ctx: &mut RemapContext<'_>,
-) -> (Vec<usize>, Vec<Location>) {
-    let mut kept_indices: Vec<usize> = Vec::new();
-    let mut kept_locations: Vec<Location> = Vec::new();
-    for (idx, arm) in branch_entry.locations.iter_mut().enumerate() {
-        if try_remap_location(arm, ctx) {
-            kept_indices.push(idx);
-            kept_locations.push(arm.clone());
-        }
-    }
-    (kept_indices, kept_locations)
-}
-
-/// Project each surviving-arm hit-count vector down to the kept indices.
-/// Branches that disappeared from the map (already removed via `b.remove`)
-/// are not in `surviving_arms` and are left untouched here.
-fn realign_arm_vec_map(
-    arm_counts: &mut BTreeMap<String, Vec<u32>>,
+fn project_branch_counters(
+    counters: &mut BTreeMap<String, Vec<u32>>,
     surviving_arms: &BTreeMap<String, Vec<usize>>,
 ) {
-    for (key, indices) in surviving_arms {
-        let Some(existing) = arm_counts.get_mut(key) else {
+    for (id, indices) in surviving_arms {
+        if let Some(hits) = counters.get_mut(id) {
+            *hits = project_arm_counts(hits, indices);
+        }
+    }
+}
+
+fn apply_source_map_to_map(
+    coverage: &FileCoverage,
+    sm: &srcmap_sourcemap::SourceMap,
+    options: RemapOptions,
+) -> Option<BTreeMap<String, FileCoverage>> {
+    let resolved_sources: Vec<(u32, String)> = sm
+        .sources
+        .iter()
+        .enumerate()
+        .filter_map(|(index, _)| {
+            let index = u32::try_from(index).ok()?;
+            resolve_source_path(sm, index).map(|path| (index, path))
+        })
+        .collect();
+    if resolved_sources.is_empty() {
+        return None;
+    }
+
+    let unique_paths: BTreeMap<&str, u32> =
+        resolved_sources.iter().map(|(source, path)| (path.as_str(), *source)).collect();
+    let fallback_source =
+        (!options.drop_unmapped && unique_paths.len() == 1).then(|| resolved_sources[0].0);
+    let mut outputs = BTreeMap::new();
+    let mut caches = RemapCaches::default();
+    let mut ctx = RemapContext::new(sm, &mut caches);
+
+    for (key, location) in &coverage.statement_map {
+        let Some(mapped) = mapped_or_legacy_location(location, &mut ctx, fallback_source) else {
             continue;
         };
-        let trimmed = indices.iter().map(|&i| existing.get(i).copied().unwrap_or(0)).collect();
-        *existing = trimmed;
+        let Some(output) = output_for_source(&mut outputs, coverage, sm, mapped.source) else {
+            continue;
+        };
+        let id = output.statement_map.len().to_string();
+        output.statement_map.insert(id.clone(), mapped.location);
+        if let Some(hits) = coverage.s.get(key) {
+            output.s.insert(id, *hits);
+        }
     }
+
+    for (key, function) in &coverage.fn_map {
+        let mapped_decl = mapped_or_legacy_location(&function.decl, &mut ctx, fallback_source);
+        let mapped_loc = mapped_or_legacy_location(&function.loc, &mut ctx, fallback_source);
+        let Some((source, decl, loc)) =
+            matching_function_locations(function, mapped_decl, mapped_loc, &ctx, fallback_source)
+        else {
+            continue;
+        };
+        let Some(output) = output_for_source(&mut outputs, coverage, sm, source) else {
+            continue;
+        };
+        let id = output.fn_map.len().to_string();
+        output.fn_map.insert(
+            id.clone(),
+            FnEntry { name: function.name.clone(), line: loc.start.line, decl, loc },
+        );
+        if let Some(hits) = coverage.f.get(key) {
+            output.f.insert(id.clone(), *hits);
+        }
+        if let (Some(input_overlay), Some(output_overlay)) =
+            (coverage.x_fallow_function_map.as_ref(), output.x_fallow_function_map.as_mut())
+            && let Some(identity) = input_overlay.get(key)
+        {
+            output_overlay.insert(id, identity.clone());
+        }
+    }
+
+    for (key, branch) in &coverage.branch_map {
+        let Some(mapped_loc) = mapped_or_legacy_location(&branch.loc, &mut ctx, fallback_source)
+        else {
+            continue;
+        };
+        let mut kept_indices = Vec::new();
+        let mut locations = Vec::new();
+        let mut source_mismatch = false;
+        for (index, arm) in branch.locations.iter().enumerate() {
+            if branch.branch_type == "if" && index > 0 && location_is_unknown(arm) {
+                kept_indices.push(index);
+                locations.push(arm.clone());
+                continue;
+            }
+            let Some(mapped_arm) = mapped_or_legacy_location(arm, &mut ctx, fallback_source) else {
+                continue;
+            };
+            if mapped_arm.source != mapped_loc.source {
+                source_mismatch = true;
+                break;
+            }
+            kept_indices.push(index);
+            locations.push(mapped_arm.location);
+        }
+        if source_mismatch || locations.is_empty() {
+            continue;
+        }
+        let Some(output) = output_for_source(&mut outputs, coverage, sm, mapped_loc.source) else {
+            continue;
+        };
+        let id = output.branch_map.len().to_string();
+        output.branch_map.insert(
+            id.clone(),
+            BranchEntry {
+                loc: mapped_loc.location.clone(),
+                line: mapped_loc.location.start.line,
+                branch_type: branch.branch_type.clone(),
+                locations,
+            },
+        );
+        if let Some(hits) = coverage.b.get(key) {
+            output.b.insert(id.clone(), project_arm_counts(hits, &kept_indices));
+        }
+        if let (Some(input_b_t), Some(output_b_t)) = (coverage.b_t.as_ref(), output.b_t.as_mut())
+            && let Some(hits) = input_b_t.get(key)
+        {
+            output_b_t.insert(id, project_arm_counts(hits, &kept_indices));
+        }
+    }
+
+    for output in outputs.values_mut() {
+        let mut canonical = empty_file_coverage(output, output.path.clone());
+        merge_file_coverage(&mut canonical, output);
+        *output = canonical;
+    }
+    Some(outputs)
+}
+
+fn empty_file_coverage(template: &FileCoverage, path: String) -> FileCoverage {
+    FileCoverage {
+        path,
+        statement_map: BTreeMap::new(),
+        fn_map: BTreeMap::new(),
+        branch_map: BTreeMap::new(),
+        s: BTreeMap::new(),
+        f: BTreeMap::new(),
+        b: BTreeMap::new(),
+        b_t: template.b_t.as_ref().map(|_| BTreeMap::new()),
+        input_source_map: None,
+        x_fallow_function_map: template.x_fallow_function_map.as_ref().map(|_| BTreeMap::new()),
+    }
+}
+
+fn output_for_source<'a>(
+    outputs: &'a mut BTreeMap<String, FileCoverage>,
+    template: &FileCoverage,
+    sm: &srcmap_sourcemap::SourceMap,
+    source: u32,
+) -> Option<&'a mut FileCoverage> {
+    let path = resolve_source_path(sm, source)?;
+    Some(outputs.entry(path.clone()).or_insert_with(|| empty_file_coverage(template, path)))
+}
+
+fn mapped_or_legacy_location(
+    location: &Location,
+    ctx: &mut RemapContext<'_>,
+    fallback_source: Option<u32>,
+) -> Option<MappedLocation> {
+    if location.start.line != 0
+        && location.end.line != 0
+        && let Some(mapped) = get_mapped_location_cached(ctx, location)
+    {
+        return Some(mapped);
+    }
+    let source = fallback_source?;
+    let mut location = location.clone();
+    legacy_remap_location(&mut location, ctx.sm);
+    Some(MappedLocation { source, location })
+}
+
+fn matching_function_locations(
+    function: &FnEntry,
+    mapped_decl: Option<MappedLocation>,
+    mapped_loc: Option<MappedLocation>,
+    ctx: &RemapContext<'_>,
+    fallback_source: Option<u32>,
+) -> Option<(u32, Location, Location)> {
+    match (mapped_decl, mapped_loc) {
+        (Some(decl), Some(loc)) if decl.source == loc.source => {
+            Some((decl.source, decl.location, loc.location))
+        }
+        _ => {
+            let source = fallback_source?;
+            let mut decl = function.decl.clone();
+            let mut loc = function.loc.clone();
+            legacy_remap_location(&mut decl, ctx.sm);
+            legacy_remap_location(&mut loc, ctx.sm);
+            Some((source, decl, loc))
+        }
+    }
+}
+
+fn project_arm_counts(hits: &[u32], indices: &[usize]) -> Vec<u32> {
+    indices.iter().map(|index| hits.get(*index).copied().unwrap_or(0)).collect()
+}
+
+fn location_is_unknown(location: &Location) -> bool {
+    location.start.line == 0
+        && location.start.column == 0
+        && location.end.line == 0
+        && location.end.column == 0
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct FunctionMergeKey {
+    name: String,
+    decl: LocationKey,
+    loc: LocationKey,
+}
+
+impl From<&FnEntry> for FunctionMergeKey {
+    fn from(function: &FnEntry) -> Self {
+        Self {
+            name: function.name.clone(),
+            decl: LocationKey::from(&function.decl),
+            loc: LocationKey::from(&function.loc),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct BranchMergeKey {
+    branch_type: String,
+    loc: LocationKey,
+    locations: Vec<LocationKey>,
+}
+
+impl From<&BranchEntry> for BranchMergeKey {
+    fn from(branch: &BranchEntry) -> Self {
+        Self {
+            branch_type: branch.branch_type.clone(),
+            loc: LocationKey::from(&branch.loc),
+            locations: branch.locations.iter().map(LocationKey::from).collect(),
+        }
+    }
+}
+
+fn insert_or_merge_coverage(
+    coverage_map: &mut BTreeMap<String, FileCoverage>,
+    incoming: FileCoverage,
+) {
+    if let Some(existing) = coverage_map.get_mut(&incoming.path) {
+        let mut merged = empty_file_coverage(existing, existing.path.clone());
+        merge_file_coverage(&mut merged, existing);
+        merge_file_coverage(&mut merged, &incoming);
+        *existing = merged;
+    } else {
+        coverage_map.insert(incoming.path.clone(), incoming);
+    }
+}
+
+fn merge_file_coverage(existing: &mut FileCoverage, incoming: &FileCoverage) {
+    merge_statements(existing, incoming);
+    merge_functions(existing, incoming);
+    merge_branches(existing, incoming);
+    existing.input_source_map = None;
+    existing.prune_orphan_counters();
+}
+
+fn merge_statements(existing: &mut FileCoverage, incoming: &FileCoverage) {
+    let mut ids: BTreeMap<LocationKey, String> = existing
+        .statement_map
+        .iter()
+        .map(|(id, location)| (LocationKey::from(location), id.clone()))
+        .collect();
+    for (incoming_id, location) in &incoming.statement_map {
+        let key = LocationKey::from(location);
+        let output_id = if let Some(id) = ids.get(&key) {
+            id.clone()
+        } else {
+            let id = existing.statement_map.len().to_string();
+            existing.statement_map.insert(id.clone(), location.clone());
+            ids.insert(key, id.clone());
+            id
+        };
+        merge_scalar_counter(&mut existing.s, &output_id, incoming.s.get(incoming_id).copied());
+    }
+}
+
+fn merge_functions(existing: &mut FileCoverage, incoming: &FileCoverage) {
+    let mut ids: BTreeMap<FunctionMergeKey, String> = existing
+        .fn_map
+        .iter()
+        .map(|(id, function)| (FunctionMergeKey::from(function), id.clone()))
+        .collect();
+    let incoming_overlay = incoming.x_fallow_function_map.as_ref();
+    let mut overlay_conflict =
+        existing.x_fallow_function_map.is_none() || incoming_overlay.is_none();
+
+    for (incoming_id, function) in &incoming.fn_map {
+        let key = FunctionMergeKey::from(function);
+        let (output_id, existed) = if let Some(id) = ids.get(&key) {
+            (id.clone(), true)
+        } else {
+            let id = existing.fn_map.len().to_string();
+            existing.fn_map.insert(id.clone(), function.clone());
+            ids.insert(key, id.clone());
+            (id, false)
+        };
+        merge_scalar_counter(&mut existing.f, &output_id, incoming.f.get(incoming_id).copied());
+
+        if overlay_conflict {
+            continue;
+        }
+        let incoming_identity = incoming_overlay.and_then(|overlay| overlay.get(incoming_id));
+        let existing_overlay = existing.x_fallow_function_map.as_mut().expect("checked above");
+        if existed {
+            let existing_identity = existing_overlay.get(&output_id);
+            if !matches!((existing_identity, incoming_identity),
+                (Some(left), Some(right)) if function_identities_equal(left, right))
+            {
+                overlay_conflict = true;
+            }
+        } else if let Some(identity) = incoming_identity {
+            existing_overlay.insert(output_id, identity.clone());
+        } else {
+            overlay_conflict = true;
+        }
+    }
+
+    if overlay_conflict {
+        existing.x_fallow_function_map = None;
+    }
+}
+
+fn merge_branches(existing: &mut FileCoverage, incoming: &FileCoverage) {
+    let mut ids: BTreeMap<BranchMergeKey, String> = existing
+        .branch_map
+        .iter()
+        .map(|(id, branch)| (BranchMergeKey::from(branch), id.clone()))
+        .collect();
+    if existing.b_t.is_none() && incoming.b_t.is_some() {
+        existing.b_t = Some(BTreeMap::new());
+    }
+
+    for (incoming_id, branch) in &incoming.branch_map {
+        let key = BranchMergeKey::from(branch);
+        let output_id = if let Some(id) = ids.get(&key) {
+            id.clone()
+        } else {
+            let id = existing.branch_map.len().to_string();
+            existing.branch_map.insert(id.clone(), branch.clone());
+            ids.insert(key, id.clone());
+            id
+        };
+        merge_vector_counter(&mut existing.b, &output_id, incoming.b.get(incoming_id));
+        if let (Some(existing_b_t), Some(incoming_b_t)) =
+            (existing.b_t.as_mut(), incoming.b_t.as_ref())
+        {
+            merge_vector_counter(existing_b_t, &output_id, incoming_b_t.get(incoming_id));
+        }
+    }
+}
+
+fn merge_scalar_counter(counters: &mut BTreeMap<String, u32>, id: &str, incoming: Option<u32>) {
+    let Some(incoming) = incoming else {
+        return;
+    };
+    let counter = counters.entry(id.to_string()).or_default();
+    *counter = counter.saturating_add(incoming);
+}
+
+fn merge_vector_counter(
+    counters: &mut BTreeMap<String, Vec<u32>>,
+    id: &str,
+    incoming: Option<&Vec<u32>>,
+) {
+    let Some(incoming) = incoming else {
+        return;
+    };
+    let current = counters.entry(id.to_string()).or_insert_with(|| vec![0; incoming.len()]);
+    if current.len() < incoming.len() {
+        current.resize(incoming.len(), 0);
+    }
+    for (current, incoming) in current.iter_mut().zip(incoming) {
+        *current = current.saturating_add(*incoming);
+    }
+}
+
+fn function_identities_equal(
+    left: &oxc_coverage_types::FunctionIdentity,
+    right: &oxc_coverage_types::FunctionIdentity,
+) -> bool {
+    left.id == right.id
+        && left.name == right.name
+        && left.path == right.path
+        && LocationKey::from(&left.decl) == LocationKey::from(&right.decl)
+        && LocationKey::from(&left.loc) == LocationKey::from(&right.loc)
 }
 
 /// Stateful map store for the Mode B "continuous remap during collection"
@@ -575,9 +1011,34 @@ impl SourceMapStore {
     ) -> Option<FileCoverage> {
         if let Some(sm) = self.maps.get(&coverage.path) {
             let sm = sm.as_ref()?;
-            return apply_source_map(coverage, sm, options);
+            let remapped = apply_source_map_to_map(coverage, sm, options)?;
+            return select_single_remap(coverage, sm, options, remapped);
         }
         remap_coverage_with_options(coverage, options)
+    }
+
+    /// Remap one file into every source represented by its stored or embedded
+    /// source map.
+    #[must_use]
+    pub fn transform_coverage_to_map(
+        &self,
+        coverage: &FileCoverage,
+    ) -> Option<BTreeMap<String, FileCoverage>> {
+        self.transform_coverage_to_map_with_options(coverage, RemapOptions::default())
+    }
+
+    /// Like [`SourceMapStore::transform_coverage_to_map`], with remap options.
+    #[must_use]
+    pub fn transform_coverage_to_map_with_options(
+        &self,
+        coverage: &FileCoverage,
+        options: RemapOptions,
+    ) -> Option<BTreeMap<String, FileCoverage>> {
+        if let Some(sm) = self.maps.get(&coverage.path) {
+            let sm = sm.as_ref()?;
+            return apply_source_map_to_map(coverage, sm, options);
+        }
+        remap_coverage_to_map_with_options(coverage, options)
     }
 
     /// Remap every entry of a coverage map using the store. Entries whose
@@ -602,9 +1063,11 @@ impl SourceMapStore {
     ) -> BTreeMap<String, FileCoverage> {
         let mut out = BTreeMap::new();
         for (path, fc) in coverage_map {
-            match self.transform_coverage_with_options(fc, options) {
+            match self.transform_coverage_to_map_with_options(fc, options) {
                 Some(remapped) => {
-                    out.insert(remapped.path.clone(), remapped);
+                    for (_, coverage) in remapped {
+                        insert_or_merge_coverage(&mut out, coverage);
+                    }
                 }
                 None => {
                     // Same invariant pass as the standalone map helper: an
@@ -612,7 +1075,8 @@ impl SourceMapStore {
                     // counters dropped (issue #107) before passing through.
                     let mut passthrough = fc.clone();
                     passthrough.prune_orphan_counters();
-                    out.insert(path.clone(), passthrough);
+                    passthrough.path.clone_from(path);
+                    insert_or_merge_coverage(&mut out, passthrough);
                 }
             }
         }
@@ -621,13 +1085,17 @@ impl SourceMapStore {
 }
 
 fn resolve_primary_source(sm: &srcmap_sourcemap::SourceMap) -> Option<String> {
-    let first = sm.sources.first()?;
-    if first.is_empty() {
+    resolve_source_path(sm, 0)
+}
+
+fn resolve_source_path(sm: &srcmap_sourcemap::SourceMap, source: u32) -> Option<String> {
+    let source = sm.sources.get(source as usize)?;
+    if source.is_empty() {
         return None;
     }
     let root = sm.source_root.as_deref().unwrap_or("");
     if root.is_empty() {
-        return Some(first.clone());
+        return Some(source.clone());
     }
 
     // `srcmap-sourcemap::from_json` pre-joins `sourceRoot` and each source via
@@ -635,12 +1103,28 @@ fn resolve_primary_source(sm: &srcmap_sourcemap::SourceMap) -> Option<String> {
     // a `/` separator when `sourceRoot` lacks one. Strip the literal prefix
     // and re-join with Istanbul's separator rule so coverage paths match what
     // existing reporters expect.
-    let bare = first.strip_prefix(root).unwrap_or(first.as_str());
+    let bare = source.strip_prefix(root).unwrap_or(source.as_str());
     if root.ends_with('/') || bare.starts_with('/') {
         Some(format!("{root}{bare}"))
     } else {
         Some(format!("{root}/{bare}"))
     }
+}
+
+fn sole_resolved_source_path(sm: &srcmap_sourcemap::SourceMap) -> Option<String> {
+    let mut paths: BTreeSet<String> = sm
+        .sources
+        .iter()
+        .enumerate()
+        .filter_map(|(source, _)| {
+            let source = u32::try_from(source).ok()?;
+            resolve_source_path(sm, source)
+        })
+        .collect();
+    if paths.len() != 1 {
+        return None;
+    }
+    paths.pop_first()
 }
 
 // --- istanbul `getMapping` range remap (issue #111) ---------------------------
@@ -825,7 +1309,7 @@ fn original_line_end_column(sm: &srcmap_sourcemap::SourceMap, source_idx: u32, l
 ///
 /// The `line: 0` "unknown" sentinel is handled by the callers, not here:
 /// `getMapping` has no notion of it and `line - 1` would underflow.
-fn get_mapping_location(loc: &Location, ctx: &mut RemapContext<'_>) -> Option<Location> {
+fn get_mapping_location(loc: &Location, ctx: &mut RemapContext<'_>) -> Option<MappedLocation> {
     let start = original_position_try_both(ctx.sm, loc.start.line - 1, loc.start.column)?;
     let end = original_end_position_for(ctx, loc.end.line - 1, loc.end.column)?;
 
@@ -858,9 +1342,12 @@ fn get_mapping_location(loc: &Location, ctx: &mut RemapContext<'_>) -> Option<Lo
         end_col = lub.column.saturating_sub(1);
     }
 
-    Some(Location {
-        start: Position { line: start.line + 1, column: start.column },
-        end: Position { line: end_line + 1, column: end_col },
+    Some(MappedLocation {
+        source: start.source,
+        location: Location {
+            start: Position { line: start.line + 1, column: start.column },
+            end: Position { line: end_line + 1, column: end_col },
+        },
     })
 }
 
@@ -889,36 +1376,17 @@ fn legacy_remap_position(pos: &mut Position, sm: &srcmap_sourcemap::SourceMap) {
     }
 }
 
-/// Strict variant of [`legacy_remap_position`]: `true` when the position
-/// remapped (or was the `line: 0` sentinel), `false` when the lookup returned
-/// `None`.
-fn legacy_try_remap_position(pos: &mut Position, sm: &srcmap_sourcemap::SourceMap) -> bool {
-    if pos.line == 0 {
-        return true;
-    }
-    let gen_line = pos.line - 1;
-    let Some(orig) = sm.original_position_for(gen_line, pos.column) else {
-        return false;
-    };
-    pos.line = orig.line + 1;
-    pos.column = orig.column;
-    true
-}
-
 fn legacy_remap_location(loc: &mut Location, sm: &srcmap_sourcemap::SourceMap) {
     legacy_remap_position(&mut loc.start, sm);
     legacy_remap_position(&mut loc.end, sm);
 }
 
-fn legacy_try_remap_location(loc: &mut Location, sm: &srcmap_sourcemap::SourceMap) -> bool {
-    let start = legacy_try_remap_position(&mut loc.start, sm);
-    let end = legacy_try_remap_position(&mut loc.end, sm);
-    start && end
-}
-
 // --- remap entry points (route through getMapping) ----------------------------
 
-fn get_mapping_location_cached(ctx: &mut RemapContext<'_>, loc: &Location) -> Option<Location> {
+fn get_mapped_location_cached(
+    ctx: &mut RemapContext<'_>,
+    loc: &Location,
+) -> Option<MappedLocation> {
     let key = LocationKey::from(loc);
     if let Some(cached) = ctx.caches.mapping_cache.get(&key) {
         return cached.clone();
@@ -928,48 +1396,6 @@ fn get_mapping_location_cached(ctx: &mut RemapContext<'_>, loc: &Location) -> Op
     remapped
 }
 
-/// Remap a location through `getMapping` (no-drop mode). On the `line: 0`
-/// sentinel or when `getMapping` cannot resolve the span, fall back to the
-/// legacy direct lookup so existing callers see no change on entries istanbul
-/// would have dropped.
-fn remap_location(loc: &mut Location, ctx: &mut RemapContext<'_>) {
-    if loc.start.line == 0 || loc.end.line == 0 {
-        legacy_remap_location(loc, ctx.sm);
-        return;
-    }
-    match get_mapping_location_cached(ctx, loc) {
-        Some(remapped) => *loc = remapped,
-        None => legacy_remap_location(loc, ctx.sm),
-    }
-}
-
-/// Strict variant of [`remap_location`] for `drop_unmapped` mode: `true` (and
-/// rewrites in place) when `getMapping` resolves the span, `false` (drop) when
-/// it does not. The `line: 0` sentinel routes to the legacy helper, which keeps
-/// it as a successful no-op.
-fn try_remap_location(loc: &mut Location, ctx: &mut RemapContext<'_>) -> bool {
-    if loc.start.line == 0 || loc.end.line == 0 {
-        return legacy_try_remap_location(loc, ctx.sm);
-    }
-    match get_mapping_location_cached(ctx, loc) {
-        Some(remapped) => {
-            *loc = remapped;
-            true
-        }
-        None => false,
-    }
-}
-
-fn remap_fn_entry(fn_entry: &mut FnEntry, ctx: &mut RemapContext<'_>) {
-    remap_location(&mut fn_entry.decl, ctx);
-    remap_location(&mut fn_entry.loc, ctx);
-    fn_entry.line = fn_entry.loc.start.line;
-}
-
-fn remap_branch_entry(branch_entry: &mut BranchEntry, ctx: &mut RemapContext<'_>) {
-    remap_location(&mut branch_entry.loc, ctx);
-    for loc in &mut branch_entry.locations {
-        remap_location(loc, ctx);
-    }
-    branch_entry.line = branch_entry.loc.start.line;
+fn get_mapping_location_cached(ctx: &mut RemapContext<'_>, loc: &Location) -> Option<Location> {
+    get_mapped_location_cached(ctx, loc).map(|mapped| mapped.location)
 }

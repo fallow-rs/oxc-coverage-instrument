@@ -11,6 +11,7 @@
 
 ## Status
 
+- **Status**: DONE
 - **Priority**: P1
 - **Effort**: L
 - **Risk**: HIGH
@@ -230,13 +231,13 @@ node crates/oxc-coverage-instrument-napi/test.mjs
 
 ## Done criteria
 
-- [ ] Map-level remapping emits every original source represented by mappings.
-- [ ] No remapped chunk overwrites existing coverage for the same source path.
-- [ ] Single-source public APIs remain source-compatible.
-- [ ] Metadata, counters, and overlays retain their invariants.
-- [ ] Rust and N-API repros match the upstream oracle.
-- [ ] Real-project smoke and full repository gates pass.
-- [ ] Only in-scope files and `plans/README.md` are modified.
+- [x] Map-level remapping emits every original source represented by mappings.
+- [x] No remapped chunk overwrites existing coverage for the same source path.
+- [x] Single-source public APIs remain source-compatible.
+- [x] Metadata, counters, and overlays retain their invariants.
+- [x] Rust and N-API repros match the upstream oracle.
+- [x] Real-project smoke and full repository gates pass.
+- [x] Only in-scope files and `plans/README.md` are modified.
 
 ## STOP conditions
 

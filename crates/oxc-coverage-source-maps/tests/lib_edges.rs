@@ -12,11 +12,13 @@ use std::collections::BTreeMap;
 
 use oxc_coverage_source_maps::{
     PositionRemapper, RemapOptions, SourceMapStore, remap_coverage, remap_coverage_map_with_loader,
-    remap_coverage_map_with_options, remap_coverage_with_loader, remap_coverage_with_options,
+    remap_coverage_map_with_options, remap_coverage_to_map_with_options,
+    remap_coverage_with_loader, remap_coverage_with_options,
 };
 use oxc_coverage_types::{
     BranchEntry, FileCoverage, FnEntry, FunctionIdentity, Location, Position, parse_coverage_map,
 };
+use srcmap_generator::SourceMapGenerator;
 
 const SRC_PATH: &str = "src/app.ts";
 
@@ -75,6 +77,349 @@ fn full_shape_file_coverage(input_source_map: Option<serde_json::Value>) -> File
         input_source_map,
         x_fallow_function_map: None,
     }
+}
+
+fn generated_map(path: &str, sources: &[(&str, u32)]) -> serde_json::Value {
+    let mut generator = SourceMapGenerator::new(Some(path.to_string()));
+    for (generated_line, (source_path, original_line)) in sources.iter().enumerate() {
+        let source = generator.add_source(source_path);
+        generator.set_source_content(source, "0123456789\n0123456789\n0123456789\n");
+        generator.add_mapping(
+            u32::try_from(generated_line).expect("fixture line fits u32"),
+            0,
+            source,
+            *original_line,
+            0,
+        );
+    }
+    serde_json::from_str(&generator.to_json()).expect("generated source map is valid JSON")
+}
+
+fn mapped_full_shape_coverage(path: &str, map: serde_json::Value, count_base: u32) -> FileCoverage {
+    let mut statement_map = BTreeMap::new();
+    let mut fn_map = BTreeMap::new();
+    let mut branch_map = BTreeMap::new();
+    let mut s = BTreeMap::new();
+    let mut f = BTreeMap::new();
+    let mut b = BTreeMap::new();
+    let mut b_t = BTreeMap::new();
+    let mut overlay = BTreeMap::new();
+
+    for generated_line in 1..=2 {
+        let key = (generated_line - 1).to_string();
+        let entry_loc = loc(generated_line, 0, generated_line, 5);
+        statement_map.insert(key.clone(), entry_loc.clone());
+        fn_map.insert(
+            key.clone(),
+            FnEntry {
+                name: format!("f{generated_line}"),
+                line: generated_line,
+                decl: loc(generated_line, 0, generated_line, 1),
+                loc: entry_loc.clone(),
+            },
+        );
+        branch_map.insert(
+            key.clone(),
+            BranchEntry {
+                loc: entry_loc.clone(),
+                line: generated_line,
+                branch_type: "if".to_string(),
+                locations: vec![
+                    loc(generated_line, 0, generated_line, 2),
+                    loc(generated_line, 3, generated_line, 5),
+                ],
+            },
+        );
+        s.insert(key.clone(), count_base + generated_line);
+        f.insert(key.clone(), count_base + generated_line + 10);
+        b.insert(key.clone(), vec![count_base + generated_line, count_base + generated_line + 1]);
+        b_t.insert(
+            key.clone(),
+            vec![count_base + generated_line + 2, count_base + generated_line + 3],
+        );
+        overlay.insert(
+            key,
+            FunctionIdentity {
+                id: format!("fallow:fn:{generated_line:08x}"),
+                name: format!("f{generated_line}"),
+                path: "src/identity.ts".to_string(),
+                decl: loc(generated_line, 0, generated_line, 1),
+                loc: entry_loc,
+            },
+        );
+    }
+
+    FileCoverage {
+        path: path.to_string(),
+        statement_map,
+        fn_map,
+        branch_map,
+        s,
+        f,
+        b,
+        b_t: Some(b_t),
+        input_source_map: Some(map),
+        x_fallow_function_map: Some(overlay),
+    }
+}
+
+#[test]
+fn map_remap_fans_one_generated_file_out_by_original_source() {
+    let map = generated_map("dist/bundle.js", &[("src/a.ts", 0), ("src/b.ts", 0)]);
+    let coverage = mapped_full_shape_coverage("dist/bundle.js", map, 0);
+    let mut coverage_map = BTreeMap::new();
+    coverage_map.insert(coverage.path.clone(), coverage);
+
+    let remapped =
+        remap_coverage_map_with_options(&coverage_map, RemapOptions { drop_unmapped: true });
+
+    let a = remapped.get("src/a.ts").expect("source a coverage survives");
+    let b = remapped.get("src/b.ts").expect("source b coverage survives");
+    assert_eq!(a.statement_map.len(), 1);
+    assert_eq!(b.statement_map.len(), 1);
+    assert_eq!(a.fn_map.len(), 1);
+    assert_eq!(b.fn_map.len(), 1);
+    assert_eq!(a.branch_map.len(), 1);
+    assert_eq!(b.branch_map.len(), 1);
+    assert_eq!(a.b_t.as_ref().expect("bT preserved").len(), 1);
+    assert_eq!(b.b_t.as_ref().expect("bT preserved").len(), 1);
+    assert_eq!(a.x_fallow_function_map.as_ref().expect("overlay preserved").len(), 1);
+    assert_eq!(b.x_fallow_function_map.as_ref().expect("overlay preserved").len(), 1);
+}
+
+#[test]
+fn map_remap_merges_same_source_collisions_by_location() {
+    let first_map = generated_map("dist/first.js", &[("src/shared.ts", 0), ("src/shared.ts", 1)]);
+    let second_map = generated_map("dist/second.js", &[("src/shared.ts", 0), ("src/shared.ts", 2)]);
+    let first = mapped_full_shape_coverage("dist/first.js", first_map, 0);
+    let second = mapped_full_shape_coverage("dist/second.js", second_map, 20);
+    let mut coverage_map = BTreeMap::new();
+    coverage_map.insert(first.path.clone(), first);
+    coverage_map.insert(second.path.clone(), second);
+
+    let remapped =
+        remap_coverage_map_with_options(&coverage_map, RemapOptions { drop_unmapped: true });
+    let shared = remapped.get("src/shared.ts").expect("shared source survives");
+
+    assert_eq!(shared.statement_map.len(), 3, "shared and distinct statements survive");
+    assert_eq!(shared.fn_map.len(), 3, "shared and distinct functions survive");
+    assert_eq!(shared.branch_map.len(), 3, "shared and distinct branches survive");
+    let shared_statement_id = shared
+        .statement_map
+        .iter()
+        .find_map(|(id, location)| (location.start.line == 1).then_some(id))
+        .expect("shared statement exists");
+    assert_eq!(shared.s[shared_statement_id], 22, "shared statement counts sum");
+    let shared_function_id = shared
+        .fn_map
+        .iter()
+        .find_map(|(id, function)| (function.loc.start.line == 1).then_some(id))
+        .expect("shared function exists");
+    assert_eq!(shared.f[shared_function_id], 42, "shared function counts sum");
+    let shared_branch_id = shared
+        .branch_map
+        .iter()
+        .find_map(|(id, branch)| (branch.loc.start.line == 1).then_some(id))
+        .expect("shared branch exists");
+    assert_eq!(shared.b[shared_branch_id], vec![22, 24], "branch counts sum by arm");
+    assert_eq!(
+        shared.b_t.as_ref().expect("bT preserved")[shared_branch_id],
+        vec![26, 28],
+        "truthy branch counts sum by arm",
+    );
+}
+
+#[test]
+fn multi_source_single_file_api_returns_none_and_map_api_is_contiguous() {
+    let map = generated_map("dist/bundle.js", &[("src/a.ts", 0), ("src/b.ts", 0)]);
+    let coverage = mapped_full_shape_coverage("dist/bundle.js", map, 0);
+
+    assert!(remap_coverage(&coverage).is_none(), "single-result API cannot discard a source");
+    let remapped =
+        remap_coverage_to_map_with_options(&coverage, RemapOptions { drop_unmapped: true })
+            .expect("usable multi-source map");
+    for file in remapped.values() {
+        assert_eq!(file.statement_map.keys().collect::<Vec<_>>(), vec!["0"]);
+        assert_eq!(file.s.keys().collect::<Vec<_>>(), vec!["0"]);
+        assert_eq!(file.fn_map.keys().collect::<Vec<_>>(), vec!["0"]);
+        assert_eq!(file.f.keys().collect::<Vec<_>>(), vec!["0"]);
+        assert_eq!(file.branch_map.keys().collect::<Vec<_>>(), vec!["0"]);
+        assert_eq!(file.b.keys().collect::<Vec<_>>(), vec!["0"]);
+        assert!(file.input_source_map.is_none());
+    }
+}
+
+#[test]
+fn single_source_api_keeps_empty_and_fully_pruned_results_compatible() {
+    let mut empty = full_shape_file_coverage(Some(identity_three_line_map(None)));
+    empty.statement_map.clear();
+    empty.fn_map.clear();
+    empty.branch_map.clear();
+    empty.s.clear();
+    empty.f.clear();
+    empty.b.clear();
+    assert!(remap_coverage(&empty).is_some(), "empty single-source coverage still remaps");
+
+    let fully_unmapped = single_statement_coverage(identity_three_line_map(None), 4, 0, 4, 5);
+    let remapped =
+        remap_coverage_with_options(&fully_unmapped, RemapOptions { drop_unmapped: true })
+            .expect("fully pruned single-source coverage still returns its source file");
+    assert!(remapped.statement_map.is_empty());
+    assert!(remapped.s.is_empty());
+}
+
+#[test]
+fn collision_count_addition_saturates_at_u32_max() {
+    let first_map = generated_map("dist/first.js", &[("src/shared.ts", 0), ("src/shared.ts", 1)]);
+    let second_map = generated_map("dist/second.js", &[("src/shared.ts", 0), ("src/shared.ts", 2)]);
+    let mut first = mapped_full_shape_coverage("dist/first.js", first_map, 0);
+    let mut second = mapped_full_shape_coverage("dist/second.js", second_map, 0);
+    first.s.insert("0".to_string(), u32::MAX);
+    second.s.insert("0".to_string(), 1);
+    let mut coverage_map = BTreeMap::new();
+    coverage_map.insert(first.path.clone(), first);
+    coverage_map.insert(second.path.clone(), second);
+
+    let remapped =
+        remap_coverage_map_with_options(&coverage_map, RemapOptions { drop_unmapped: true });
+    let shared = &remapped["src/shared.ts"];
+    let id = shared
+        .statement_map
+        .iter()
+        .find_map(|(id, location)| (location.start.line == 1).then_some(id))
+        .expect("shared statement exists");
+    assert_eq!(shared.s[id], u32::MAX);
+}
+
+#[test]
+fn conflicting_function_overlays_drop_the_optional_overlay() {
+    let first_map = generated_map("dist/first.js", &[("src/shared.ts", 0), ("src/shared.ts", 1)]);
+    let second_map = generated_map("dist/second.js", &[("src/shared.ts", 0), ("src/shared.ts", 2)]);
+    let first = mapped_full_shape_coverage("dist/first.js", first_map, 0);
+    let mut second = mapped_full_shape_coverage("dist/second.js", second_map, 20);
+    second.x_fallow_function_map.as_mut().expect("overlay").get_mut("0").expect("identity").id =
+        "fallow:fn:conflict".to_string();
+    let mut coverage_map = BTreeMap::new();
+    coverage_map.insert(first.path.clone(), first);
+    coverage_map.insert(second.path.clone(), second);
+
+    let remapped =
+        remap_coverage_map_with_options(&coverage_map, RemapOptions { drop_unmapped: true });
+    assert!(
+        remapped["src/shared.ts"].x_fallow_function_map.is_none(),
+        "an optional overlay is dropped instead of choosing a conflicting identity",
+    );
+}
+
+#[test]
+fn function_and_branch_merge_identities_include_all_metadata() {
+    let first_map = generated_map("dist/first.js", &[("src/shared.ts", 0), ("src/shared.ts", 1)]);
+    let second_map = generated_map("dist/second.js", &[("src/shared.ts", 0), ("src/shared.ts", 2)]);
+    let first = mapped_full_shape_coverage("dist/first.js", first_map, 0);
+    let mut second = mapped_full_shape_coverage("dist/second.js", second_map, 20);
+    second.fn_map.get_mut("0").expect("function").name = "different".to_string();
+    second.branch_map.get_mut("0").expect("branch").branch_type = "cond-expr".to_string();
+    let mut coverage_map = BTreeMap::new();
+    coverage_map.insert(first.path.clone(), first);
+    coverage_map.insert(second.path.clone(), second);
+
+    let remapped =
+        remap_coverage_map_with_options(&coverage_map, RemapOptions { drop_unmapped: true });
+    let shared = &remapped["src/shared.ts"];
+    assert_eq!(shared.statement_map.len(), 3, "locations alone merge statements");
+    assert_eq!(shared.fn_map.len(), 4, "function name participates in identity");
+    assert_eq!(shared.branch_map.len(), 4, "branch type participates in identity");
+}
+
+#[test]
+fn branch_with_cross_source_arms_is_dropped() {
+    let map = generated_map("dist/bundle.js", &[("src/a.ts", 0), ("src/b.ts", 0)]);
+    let mut coverage = mapped_full_shape_coverage("dist/bundle.js", map, 0);
+    coverage.branch_map.get_mut("0").expect("branch").locations =
+        vec![loc(1, 0, 1, 2), loc(2, 0, 2, 2)];
+    coverage.branch_map.retain(|id, _| id == "0");
+    coverage.b.retain(|id, _| id == "0");
+    coverage.b_t.as_mut().expect("bT").retain(|id, _| id == "0");
+    let mut coverage_map = BTreeMap::new();
+    coverage_map.insert(coverage.path.clone(), coverage);
+
+    let remapped =
+        remap_coverage_map_with_options(&coverage_map, RemapOptions { drop_unmapped: true });
+    assert!(remapped.values().all(|file| file.branch_map.is_empty()));
+}
+
+#[test]
+fn single_result_api_does_not_restore_cross_source_functions_or_branches() {
+    let map = generated_map("dist/bundle.js", &[("src/a.ts", 0), ("src/b.ts", 0)]);
+    let mut coverage = mapped_full_shape_coverage("dist/bundle.js", map, 0);
+    coverage.statement_map.retain(|id, _| id == "0");
+    coverage.s.retain(|id, _| id == "0");
+    coverage.fn_map.retain(|id, _| id == "0");
+    coverage.f.retain(|id, _| id == "0");
+    let function = coverage.fn_map.get_mut("0").expect("function");
+    function.decl = loc(1, 0, 1, 1);
+    function.loc = loc(2, 0, 2, 5);
+    coverage.branch_map.retain(|id, _| id == "0");
+    coverage.b.retain(|id, _| id == "0");
+    coverage.b_t.as_mut().expect("bT").retain(|id, _| id == "0");
+    coverage.branch_map.get_mut("0").expect("branch").locations =
+        vec![loc(1, 0, 1, 2), loc(2, 0, 2, 2)];
+
+    let remapped = remap_coverage_with_options(&coverage, RemapOptions { drop_unmapped: true })
+        .expect("the source-a statement produces one output");
+    assert_eq!(remapped.path, "src/a.ts");
+    assert!(remapped.fn_map.is_empty(), "cross-source function stays dropped");
+    assert!(remapped.branch_map.is_empty(), "cross-source branch stays dropped");
+}
+
+#[test]
+fn multi_source_if_branch_keeps_implicit_else_arm() {
+    let map = generated_map("dist/bundle.js", &[("src/a.ts", 0), ("src/b.ts", 0)]);
+    let mut coverage = mapped_full_shape_coverage("dist/bundle.js", map, 0);
+    let implicit_else = loc(0, 0, 0, 0);
+    coverage.branch_map.get_mut("0").expect("branch").locations =
+        vec![loc(1, 0, 1, 2), implicit_else];
+    coverage.branch_map.retain(|id, _| id == "0");
+    coverage.b.retain(|id, _| id == "0");
+    coverage.b_t.as_mut().expect("bT").retain(|id, _| id == "0");
+    let remapped =
+        remap_coverage_to_map_with_options(&coverage, RemapOptions { drop_unmapped: true })
+            .expect("usable map");
+
+    let branch = remapped["src/a.ts"].branch_map.values().next().expect("branch survives");
+    assert_eq!(branch.locations.len(), 2, "implicit else stays aligned with its counters");
+    assert_eq!(remapped["src/a.ts"].b.values().next().expect("counts"), &vec![1, 2]);
+}
+
+#[test]
+fn ambiguous_unmapped_entries_drop_in_both_multi_source_modes() {
+    let map = generated_map("dist/bundle.js", &[("src/a.ts", 0), ("src/b.ts", 0)]);
+    let mut coverage = mapped_full_shape_coverage("dist/bundle.js", map, 0);
+    coverage.statement_map.insert("unmapped".to_string(), loc(3, 0, 3, 5));
+    coverage.s.insert("unmapped".to_string(), 99);
+
+    for drop_unmapped in [false, true] {
+        let remapped =
+            remap_coverage_to_map_with_options(&coverage, RemapOptions { drop_unmapped })
+                .expect("usable map");
+        assert!(remapped.values().all(|file| file.s.values().all(|hits| *hits != 99)));
+    }
+}
+
+#[test]
+fn source_map_store_map_transform_fans_out_and_merges() {
+    let map = generated_map("dist/bundle.js", &[("src/a.ts", 0), ("src/b.ts", 0)]);
+    let mut coverage = mapped_full_shape_coverage("dist/bundle.js", map.clone(), 0);
+    coverage.input_source_map = None;
+    let mut store = SourceMapStore::new();
+    store.add_map("dist/bundle.js", &map);
+    let mut coverage_map = BTreeMap::new();
+    coverage_map.insert(coverage.path.clone(), coverage);
+
+    let remapped = store
+        .transform_coverage_map_with_options(&coverage_map, RemapOptions { drop_unmapped: true });
+    assert!(remapped.contains_key("src/a.ts"));
+    assert!(remapped.contains_key("src/b.ts"));
 }
 
 #[test]
@@ -511,8 +856,8 @@ fn drop_unmapped_applies_to_coverage_map_helper() {
     let remapped = remap_coverage_map_with_options(&coverage_map, opts);
     let entry = remapped.get(SRC_PATH).expect("entry is rekeyed by source path");
     assert_eq!(entry.statement_map.len(), 1, "drop_unmapped flows through coverage-map helper");
-    assert!(entry.fn_map.contains_key("keep"));
-    assert!(!entry.fn_map.contains_key("drop"));
+    assert_eq!(entry.fn_map.keys().collect::<Vec<_>>(), vec!["0"]);
+    assert_eq!(entry.f.keys().collect::<Vec<_>>(), vec!["0"]);
 }
 
 #[test]

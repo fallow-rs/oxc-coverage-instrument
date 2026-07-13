@@ -536,6 +536,9 @@ fn native_instrument_options(
 /// original key. Entries with one are walked through the map and re-keyed by
 /// the original source path (with `sourceRoot` joined per
 /// `istanbul-lib-source-maps` semantics). Returns the remapped JSON.
+/// A generated file that maps to several original sources fans out to one
+/// entry per source. Entries from several chunks that resolve to the same path
+/// merge by Istanbul location identity and sum their counters.
 ///
 /// Every returned entry satisfies the Istanbul merge invariant
 /// `keys(s) ⊆ keys(statementMap)` (and the same for `f`/`fnMap`,
@@ -555,7 +558,9 @@ fn native_instrument_options(
 /// Pass `{ dropUnmapped: true }` to align with `istanbul-lib-source-maps`'s
 /// `transformer.js` and drop entries whose positions cannot be looked up in
 /// the source map (instead of silently keeping their generated-output
-/// coordinates). See [`RemapOptions`] for the full per-kind drop semantics.
+/// coordinates). Ambiguous unmapped entries in a multi-source map are omitted
+/// in either mode because they have no safe original owner. See
+/// [`RemapOptions`] for the full per-kind drop semantics.
 #[napi]
 pub fn remap_coverage_map(
     coverage_json: String,

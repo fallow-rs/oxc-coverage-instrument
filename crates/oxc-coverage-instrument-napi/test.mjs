@@ -826,6 +826,200 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] remapCoverageMap rewrites coverage through inputSourceMap');
 }
 
+// Multi-source fan-out and same-source collision parity with Istanbul.
+{
+  const { createCoverageMap } = (await import('istanbul-lib-coverage')).default;
+  const { createSourceMapStore } = (await import('istanbul-lib-source-maps')).default;
+  const { GenMapping, addMapping, setSourceContent, toEncodedMap } = await import(
+    '@jridgewell/gen-mapping'
+  );
+
+  const sourceContent = '0123456789\n0123456789\n0123456789\n';
+  const makeMap = (file, mappings) => {
+    const map = new GenMapping({ file });
+    for (const [generatedLine, source, originalLine] of mappings) {
+      addMapping(map, {
+        generated: { line: generatedLine, column: 0 },
+        source,
+        original: { line: originalLine, column: 0 },
+      });
+      setSourceContent(map, source, sourceContent);
+    }
+    return toEncodedMap(map);
+  };
+  const makeLoc = (line, start, end) => ({
+    start: { line, column: start },
+    end: { line, column: end },
+  });
+  const makeCoverage = (path, inputSourceMap, countBase) => {
+    const coverage = {
+      path,
+      statementMap: {},
+      fnMap: {},
+      branchMap: {},
+      s: {},
+      f: {},
+      b: {},
+      bT: {},
+      inputSourceMap,
+      x_fallow_functionMap: {},
+    };
+    for (let line = 1; line <= 2; line += 1) {
+      const id = String(line - 1);
+      const loc = makeLoc(line, 0, 5);
+      coverage.statementMap[id] = loc;
+      coverage.fnMap[id] = { name: `f${line}`, decl: makeLoc(line, 0, 1), loc, line };
+      coverage.branchMap[id] = {
+        type: 'if',
+        loc,
+        line,
+        locations: [makeLoc(line, 0, 2), makeLoc(line, 3, 5)],
+      };
+      coverage.s[id] = countBase + line;
+      coverage.f[id] = countBase + line + 10;
+      coverage.b[id] = [countBase + line, countBase + line + 1];
+      coverage.bT[id] = [countBase + line + 2, countBase + line + 3];
+      coverage.x_fallow_functionMap[id] = {
+        id: `fallow:fn:${line.toString(16).padStart(8, '0')}`,
+        name: `f${line}`,
+        path: 'src/identity.ts',
+        decl: makeLoc(line, 0, 1),
+        loc,
+      };
+    }
+    return coverage;
+  };
+  const endColumn = (column, line) =>
+    Number.isFinite(column) ? column : (sourceContent.split('\n')[line - 1] ?? '').length;
+  const locKey = (loc) =>
+    `${loc.start.line}:${loc.start.column}:${loc.end.line}:${endColumn(
+      loc.end.column,
+      loc.end.line,
+    )}`;
+  const semantics = (coverage) => ({
+    statements: Object.entries(coverage.statementMap)
+      .map(([id, loc]) => `${locKey(loc)}=${coverage.s[id]}`)
+      .sort(),
+    functions: Object.entries(coverage.fnMap)
+      .map(([id, fn]) => `${fn.name}|${locKey(fn.decl)}|${locKey(fn.loc)}=${coverage.f[id]}`)
+      .sort(),
+    branches: Object.entries(coverage.branchMap)
+      .map(
+        ([id, branch]) =>
+          `${branch.type}|${locKey(branch.loc)}|${branch.locations.map(locKey).join(',')}=${coverage.b[
+            id
+          ].join(',')}`,
+      )
+      .sort(),
+  });
+  const findOracleFile = (coverageMap, suffix) => {
+    const file = coverageMap.files().find((candidate) => candidate.endsWith(suffix));
+    assert(file, `Istanbul oracle must contain ${suffix}`);
+    return coverageMap.fileCoverageFor(file).data;
+  };
+
+  const bundle = makeCoverage(
+    'dist/bundle.js',
+    makeMap('dist/bundle.js', [
+      [1, 'src/a.ts', 1],
+      [2, 'src/b.ts', 1],
+    ]),
+    0,
+  );
+  const bundleInput = { [bundle.path]: bundle };
+  const bundleOracle = await createSourceMapStore().transformCoverage(
+    createCoverageMap(bundleInput),
+  );
+  const bundleOurs = JSON.parse(
+    remapCoverageMap(JSON.stringify(bundleInput), { dropUnmapped: true }),
+  );
+  for (const source of ['src/a.ts', 'src/b.ts']) {
+    assert(bundleOurs[source], `remapped bundle must retain ${source}`);
+    assert.deepEqual(
+      semantics(bundleOurs[source]),
+      semantics(findOracleFile(bundleOracle, source)),
+      `${source} semantics match Istanbul`,
+    );
+    assert.equal(Object.keys(bundleOurs[source].bT).length, 1, `${source} keeps bT`);
+    assert.equal(
+      Object.keys(bundleOurs[source].x_fallow_functionMap).length,
+      1,
+      `${source} keeps the function overlay`,
+    );
+  }
+
+  const first = makeCoverage(
+    'dist/first.js',
+    makeMap('dist/first.js', [
+      [1, 'src/shared.ts', 1],
+      [2, 'src/shared.ts', 2],
+    ]),
+    0,
+  );
+  const second = makeCoverage(
+    'dist/second.js',
+    makeMap('dist/second.js', [
+      [1, 'src/shared.ts', 1],
+      [2, 'src/shared.ts', 3],
+    ]),
+    20,
+  );
+  const collisionInput = { [first.path]: first, [second.path]: second };
+  const collisionOracle = await createSourceMapStore().transformCoverage(
+    createCoverageMap(collisionInput),
+  );
+  const collisionOurs = JSON.parse(
+    remapCoverageMap(JSON.stringify(collisionInput), { dropUnmapped: true }),
+  );
+  assert.deepEqual(
+    semantics(collisionOurs['src/shared.ts']),
+    semantics(findOracleFile(collisionOracle, 'src/shared.ts')),
+    'collision locations and counts match Istanbul',
+  );
+  const sharedBranchId = Object.entries(collisionOurs['src/shared.ts'].branchMap).find(
+    ([, branch]) => branch.loc.start.line === 1,
+  )[0];
+  assert.deepEqual(collisionOurs['src/shared.ts'].bT[sharedBranchId], [26, 28], 'bT sums by arm');
+
+  const crossSource = makeCoverage(
+    'dist/cross-source.js',
+    makeMap('dist/cross-source.js', [
+      [1, 'src/a.ts', 1],
+      [2, 'src/b.ts', 1],
+    ]),
+    0,
+  );
+  crossSource.statementMap = {};
+  crossSource.fnMap = {};
+  crossSource.s = {};
+  crossSource.f = {};
+  crossSource.x_fallow_functionMap = {};
+  crossSource.branchMap = {
+    0: {
+      type: 'if',
+      loc: makeLoc(1, 0, 5),
+      line: 1,
+      locations: [makeLoc(1, 0, 2), makeLoc(2, 0, 2)],
+    },
+  };
+  crossSource.b = { 0: [1, 2] };
+  crossSource.bT = { 0: [3, 4] };
+  const crossSourceInput = { [crossSource.path]: crossSource };
+  const crossSourceOracle = await createSourceMapStore().transformCoverage(
+    createCoverageMap(crossSourceInput),
+  );
+  const crossSourceOurs = JSON.parse(
+    remapCoverageMap(JSON.stringify(crossSourceInput), { dropUnmapped: true }),
+  );
+  assert.deepEqual(
+    Object.keys(crossSourceOurs),
+    crossSourceOracle.files(),
+    'cross-source branch arms are dropped exactly like Istanbul',
+  );
+
+  console.log('  [PASS] remapCoverageMap fans out and merges like Istanbul');
+}
+
 // Test 18: v8ToIstanbul converts V8 byte-range coverage into Istanbul FileCoverage
 {
   const source = 'const x = 1;\nconst y = 2;\nconst z = 3;\n';
