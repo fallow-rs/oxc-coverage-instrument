@@ -9,6 +9,7 @@ use oxc_coverage_v8::{
 };
 
 const RANGE_CASES: &[(&str, bool)] = &[("ascii", false), ("unicode", true)];
+const SCALING_SIZES: &[u32] = &[64, 256, 1_024];
 const INLINE_SOURCE_MAP_CASES: &[(&str, InlineSourceMapEncoding)] =
     &[("base64", InlineSourceMapEncoding::Base64), ("percent", InlineSourceMapEncoding::Percent)];
 
@@ -16,6 +17,23 @@ const INLINE_SOURCE_MAP_CASES: &[(&str, InlineSourceMapEncoding)] =
 enum InlineSourceMapEncoding {
     Base64,
     Percent,
+}
+
+#[derive(Clone, Copy)]
+enum RangeShape {
+    Nested,
+    Disjoint,
+    NonLaminar,
+}
+
+impl RangeShape {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Nested => "nested",
+            Self::Disjoint => "disjoint",
+            Self::NonLaminar => "non_laminar",
+        }
+    }
 }
 
 /// Return shape of `branch_heavy_fixture`: instrumented source, the coverage
@@ -180,6 +198,111 @@ fn branch_heavy_fixture(branches: u32) -> BranchFixture {
     (source, coverage, functions, spans)
 }
 
+fn scaling_fixture(
+    size: u32,
+    shape: RangeShape,
+) -> (String, FileCoverage, Vec<V8FunctionCoverage>) {
+    const NESTING_DEPTH: u32 = 4;
+    const GROUP_WIDTH: u32 = NESTING_DEPTH * 2 + 2;
+
+    let source = "x".repeat((size * GROUP_WIDTH) as usize);
+    let mut statement_map = BTreeMap::new();
+    let mut s = BTreeMap::new();
+    let mut functions = Vec::new();
+
+    let mut add_statement = |id: u32, start: u32, end: u32| {
+        let key = id.to_string();
+        statement_map.insert(key.clone(), loc(1, start, end));
+        s.insert(key, 0);
+    };
+
+    match shape {
+        RangeShape::Nested => {
+            let mut id = 0;
+            while id < size {
+                let base = (id / NESTING_DEPTH) * GROUP_WIDTH;
+                let group_end = base + GROUP_WIDTH - 1;
+                let mut ranges = Vec::new();
+                for depth in 0..NESTING_DEPTH.min(size - id) {
+                    let start = base + depth;
+                    let end = group_end - depth;
+                    ranges.push(V8CoverageRange {
+                        start_offset: start,
+                        end_offset: end,
+                        count: id + 1,
+                    });
+                    add_statement(id, start, end);
+                    id += 1;
+                }
+                functions.push(V8FunctionCoverage {
+                    function_name: String::new(),
+                    ranges,
+                    is_block_coverage: true,
+                });
+            }
+        }
+        RangeShape::Disjoint => {
+            for id in 0..size {
+                let start = id * GROUP_WIDTH;
+                let end = start + GROUP_WIDTH - 1;
+                add_statement(id, start, end);
+                functions.push(V8FunctionCoverage {
+                    function_name: String::new(),
+                    ranges: vec![V8CoverageRange {
+                        start_offset: start,
+                        end_offset: end,
+                        count: id + 1,
+                    }],
+                    is_block_coverage: false,
+                });
+            }
+        }
+        RangeShape::NonLaminar => {
+            for pair in 0..size.div_ceil(2) {
+                let base = pair * GROUP_WIDTH;
+                let first_id = pair * 2;
+                let second_id = first_id + 1;
+                let first = V8CoverageRange {
+                    start_offset: base,
+                    end_offset: base + 6,
+                    count: first_id + 1,
+                };
+                let second = V8CoverageRange {
+                    start_offset: base + 3,
+                    end_offset: base + 9,
+                    count: second_id + 1,
+                };
+                add_statement(first_id, first.start_offset, first.end_offset);
+                let mut ranges = vec![first];
+                if second_id < size {
+                    add_statement(second_id, second.start_offset, second.end_offset);
+                    ranges.push(second);
+                }
+                functions.push(V8FunctionCoverage {
+                    function_name: String::new(),
+                    ranges,
+                    is_block_coverage: true,
+                });
+            }
+        }
+    }
+
+    let coverage = FileCoverage {
+        path: format!("src/{}_scaling.ts", shape.label()),
+        statement_map,
+        fn_map: BTreeMap::new(),
+        branch_map: BTreeMap::new(),
+        s,
+        f: BTreeMap::new(),
+        b: BTreeMap::new(),
+        b_t: None,
+        input_source_map: None,
+        x_fallow_function_map: None,
+    };
+
+    (source, coverage, functions)
+}
+
 fn digits(n: u32) -> u32 {
     if n == 0 {
         return 1;
@@ -270,6 +393,29 @@ fn bench_apply(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_apply_scaling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("v8_apply_scaling");
+
+    for shape in [RangeShape::Nested, RangeShape::Disjoint, RangeShape::NonLaminar] {
+        for size in SCALING_SIZES {
+            let (source, coverage, functions) = scaling_fixture(*size, shape);
+            group.bench_with_input(
+                BenchmarkId::new(shape.label(), size),
+                &coverage,
+                |b, coverage| {
+                    b.iter(|| {
+                        let mut coverage = coverage.clone();
+                        apply_v8_coverage(&mut coverage, &source, &functions, 0, &BTreeMap::new());
+                        coverage
+                    });
+                },
+            );
+        }
+    }
+
+    group.finish();
+}
+
 fn bench_source_map_trailers(c: &mut Criterion) {
     let mut group = c.benchmark_group("source_map_trailer");
 
@@ -288,5 +434,5 @@ fn bench_source_map_trailers(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_apply, bench_source_map_trailers);
+criterion_group!(benches, bench_apply, bench_apply_scaling, bench_source_map_trailers);
 criterion_main!(benches);

@@ -11,12 +11,30 @@
 
 ## Status
 
+- **Status**: CLOSED: NO SAFE MEASURED WIN
 - **Priority**: P1
 - **Effort**: M
 - **Risk**: MED
 - **Depends on**: `plans/005-test-real-v8-inspector-output.md`, `plans/011-fix-real-inspector-branch-counts.md`, `plans/012-normalize-v8-utf16-offsets.md`
 - **Category**: perf
 - **Planned at**: commit `321630c`, 2026-07-13
+
+### Execution outcome
+
+The production index was rejected after three measured rounds against the
+original linear baseline:
+
+1. An unconditional laminar index improved the largest valid cases, but
+   regressed small valid cases, non-laminar fallback, and branch-heavy input.
+2. A guarded index added a measured cardinality policy and adjacent-overlap
+   preflight, but the preflight still regressed ineligible inputs.
+3. A lazy two-stage gate removed ineligible preflight work, but linear-path
+   dispatch and fallback cases still exceeded the 5 percent regression limit.
+
+All production and oracle-test changes were reverted. Stable nested,
+disjoint, and non-laminar scaling benchmarks remain so a future structurally
+different approach can be measured against the same workload. The indexed
+lookup done criteria below remain intentionally unmet.
 
 ## Why this matters
 
