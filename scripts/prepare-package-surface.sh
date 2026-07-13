@@ -64,12 +64,25 @@ restore_manifest_files() {
   local snapshot_dir="$2"
   local manifest="$3"
   local file
+  local files
+  local status=0
+  if ! files="$(package_files "$manifest")"; then
+    return 1
+  fi
   while IFS= read -r file; do
-    rm -f "$target_dir/$file"
-    if [ -f "$snapshot_dir/$file" ]; then
-      cp "$snapshot_dir/$file" "$target_dir/$file"
+    if [ -z "$file" ]; then
+      continue
     fi
-  done < <(package_files "$manifest")
+    if ! rm -f "$target_dir/$file"; then
+      status=1
+    fi
+    if [ -f "$snapshot_dir/$file" ]; then
+      if ! cp "$snapshot_dir/$file" "$target_dir/$file"; then
+        status=1
+      fi
+    fi
+  done <<<"$files"
+  return "$status"
 }
 
 snapshot_root_artifacts() {
@@ -86,13 +99,21 @@ snapshot_root_artifacts() {
 restore_root_artifacts() {
   local snapshot_dir="$1"
   local artifact
-  restore_manifest_files "$NAPI_DIR" "$snapshot_dir" "$NAPI_DIR/package.json"
-  rm -f "$NAPI_DIR"/coverage-instrument.wasm32-wasi*.wasm
+  local status=0
+  if ! restore_manifest_files "$NAPI_DIR" "$snapshot_dir" "$NAPI_DIR/package.json"; then
+    status=1
+  fi
+  if ! rm -f "$NAPI_DIR"/coverage-instrument.wasm32-wasi*.wasm; then
+    status=1
+  fi
   for artifact in "$snapshot_dir"/coverage-instrument.wasm32-wasi*.wasm; do
     if [ -f "$artifact" ]; then
-      cp "$artifact" "$NAPI_DIR/"
+      if ! cp "$artifact" "$NAPI_DIR/"; then
+        status=1
+      fi
     fi
   done
+  return "$status"
 }
 
 snapshot_napi_cli() {
@@ -107,12 +128,18 @@ snapshot_napi_cli() {
 
 restore_napi_cli() {
   local file
+  local status=0
   for file in cli.js index.js index.cjs; do
-    rm -f "$NAPI_CLI_DIST/$file"
+    if ! rm -f "$NAPI_CLI_DIST/$file"; then
+      status=1
+    fi
     if [ -f "$TMP/original-napi-cli/$file" ]; then
-      cp "$TMP/original-napi-cli/$file" "$NAPI_CLI_DIST/$file"
+      if ! cp "$TMP/original-napi-cli/$file" "$NAPI_CLI_DIST/$file"; then
+        status=1
+      fi
     fi
   done
+  return "$status"
 }
 
 snapshot_destinations() {
@@ -127,14 +154,24 @@ snapshot_destinations() {
 }
 
 restore_destinations() {
-  restore_root_artifacts "$TMP/original-root"
-  restore_manifest_files \
-    "$THREADED_PACKAGE" "$TMP/original-threaded" "$THREADED_PACKAGE/package.json"
-  restore_manifest_files \
+  local status=0
+  if ! restore_root_artifacts "$TMP/original-root"; then
+    status=1
+  fi
+  if ! restore_manifest_files \
+    "$THREADED_PACKAGE" "$TMP/original-threaded" "$THREADED_PACKAGE/package.json"; then
+    status=1
+  fi
+  if ! restore_manifest_files \
     "$SINGLE_THREADED_PACKAGE" \
     "$TMP/original-single-threaded" \
-    "$SINGLE_THREADED_PACKAGE/package.json"
-  restore_napi_cli
+    "$SINGLE_THREADED_PACKAGE/package.json"; then
+    status=1
+  fi
+  if ! restore_napi_cli; then
+    status=1
+  fi
+  return "$status"
 }
 
 cleanup() {

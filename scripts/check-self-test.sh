@@ -121,7 +121,16 @@ write_fake_surface_fixture() {
     'printf "%s:index.d.ts\n" "$kind" > "$FAKE_NAPI_DIR/index.d.ts"' \
     'printf "%s:browser.js\n" "$kind" > "$FAKE_NAPI_DIR/browser.js"' \
     >"$bin_dir/npx"
-  chmod +x "$bin_dir/npm" "$bin_dir/cargo" "$bin_dir/rustup" "$bin_dir/npx"
+  # shellcheck disable=SC2016
+  printf '%s\n' '#!/bin/sh' \
+    'if [ "${FAIL_RESTORE_TARGET:-}" != "" ] && [ "${RESTORE_FAILURE_MARKER:-}" != "" ] && [ "$#" -eq 2 ] && [ "$1" = "-f" ] && [ "$2" = "$FAIL_RESTORE_TARGET" ] && [ ! -e "$RESTORE_FAILURE_MARKER" ]; then' \
+    '  : >"$RESTORE_FAILURE_MARKER"' \
+    '  echo "injected restore rm failure: $2" >&2' \
+    '  exit 23' \
+    'fi' \
+    'exec "${REAL_RM:-/bin/rm}" "$@"' \
+    >"$bin_dir/rm"
+  chmod +x "$bin_dir/npm" "$bin_dir/cargo" "$bin_dir/rustup" "$bin_dir/npx" "$bin_dir/rm"
 }
 
 assert_prepared_surface() {
@@ -211,6 +220,32 @@ fi
 if ! diff -qr "$TMP/fake-napi-before" "$fake_napi" >"$TMP/prepare-restore.diff"; then
   sed -n '1,120p' "$TMP/prepare-restore.diff" >&2
   fail "package preparation did not restore destinations after failure"
+fi
+restore_failure_napi="$TMP/fake-napi-restore-failure"
+restore_failure_prepare="$TMP/prepare-package-restore-failure.sh"
+restore_failure_marker="$TMP/restore-failure.marker"
+cp -R "$fake_napi" "$restore_failure_napi"
+sed "s#^NAPI_DIR=.*#NAPI_DIR=\"$restore_failure_napi\"#" \
+  "$ROOT/scripts/prepare-package-surface.sh" >"$restore_failure_prepare"
+chmod +x "$restore_failure_prepare"
+cp -R "$restore_failure_napi" "$TMP/fake-napi-restore-failure-before"
+if FAKE_NAPI_DIR="$restore_failure_napi" FAIL_PREPARE_PACKAGE_SURFACE=1 \
+  FAIL_RESTORE_TARGET="$restore_failure_napi/index.js" \
+  RESTORE_FAILURE_MARKER="$restore_failure_marker" PATH="$fake_surface_bin:/usr/bin:/bin" \
+  "$restore_failure_prepare" >"$TMP/prepare-restore-failure.log" 2>&1; then
+  fail "package preparation succeeded after a restore operation failed"
+fi
+if [ ! -f "$restore_failure_marker" ]; then
+  fail "restore operation failure injection did not run"
+fi
+assert_contains "$TMP/prepare-restore-failure.log" "injected restore rm failure"
+assert_contains \
+  "$TMP/prepare-restore-failure.log" \
+  "prepare-package-surface: failed to restore original artifacts"
+if ! diff -qr "$TMP/fake-napi-restore-failure-before" "$restore_failure_napi" \
+  >"$TMP/prepare-restore-failure.diff"; then
+  sed -n '1,120p' "$TMP/prepare-restore-failure.diff" >&2
+  fail "package preparation stopped restoring after an operation failed"
 fi
 FAKE_NAPI_DIR="$fake_napi" PATH="$fake_surface_bin:/usr/bin:/bin" \
   "$fake_prepare" >"$TMP/prepare-success.log" 2>&1
