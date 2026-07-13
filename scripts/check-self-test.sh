@@ -45,6 +45,64 @@ assert_file_equal() {
   assert_equal "$(<"$file")" "$expected" "$context"
 }
 
+workflow_check_has_self_test_step() {
+  local workflow="$1"
+
+  awk \
+    -v target_name="      - name: Verification runner self-test" \
+    -v target_if="        if: runner.os == 'Linux'" \
+    -v target_run="        run: ./scripts/check.sh self-test" '
+    function finish_step() {
+      if (in_target && has_if && has_run) {
+        found = 1
+      }
+    }
+
+    $0 == "  check:" {
+      in_job = 1
+      next
+    }
+    in_job && $0 ~ /^  [[:alnum:]_-]+:$/ {
+      finish_step()
+      exit
+    }
+    in_job && $0 ~ /^      - / {
+      finish_step()
+      in_target = ($0 == target_name)
+      has_if = 0
+      has_run = 0
+      next
+    }
+    in_target && $0 == target_if { has_if = 1 }
+    in_target && $0 == target_run { has_run = 1 }
+
+    END {
+      finish_step()
+      exit(found ? 0 : 1)
+    }
+  ' "$workflow"
+}
+
+workflow_ci_ok_needs_version_sync() {
+  local workflow="$1"
+
+  awk '
+    $0 == "  ci-ok:" {
+      in_job = 1
+      next
+    }
+    in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
+    in_job && $0 == "    needs:" {
+      in_needs = 1
+      next
+    }
+    in_needs && $0 ~ /^    [^ ]/ { exit }
+    in_needs && $0 == "      - version-sync" { found = 1 }
+
+    END { exit(found ? 0 : 1) }
+  ' "$workflow"
+}
+
 write_fake_surface_fixture() {
   local napi_dir="$1"
   local bin_dir="$2"
@@ -296,20 +354,54 @@ sed -n '/^run_all_local() {$/,/^}$/p' "$CHECK" >"$TMP/all-local-body.log"
 assert_contains "$TMP/all-local-body.log" "run_self_test"
 
 workflow="$ROOT/.github/workflows/ci.yml"
-sed -n '/^  check:$/,/^  msrv:$/p' "$workflow" >"$TMP/ci-check-job.log"
-if ! grep -Fq -- "- name: Verification runner self-test" "$TMP/ci-check-job.log"; then
-  fail "CI check job is missing the verification runner self-test"
+if ! workflow_check_has_self_test_step "$workflow"; then
+  fail "CI check job is missing the Linux-only verification runner self-test step"
 fi
-if ! grep -Fq -- "if: runner.os == 'Linux'" "$TMP/ci-check-job.log"; then
-  fail "CI verification runner self-test is not Ubuntu-only"
-fi
-if ! grep -Fq -- "run: ./scripts/check.sh self-test" "$TMP/ci-check-job.log"; then
-  fail "CI check job does not invoke ./scripts/check.sh self-test"
+if ! workflow_ci_ok_needs_version_sync "$workflow"; then
+  fail "ci-ok.needs is missing version-sync"
 fi
 
-sed -n '/^  ci-ok:$/,/^    runs-on:/p' "$workflow" >"$TMP/ci-ok-needs.log"
-if ! grep -Fq -- "- version-sync" "$TMP/ci-ok-needs.log"; then
-  fail "ci-ok.needs is missing version-sync"
+invalid_self_test_workflow="$TMP/invalid-self-test-workflow.yml"
+printf '%s\n' \
+  'jobs:' \
+  '  check:' \
+  '    steps:' \
+  '      - name: Verification runner self-test' \
+  '        run: ./scripts/check.sh self-test' \
+  '      - name: Unrelated Linux-only step' \
+  "        if: runner.os == 'Linux'" \
+  '        run: true' \
+  '  msrv:' \
+  '    runs-on: ubuntu-latest' \
+  >"$invalid_self_test_workflow"
+if workflow_check_has_self_test_step "$invalid_self_test_workflow"; then
+  fail "CI self-test validator accepted fields split across steps"
+fi
+
+commented_need_workflow="$TMP/commented-need-workflow.yml"
+printf '%s\n' \
+  'jobs:' \
+  '  ci-ok:' \
+  '    needs:' \
+  '      # - version-sync' \
+  '    runs-on: ubuntu-latest' \
+  >"$commented_need_workflow"
+if workflow_ci_ok_needs_version_sync "$commented_need_workflow"; then
+  fail "ci-ok.needs validator accepted a commented version-sync entry"
+fi
+
+unrelated_need_workflow="$TMP/unrelated-need-workflow.yml"
+printf '%s\n' \
+  'jobs:' \
+  '  ci-ok:' \
+  '    needs:' \
+  '      - check' \
+  '    metadata:' \
+  '      - version-sync' \
+  '    runs-on: ubuntu-latest' \
+  >"$unrelated_need_workflow"
+if workflow_ci_ok_needs_version_sync "$unrelated_need_workflow"; then
+  fail "ci-ok.needs validator accepted version-sync from an unrelated property"
 fi
 
 while read -r documented_profile; do
