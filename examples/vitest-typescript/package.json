@@ -4,12 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "typecheck": "tsc --noEmit --skipLibCheck false",
     "coverage": "vitest run --coverage",
     "verify": "node scripts/verify-coverage.mjs"
   },
   "devDependencies": {
+    "@jridgewell/trace-mapping": "^0.3.31",
     "@vitest/coverage-istanbul": "^4.1.5",
     "oxc-coverage-instrument": "file:../../crates/oxc-coverage-instrument-napi",
+    "source-map-js": "^1.2.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
   }

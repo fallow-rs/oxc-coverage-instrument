@@ -373,6 +373,10 @@ jobs:
         working-directory: examples/vitest-typescript
         run: npm install
 
+      - name: Typecheck example
+        working-directory: examples/vitest-typescript
+        run: npm run typecheck
+
       - name: Run vitest with coverage
         working-directory: examples/vitest-typescript
         run: npm run coverage

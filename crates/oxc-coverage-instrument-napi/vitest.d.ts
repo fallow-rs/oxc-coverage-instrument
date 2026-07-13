@@ -67,16 +67,31 @@ export interface JsonObject {
   [key: string]: JsonValue;
 }
 
+/** A structurally typed encoded source map accepted by the instrumenter. */
+export interface OxcInputSourceMap {
+  version: string | number;
+  sources: Array<string | null>;
+  names?: string[];
+  mappings: string;
+  file?: string | null;
+  sourceRoot?: string;
+  sourcesContent?: Array<string | null>;
+  ignoreList?: number[];
+  x_google_ignoreList?: number[];
+}
+
 /** A source map returned by the instrumenter. */
 export interface OxcSourceMap {
   [key: string]: JsonValue | undefined;
-  version: number;
-  sources: string[];
+  version: 3;
+  sources: Array<string | null>;
   names: string[];
   mappings: string;
-  file?: string;
+  file?: string | null;
   sourceRoot?: string;
   sourcesContent?: Array<string | null>;
+  ignoreList?: number[];
+  x_google_ignoreList?: number[];
 }
 
 /** A position in an Istanbul coverage location. */
@@ -107,6 +122,15 @@ export interface IstanbulBranch {
   locations: IstanbulLocation[];
 }
 
+/** Stable function identity metadata attached by the optional overlay. */
+export interface IstanbulFunctionIdentity {
+  id: string;
+  name: string;
+  path: string;
+  decl: IstanbulLocation;
+  loc: IstanbulLocation;
+}
+
 /** Coverage data for one instrumented file. */
 export interface IstanbulFileCoverage {
   path: string;
@@ -118,12 +142,16 @@ export interface IstanbulFileCoverage {
   b: Record<string, number[]>;
   bT?: Record<string, number[]>;
   inputSourceMap?: JsonValue;
-  x_fallow_functionMap?: Record<string, JsonObject>;
+  x_fallow_functionMap?: Record<string, IstanbulFunctionIdentity>;
 }
 
 /** Instrumenter returned by `createOxcInstrumenter`. */
 export interface OxcInstrumenter {
-  instrumentSync(code: string, filename: string, inputSourceMap?: JsonObject): string;
+  instrumentSync(
+    code: string,
+    filename: string,
+    inputSourceMap?: OxcInputSourceMap | JsonObject,
+  ): string;
   lastSourceMap(): OxcSourceMap | null;
   lastFileCoverage(): IstanbulFileCoverage | null;
   /** Property alias for compatibility with vite-plugin-istanbul. */
