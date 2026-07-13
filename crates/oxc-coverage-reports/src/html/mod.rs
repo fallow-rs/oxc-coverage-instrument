@@ -56,7 +56,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Filename used for every folder-level index page.
 const INDEX_FILE: &str = "index.html";
@@ -143,6 +143,7 @@ pub fn write(
         coverage_map
     };
     let root = summarize(report_map);
+    validate_report_paths(&root)?;
 
     fs::create_dir_all(output_dir)?;
     fs::write(output_dir.join("base.css"), BASE_CSS)?;
@@ -152,6 +153,37 @@ pub fn write(
     let ctx = RenderContext { root_dir, options };
     render_node(RenderNodeInput { node: &root, ctx: &ctx, output_dir, depth: 0 })?;
     Ok(())
+}
+
+fn validate_report_paths(node: &ReportNode) -> io::Result<()> {
+    if let NodeKind::Folder { children } = &node.kind {
+        for child in children {
+            validate_report_paths(child)?;
+        }
+    }
+
+    if node.relative_path.is_empty()
+        || node.relative_path.split('/').all(is_safe_report_path_component)
+    {
+        return Ok(());
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("unsafe HTML report path: {}", node.relative_path),
+    ))
+}
+
+fn is_safe_report_path_component(component: &str) -> bool {
+    let bytes = component.as_bytes();
+    if component.contains('\\')
+        || (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
+    {
+        return false;
+    }
+
+    let mut components = Path::new(component).components();
+    matches!((components.next(), components.next()), (Some(Component::Normal(_)), None))
 }
 
 /// Tunable knobs for the HTML reporter.
@@ -978,6 +1010,42 @@ mod tests {
         dir
     }
 
+    fn assert_rejects_unsafe_report_path(json: &str, rejected_path: &str) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let output_dir = dir.path().join("report");
+        let sentinel = dir.path().join("escape").join("pwn.js.html");
+        fs::create_dir_all(sentinel.parent().unwrap()).unwrap();
+        fs::write(&sentinel, "sentinel").unwrap();
+        let map = parse_coverage_map(json).unwrap();
+
+        let error = write(&map, Path::new(""), &output_dir, &HtmlOptions::default()).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains(rejected_path), "got: {error}");
+        assert_eq!(fs::read_to_string(sentinel).unwrap(), "sentinel");
+        assert!(!output_dir.join("base.css").exists());
+        assert!(!output_dir.join("coverage-tokens.css").exists());
+        assert!(!output_dir.join("base.js").exists());
+    }
+
+    #[test]
+    fn rejects_parent_traversal_before_writing_assets() {
+        let json = r#"{"safe/a.js":{"path":"safe/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"../escape/pwn.js":{"path":"../escape/pwn.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        assert_rejects_unsafe_report_path(json, "../escape/pwn.js");
+    }
+
+    #[test]
+    fn rejects_windows_parent_traversal_before_writing_assets() {
+        let json = r#"{"safe/a.js":{"path":"safe/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"..\\escape\\pwn.js":{"path":"..\\escape\\pwn.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        assert_rejects_unsafe_report_path(json, r"..\escape\pwn.js");
+    }
+
+    #[test]
+    fn rejects_windows_drive_prefixes_before_writing_assets() {
+        let json = r#"{"C:/safe/a.js":{"path":"C:/safe/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"D:/other/b.js":{"path":"D:/other/b.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        assert_rejects_unsafe_report_path(json, "C:/safe/a.js");
+    }
+
     #[test]
     fn writes_root_index_and_base_css() {
         let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
@@ -1027,9 +1095,9 @@ mod tests {
         // Use '&' as the HTML-special character: it exercises the escaping
         // path (`&` -> `&amp;`) AND is a valid filename on every platform,
         // unlike `<` or `>` which Windows path APIs reject.
-        let json = r#"{"a&b.js":{"path":"a&b.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let json = r#"{"root.js":{"path":"root.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"src/a&b.js":{"path":"src/a&b.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
         let dir = write_to_temp(json);
-        let detail = fs::read_to_string(dir.path().join("a&b.js.html")).unwrap();
+        let detail = fs::read_to_string(dir.path().join("src").join("a&b.js.html")).unwrap();
         assert!(detail.contains("a&amp;b.js"), "got:\n{detail}");
     }
 

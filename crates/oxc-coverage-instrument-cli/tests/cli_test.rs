@@ -434,6 +434,40 @@ fn report_html_format_writes_directory_tree() {
 }
 
 #[test]
+fn report_html_rejects_parent_traversal_before_writing_assets() {
+    let workdir =
+        std::env::temp_dir().join(format!("oxc_cov_cli_html_traversal_{}", std::process::id()));
+    let out_dir = workdir.join("report");
+    let sentinel = workdir.join("escape").join("pwn.js.html");
+    let _ = std::fs::remove_dir_all(&workdir);
+    std::fs::create_dir_all(sentinel.parent().unwrap()).unwrap();
+    std::fs::write(&sentinel, "sentinel").unwrap();
+    let cov = write_temp(
+        &format!("report_html_traversal_{}.json", std::process::id()),
+        r#"{"safe/a.js":{"path":"safe/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"../escape/pwn.js":{"path":"../escape/pwn.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#,
+    );
+
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("html")
+        .arg("--output-dir")
+        .arg(&out_dir)
+        .arg(&cov)
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("error: failed to render report"), "got: {stderr}");
+    assert!(stderr.contains("../escape/pwn.js"), "got: {stderr}");
+    assert_eq!(std::fs::read_to_string(sentinel).unwrap(), "sentinel");
+    assert!(!out_dir.join("base.css").exists());
+    assert!(!out_dir.join("coverage-tokens.css").exists());
+    assert!(!out_dir.join("base.js").exists());
+}
+
+#[test]
 fn report_html_rejects_dash_o_with_friendly_error() {
     let cov = write_temp("report_html_dash_o.json", SAMPLE_COVERAGE);
     let out = cli()
