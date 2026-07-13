@@ -9,6 +9,7 @@
 
 ## Status
 
+- **Status**: DONE
 - **Priority**: P1
 - **Effort**: M
 - **Risk**: LOW
@@ -162,12 +163,12 @@ cargo test --workspace --all-targets
 
 ## Done criteria
 
-- [ ] Every fixture in `real_world_test.rs` reparses without diagnostics.
-- [ ] Runtime tests prove original behavior and selected counters.
-- [ ] The runtime script is part of the existing N-API CI job.
-- [ ] The Vitest TypeScript example passes.
-- [ ] Full format, clippy, and workspace tests pass.
-- [ ] Only in-scope files and `plans/README.md` are modified.
+- [x] Every fixture in `real_world_test.rs` reparses without diagnostics.
+- [x] Runtime tests prove original behavior and selected counters.
+- [x] The runtime script is part of the existing N-API CI job.
+- [x] The Vitest TypeScript example passes.
+- [x] Full format, clippy, and workspace tests pass.
+- [x] Only in-scope files and `plans/README.md` are modified.
 
 ## STOP conditions
 

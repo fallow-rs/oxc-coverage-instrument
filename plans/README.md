@@ -11,7 +11,7 @@ These plans are implementation-ready, but no source changes were made during the
 | [001](001-contain-html-report-paths.md) | P1 | S | Low | DONE | Keep HTML report paths inside the selected output directory. |
 | [002](002-preserve-source-map-coverage.md) | P1 | L | High | DONE | Preserve multi-source mappings and merge mapped coverage collisions. |
 | [003](003-synchronize-vitest-types.md) | P1 | S | Low | DONE | Keep Vitest declarations synchronized with runtime options and strict TypeScript. |
-| [004](004-validate-emitted-behavior.md) | P1 | M | Low | TODO | Reparse and execute emitted instrumentation in real projects. |
+| [004](004-validate-emitted-behavior.md) | P1 | M | Low | DONE | Reparse and execute emitted instrumentation in real projects. |
 | [005](005-test-real-v8-inspector-output.md) | P1 | M | Medium | TODO | Validate V8 conversion against real Node inspector output. |
 | [006](006-index-v8-range-lookups.md) | P1 | M | Medium | TODO | Replace repeated V8 range scans with a verified index. |
 | [007](007-add-repository-agent-guidance.md) | P2 | S | Low | TODO | Add concise repository-specific agent guidance. |

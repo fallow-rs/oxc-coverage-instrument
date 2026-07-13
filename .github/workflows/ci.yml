@@ -195,6 +195,9 @@ jobs:
         working-directory: crates/oxc-coverage-instrument-napi
         run: node test.mjs
 
+      - name: Validate production-like emitted behavior
+        run: node scripts/real-world-output.mjs
+
       - name: Run upstream Istanbul spec subset
         run: node scripts/istanbul-upstream-specs.mjs
 

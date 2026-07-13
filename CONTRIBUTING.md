@@ -136,6 +136,7 @@ node crates/oxc-coverage-instrument/tests/conformance/generate-reference.mjs
 
 - `scripts/istanbul-diff.mjs`: byte-for-byte conformance diff against `istanbul-lib-instrument` on the shared fixture corpus.
 - `scripts/istanbul-upstream-specs.mjs`: runtime compatibility checks copied from upstream Istanbul specs.
+- `scripts/real-world-output.mjs`: runtime behavior and counter-placement checks for production-like JavaScript and stripped TypeScript.
 - `scripts/benchmark-comparison.sh`: performance comparison against Istanbul, Babel, and SWC coverage instrumenters.
 - `scripts/real-world-parity.mjs`: count-level parity check over the benchmark corpus populated by `benchmark-comparison.sh`.
 - `scripts/compare-istanbul.mjs`: ad hoc reference-output dumper used when investigating Istanbul shape differences.

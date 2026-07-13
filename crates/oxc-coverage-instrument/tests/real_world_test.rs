@@ -3,13 +3,16 @@
 //! Tests instrumentation on complex, production-like JavaScript and TypeScript
 //! patterns to catch edge cases and verify the output is valid.
 
-use oxc_coverage_instrument::{InstrumentOptions, instrument};
+use oxc_allocator::Allocator;
+use oxc_coverage_instrument::{InstrumentOptions, InstrumentResult, instrument};
+use oxc_parser::Parser;
+use oxc_span::SourceType;
 
 fn default_opts() -> InstrumentOptions {
     InstrumentOptions::default()
 }
 
-fn assert_valid_instrumentation(source: &str, filename: &str) {
+fn assert_valid_instrumentation(source: &str, filename: &str) -> InstrumentResult {
     let result = instrument(source, filename, &default_opts()).unwrap();
     // Verify code is not empty
     assert!(!result.code.is_empty(), "Instrumented code should not be empty");
@@ -31,6 +34,18 @@ fn assert_valid_instrumentation(source: &str, filename: &str) {
     // Verify coverage map serializes to valid JSON
     let json = serde_json::to_string(&result.coverage_map).unwrap();
     let _parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+    let allocator = Allocator::default();
+    let source_type = SourceType::from_path(filename).unwrap_or_default();
+    let parsed = Parser::new(&allocator, &result.code, source_type).parse();
+    let diagnostics = parsed.errors.iter().map(|error| format!("{error}")).collect::<Vec<_>>();
+    assert!(
+        diagnostics.is_empty(),
+        "{filename}: instrumented code has parse diagnostics: {}",
+        diagnostics.join("; ")
+    );
+
+    result
 }
 
 #[test]
@@ -441,7 +456,7 @@ const memoize = (fn) => {
 
 const fastFib = memoize(fibonacci);
 ";
-    let result = instrument(source, "fibonacci.js", &default_opts()).unwrap();
+    let result = assert_valid_instrumentation(source, "fibonacci.js");
 
     // Verify Istanbul format: root should be keyed by path
     let mut root = std::collections::BTreeMap::new();
