@@ -38,6 +38,13 @@ lookup done criteria below remain intentionally unmet.
 
 ### Local measurement record
 
+The complete original baseline and all three rejected candidate rounds are
+recorded as machine-readable evidence in
+[`evidence/006-v8-range-index-results.json`](evidence/006-v8-range-index-results.json).
+It preserves the exact local Criterion means and recorded deltas, candidate
+algorithms and policies, revert decisions, and the limits of the available
+evidence.
+
 The retained scaling ids are stable across the original baseline and all three
 candidate rounds:
 

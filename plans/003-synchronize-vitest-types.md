@@ -158,13 +158,24 @@ cargo test --workspace --all-targets
 
 ## Done criteria
 
-- [ ] Every option read by `createOxcInstrumenter` is declared.
-- [ ] `vitest.d.ts` contains no `any`.
-- [ ] A strict consumer compiles all options and return values without casts.
-- [ ] N-API runtime tests and package-surface checks pass.
-- [ ] The Vitest TypeScript coverage example passes.
-- [ ] Full workspace tests pass.
-- [ ] Only in-scope files and `plans/README.md` are modified.
+- [x] Every option read by `createOxcInstrumenter` is declared.
+- [x] `vitest.d.ts` contains no `any`.
+- [x] A strict consumer compiles all options and return values without casts.
+- [x] N-API runtime tests and package-surface checks pass.
+- [x] The Vitest TypeScript coverage example passes.
+- [x] Full workspace tests pass.
+- [x] Only in-scope files and `plans/README.md` are modified.
+
+### Combined-branch resolution
+
+The integrated branch resolves these criteria through the canonical
+`vitest-typecheck`, `napi-test`, `package-surface`, `vitest-coverage`,
+`vitest-verify`, and `rust-test` profiles. The runtime option list was also
+matched field by field against `OxcInstrumenterOptions`, and `vitest.d.ts` was
+searched directly for `any`. The final scope criterion applies to the Plan 003
+implementation slice, which changed only its listed files and
+`plans/README.md`; the combined branch intentionally contains the other plan
+slices and does not redefine that completed scope.
 
 ## STOP conditions
 

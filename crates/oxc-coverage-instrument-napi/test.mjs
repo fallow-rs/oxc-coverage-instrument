@@ -1571,24 +1571,25 @@ function runInstrumented(result, filename, callExpression) {
 
 // Test: remapCoverageMap drop_unmapped prunes entries on unmapped lines (issue #92)
 {
-  // Single-line identity map: line 1 of the generated file maps to line 1 of
-  // src/app.ts; everything on line 2+ is unmapped. Without `dropUnmapped`,
-  // unmapped positions keep their generated-output coordinates (line 2); with
+  // Single-line identity map: line 2 of the generated file maps to line 1 of
+  // src/app.ts; line 1 is unmapped. Without `dropUnmapped`, unmapped positions
+  // keep their generated-output coordinates (line 1); with
   // `dropUnmapped: true`, those entries (and their matching s/f/b slots) are
   // pruned from the FileCoverage, matching istanbul-lib-source-maps's
   // transformer.js behaviour.
   const inputSourceMap = {
     version: 3,
     sources: ['src/app.ts'],
-    sourcesContent: ['const x: number = 1;\n'],
-    mappings: 'AAAA',
+    sourcesContent: ['const y: number = 2;\n'],
+    mappings: ';AAAA',
     names: [],
   };
   const intermediateJs = 'const x = 1;\nconst y = 2;\n';
   const result = instrument(intermediateJs, 'intermediate.js', {
     inputSourceMap: JSON.stringify(inputSourceMap),
   });
-  const coverageMap = { 'intermediate.js': JSON.parse(result.coverageMap) };
+  const originalCoverage = JSON.parse(result.coverageMap);
+  const coverageMap = { 'intermediate.js': originalCoverage };
   const inputJson = JSON.stringify(coverageMap);
 
   const kept = JSON.parse(remapCoverageMap(inputJson));
@@ -1609,6 +1610,16 @@ function runInstrumented(result, filename, callExpression) {
     Object.keys(pruned['src/app.ts'].s).sort(),
     Object.keys(pruned['src/app.ts'].statementMap).sort(),
     'surviving `s` keys must match `statementMap` keys',
+  );
+  assert.deepEqual(
+    Object.keys(originalCoverage.statementMap),
+    ['0', '1'],
+    'fixture must drop the first statement while retaining the second',
+  );
+  assert.deepEqual(
+    Object.keys(pruned['src/app.ts'].statementMap),
+    ['0'],
+    'map-level remapping must renumber the surviving original statement 1 to contiguous ID 0',
   );
 
   // Default (omitted options) is unchanged.

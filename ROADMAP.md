@@ -91,7 +91,7 @@ Reproduce-locally targets for every CI gate live in `CONTRIBUTING.md` under *Dev
 - **`scorecard.yml`**: OSSF Scorecard scan, weekly + on push to main
 - **`dependabot-auto-merge.yml`**: auto-merges non-major dependabot PRs once required checks pass
 - **`require-issue-link.yml`**: requires `Closes/Fixes/Resolves #N` (or `N/A`) in every non-draft, non-bot PR body
-- **`release-npm.yml`**: tag-triggered multi-platform napi build matrix (7 targets) + crates.io publish in topological order + npm publish with provenance
+- **`release-npm.yml`**: tag-triggered N-API build matrix for seven native targets plus two WASI variants + crates.io publish in topological order + npm publish with provenance
 
 Every external action is SHA-pinned with a version comment; the `dtolnay/rust-toolchain` pin tracks `stable` HEAD and is re-pinned when dependabot's github-actions scanner reports the SHA orphaned (see `.github/actions/setup-rust/action.yml`). Reusable composites live under `.github/actions/`.
 
