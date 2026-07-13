@@ -1,6 +1,46 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const rootDir = fileURLToPath(new URL('..', import.meta.url));
+const napiDir = 'crates/oxc-coverage-instrument-napi';
+const platformDir = `${napiDir}/npm`;
+
+const platformManifests = readdirSync(resolve(rootDir, platformDir), {
+  withFileTypes: true,
+})
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => `${platformDir}/${entry.name}/package.json`)
+  .filter((manifest) => existsSync(resolve(rootDir, manifest)))
+  .sort();
+
+const manifests = [
+  { path: `${napiDir}/package.json`, expectedDirectory: napiDir },
+  ...platformManifests.map((path) => ({
+    path,
+    expectedDirectory: path.slice(0, -'/package.json'.length),
+  })),
+];
+
+const metadataErrors = [];
+for (const manifest of manifests) {
+  const packageJson = JSON.parse(readFileSync(resolve(rootDir, manifest.path), 'utf8'));
+  const actualDirectory = packageJson.repository?.directory;
+  if (actualDirectory !== manifest.expectedDirectory) {
+    const expected = JSON.stringify(manifest.expectedDirectory);
+    const actual = JSON.stringify(actualDirectory);
+    metadataErrors.push(
+      `${manifest.path}: expected repository.directory ${expected}, got ${actual}`,
+    );
+  }
+}
+
+if (metadataErrors.length > 0) {
+  throw new Error(`Invalid npm repository metadata:\n${metadataErrors.join('\n')}`);
+}
+console.log(`npm repository metadata OK: ${manifests.length} manifests`);
 
 const specs = [
   {
@@ -41,7 +81,7 @@ const specs = [
 
 for (const spec of specs) {
   const result = spawnSync('npm', ['pack', '--dry-run', '--json'], {
-    cwd: resolve(spec.dir),
+    cwd: resolve(rootDir, spec.dir),
     encoding: 'utf8',
   });
   if (result.status !== 0) {

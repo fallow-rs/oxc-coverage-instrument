@@ -16,7 +16,7 @@ These plans are implementation-ready, but no source changes were made during the
 | [006](006-index-v8-range-lookups.md) | P1 | M | Medium | CLOSED: NO SAFE MEASURED WIN | Retain scaling benchmarks after three index rounds exceeded regression limits. |
 | [007](007-add-repository-agent-guidance.md) | P2 | S | Low | DONE | Add concise repository-specific agent guidance. |
 | [008](008-centralize-verification-commands.md) | P2 | M | Medium | DONE | Share canonical verification profiles across local use, hooks, and CI. |
-| [009](009-correct-npm-repository-metadata.md) | P2 | S | Low | TODO | Point npm repository metadata at actual package directories. |
+| [009](009-correct-npm-repository-metadata.md) | P2 | S | Low | DONE | Point npm repository metadata at actual package directories. |
 | [010](010-refresh-roadmap-contracts.md) | P3 | S | Low | TODO | Align roadmap API and benchmark descriptions with current behavior. |
 | [011](011-fix-real-inspector-branch-counts.md) | P1 | S | Medium | DONE | Preserve inherited if-arm counts from real V8 inspector ranges. |
 | [012](012-normalize-v8-utf16-offsets.md) | P1 | M | High | DONE | Normalize every V8 containment query to inspector UTF-16 units. |

@@ -23,7 +23,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/fallow-rs/oxc-coverage-instrument.git",
-    "directory": "napi"
+    "directory": "crates/oxc-coverage-instrument-napi/npm/win32-x64-msvc"
   },
   "bugs": "https://github.com/fallow-rs/oxc-coverage-instrument/issues",
   "os": [
