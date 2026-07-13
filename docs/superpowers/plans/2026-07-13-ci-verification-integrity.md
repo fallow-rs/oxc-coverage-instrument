@@ -16,7 +16,7 @@
 
 ---
 
-### Task 1: Add failing workflow contract assertions
+### Task 1: Enforce the verification and aggregate contracts
 
 **Files:**
 - Modify: `scripts/check-self-test.sh`
@@ -30,7 +30,7 @@ Run: `./scripts/check-self-test.sh`
 
 Expected: failure names the missing CI self-test or aggregate dependency.
 
-### Task 2: Wire both gates into CI
+#### Wire both gates into CI
 
 **Files:**
 - Modify: `.github/workflows/ci.yml`
@@ -50,4 +50,3 @@ Run:
 ```
 
 Expected: every command exits successfully.
-

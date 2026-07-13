@@ -17,7 +17,7 @@
 
 ---
 
-### Task 1: Resolve the remap ID contract
+### Task 1: Resolve every remaining contract and evidence finding
 
 **Files:**
 - Modify: `README.md`
@@ -30,7 +30,7 @@
   separately note sparse-ID compatibility in the Rust single-file helper.
 - [ ] Run the N-API runtime oracle and stale-contract search.
 
-### Task 2: Add durable Plan 006 evidence
+#### Add durable Plan 006 evidence
 
 **Files:**
 - Create: `plans/evidence/006-v8-range-index-results.json`
@@ -55,7 +55,7 @@ node -e "JSON.parse(require('node:fs').readFileSync('plans/evidence/006-v8-range
 
 Expected: exits successfully.
 
-### Task 3: Correct remaining roadmap and plan state
+#### Correct remaining roadmap and plan state
 
 **Files:**
 - Modify: `ROADMAP.md`
@@ -81,4 +81,3 @@ git diff --check
 ```
 
 Expected: every command exits successfully.
-

@@ -18,7 +18,7 @@
 
 ---
 
-### Task 1: Prove the race and hard-link failures
+### Task 1: Secure and verify every HTML output write
 
 **Files:**
 - Modify: `crates/oxc-coverage-reports/src/html/mod.rs`
@@ -43,7 +43,7 @@ cargo test -p oxc_coverage_reports html::tests:: --features html
 
 Expected: the new containment tests fail for the reviewed behavior.
 
-### Task 2: Add the capability-backed output helper
+#### Add the capability-backed output helper
 
 **Files:**
 - Create: `crates/oxc-coverage-reports/src/html/output.rs`
@@ -68,7 +68,7 @@ Expected: the new containment tests fail for the reviewed behavior.
   `create_dir_all` call with `OutputDir` operations.
 - [ ] Remove the obsolete check-then-use symlink preflight.
 
-### Task 3: Verify secure and ordinary rendering
+#### Verify secure and ordinary rendering
 
 **Files:**
 - Modify: `crates/oxc-coverage-reports/src/html/mod.rs` only if a regression
@@ -95,4 +95,3 @@ cargo test --workspace --all-targets
 
 Expected: every command exits successfully and both outside sentinels remain
 unchanged.
-
