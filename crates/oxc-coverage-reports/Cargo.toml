@@ -21,10 +21,12 @@ workspace = true
 # resulting binary). Downstream consumers that only need text / lcov /
 # cobertura / json-summary can opt out with `default-features = false`.
 default = ["html"]
-html = ["dep:syntect", "dep:two-face", "dep:rayon"]
+html = ["dep:cap-fs-ext", "dep:cap-std", "dep:syntect", "dep:two-face", "dep:rayon"]
 codspeed = ["criterion2/codspeed"]
 
 [dependencies]
+cap-fs-ext = { version = "4.0.2", optional = true }
+cap-std = { version = "4.0.2", optional = true }
 oxc_coverage_report = { path = "../oxc-coverage-report", version = "0.2.0" }
 oxc_coverage_source_maps = { path = "../oxc-coverage-source-maps", version = "0.5.2" }
 oxc_coverage_types = { path = "../oxc-coverage-types", version = "0.2.2" }

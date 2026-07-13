@@ -46,8 +46,10 @@
 //! [rayon]: https://docs.rs/rayon
 
 mod highlight;
+mod output;
 
 use crate::escape::{html_attr, html_text};
+use output::OutputDir;
 use oxc_coverage_report::{CoverageMap, CoverageSummary, Metric, NodeKind, ReportNode, summarize};
 use oxc_coverage_source_maps::remap_coverage_map;
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry};
@@ -127,6 +129,16 @@ pub fn write(
     output_dir: &Path,
     options: &HtmlOptions,
 ) -> io::Result<()> {
+    write_with_output_opened_hook(coverage_map, root_dir, output_dir, options, || Ok(()))
+}
+
+fn write_with_output_opened_hook(
+    coverage_map: &CoverageMap,
+    root_dir: &Path,
+    output_dir: &Path,
+    options: &HtmlOptions,
+    output_opened: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
     // Only pay for the remap (and its clone + orphan-counter prune) when at
     // least one entry carries an `inputSourceMap`; a map with none renders
     // identically from the borrowed original. The skipped branch therefore does
@@ -143,29 +155,23 @@ pub fn write(
         coverage_map
     };
     let root = summarize(report_map);
-    validate_report_output_plan(&root, output_dir)?;
-
-    fs::create_dir_all(output_dir)?;
-    fs::write(output_dir.join("base.css"), BASE_CSS)?;
-    fs::write(output_dir.join("coverage-tokens.css"), COVERAGE_TOKENS_CSS)?;
-    fs::write(output_dir.join("base.js"), BASE_JS)?;
+    validate_report_paths(&root)?;
+    let output = OutputDir::open(output_dir)?;
+    output_opened()?;
 
     let ctx = RenderContext { root_dir, options };
-    render_node(RenderNodeInput { node: &root, ctx: &ctx, output_dir, depth: 0 })?;
+    render_node(RenderNodeInput { node: &root, ctx: &ctx, output_dir: &output, depth: 0 })?;
+
+    output.write(Path::new("base.css"), BASE_CSS.as_bytes())?;
+    output.write(Path::new("coverage-tokens.css"), COVERAGE_TOKENS_CSS.as_bytes())?;
+    output.write(Path::new("base.js"), BASE_JS.as_bytes())?;
     Ok(())
 }
 
-fn validate_report_output_plan(root: &ReportNode, output_dir: &Path) -> io::Result<()> {
-    for asset in ["base.css", "coverage-tokens.css", "base.js"] {
-        reject_existing_symlink(output_dir, Path::new(asset))?;
-    }
-    validate_report_paths(root, output_dir)
-}
-
-fn validate_report_paths(node: &ReportNode, output_dir: &Path) -> io::Result<()> {
+fn validate_report_paths(node: &ReportNode) -> io::Result<()> {
     if let NodeKind::Folder { children } = &node.kind {
         for child in children {
-            validate_report_paths(child, output_dir)?;
+            validate_report_paths(child)?;
         }
     }
 
@@ -178,43 +184,6 @@ fn validate_report_paths(node: &ReportNode, output_dir: &Path) -> io::Result<()>
         ));
     }
 
-    let output_path = match &node.kind {
-        NodeKind::Folder { .. } => Path::new(&node.relative_path).join(INDEX_FILE),
-        NodeKind::File { .. } => {
-            let parent = node.relative_path.rsplit_once('/').map_or("", |(parent, _)| parent);
-            Path::new(parent).join(format!("{}{DETAIL_SUFFIX}", node.name))
-        }
-    };
-    reject_existing_symlink(output_dir, &output_path)?;
-
-    Ok(())
-}
-
-fn reject_existing_symlink(output_dir: &Path, relative_path: &Path) -> io::Result<()> {
-    let mut path = output_dir.to_path_buf();
-    for component in relative_path.components() {
-        let Component::Normal(component) = component else {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("unsafe HTML report path: {}", relative_path.display()),
-            ));
-        };
-        path.push(component);
-        match fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "unsafe HTML report path traverses an existing symlink: {}",
-                        relative_path.display()
-                    ),
-                ));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
-    }
     Ok(())
 }
 
@@ -287,7 +256,7 @@ struct RenderContext<'a> {
 struct RenderNodeInput<'a> {
     node: &'a ReportNode,
     ctx: &'a RenderContext<'a>,
-    output_dir: &'a Path,
+    output_dir: &'a OutputDir,
     depth: usize,
 }
 
@@ -297,13 +266,12 @@ fn render_node(input: RenderNodeInput<'_>) -> io::Result<()> {
         NodeKind::Folder { children } => {
             // Folder pages live at `<output_dir>/<node.relative_path>/index.html`.
             let folder_dir = if node.relative_path.is_empty() {
-                output_dir.to_path_buf()
+                PathBuf::new()
             } else {
-                output_dir.join(&node.relative_path)
+                PathBuf::from(&node.relative_path)
             };
-            fs::create_dir_all(&folder_dir)?;
             let html = render_folder_index(FolderIndexInputs { node, children, ctx, depth });
-            fs::write(folder_dir.join(INDEX_FILE), html)?;
+            output_dir.write(&folder_dir.join(INDEX_FILE), html.as_bytes())?;
 
             // Render children in parallel. The file branch is CPU-bound
             // (syntect tokenization), so per-file fan-out scales well on
@@ -324,13 +292,11 @@ fn render_node(input: RenderNodeInput<'_>) -> io::Result<()> {
         NodeKind::File { coverage } => {
             // Detail page lives next to the folder index.
             let parent = node.relative_path.rsplit_once('/').map_or("", |(parent, _)| parent);
-            let detail_dir =
-                if parent.is_empty() { output_dir.to_path_buf() } else { output_dir.join(parent) };
-            fs::create_dir_all(&detail_dir)?;
+            let detail_dir = if parent.is_empty() { PathBuf::new() } else { PathBuf::from(parent) };
 
             let filename = format!("{}{DETAIL_SUFFIX}", &node.name);
             let html = render_detail(RenderDetailInputs { node, coverage, ctx, depth });
-            fs::write(detail_dir.join(filename), html)?;
+            output_dir.write(&detail_dir.join(filename), html.as_bytes())?;
         }
     }
     Ok(())
@@ -1116,6 +1082,61 @@ mod tests {
         assert!(!output_dir.join("base.css").exists());
         assert!(!output_dir.join("coverage-tokens.css").exists());
         assert!(!output_dir.join("base.js").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_output_component_replaced_by_symlink_after_root_open() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let output_dir = dir.path().join("report");
+        let nested_dir = output_dir.join("link");
+        let outside_dir = dir.path().join("outside");
+        let sentinel = outside_dir.join("pwn.js.html");
+        fs::create_dir_all(&nested_dir).unwrap();
+        fs::create_dir_all(&outside_dir).unwrap();
+        fs::write(&sentinel, "sentinel").unwrap();
+        let map = parse_coverage_map(
+            r#"{"safe.js":{"path":"safe.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"link/pwn.js":{"path":"link/pwn.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#,
+        )
+        .unwrap();
+
+        let result = write_with_output_opened_hook(
+            &map,
+            Path::new(""),
+            &output_dir,
+            &HtmlOptions::default(),
+            || {
+                let _output_root = fs::File::open(&output_dir)?;
+                fs::rename(&nested_dir, output_dir.join("original-link"))?;
+                symlink(&outside_dir, &nested_dir)
+            },
+        );
+
+        assert!(result.is_err(), "a replaced output component must fail the report write");
+        assert_eq!(fs::read_to_string(sentinel).unwrap(), "sentinel");
+    }
+
+    #[test]
+    fn replaces_hard_linked_report_leaf_without_truncating_outside_inode() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let output_dir = dir.path().join("report");
+        let sentinel = dir.path().join("outside-sentinel");
+        fs::create_dir_all(&output_dir).unwrap();
+        fs::write(&sentinel, "sentinel").unwrap();
+        fs::hard_link(&sentinel, output_dir.join("a.js.html")).unwrap();
+        let map = parse_coverage_map(
+            r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#,
+        )
+        .unwrap();
+
+        write(&map, Path::new(""), &output_dir, &HtmlOptions::default()).unwrap();
+
+        assert_eq!(fs::read_to_string(sentinel).unwrap(), "sentinel");
+        assert!(
+            fs::read_to_string(output_dir.join("a.js.html")).unwrap().contains("<!doctype html>")
+        );
     }
 
     #[test]
