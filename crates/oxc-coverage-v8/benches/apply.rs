@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
 use oxc_coverage_v8::{
     V8CoverageRange, V8FunctionCoverage, apply_v8_coverage, extract_external_source_mapping_url,
@@ -34,6 +34,10 @@ impl RangeShape {
             Self::NonLaminar => "non_laminar",
         }
     }
+}
+
+fn scaling_batch_size(size: u32) -> BatchSize {
+    if size >= 1_024 { BatchSize::LargeInput } else { BatchSize::SmallInput }
 }
 
 /// Return shape of `branch_heavy_fixture`: instrumented source, the coverage
@@ -401,15 +405,19 @@ fn bench_apply_scaling(c: &mut Criterion) {
     for shape in [RangeShape::Nested, RangeShape::Disjoint, RangeShape::NonLaminar] {
         for size in SCALING_SIZES {
             let (source, coverage, functions) = scaling_fixture(*size, shape);
+            let batch_size = scaling_batch_size(*size);
             group.bench_with_input(
                 BenchmarkId::new(shape.label(), size),
                 &coverage,
                 |b, coverage| {
-                    b.iter(|| {
-                        let mut coverage = coverage.clone();
-                        apply_v8_coverage(&mut coverage, &source, &functions, 0, &empty_spans);
-                        coverage
-                    });
+                    b.iter_batched(
+                        || coverage.clone(),
+                        |mut coverage| {
+                            apply_v8_coverage(&mut coverage, &source, &functions, 0, &empty_spans);
+                            coverage
+                        },
+                        batch_size,
+                    );
                 },
             );
         }
