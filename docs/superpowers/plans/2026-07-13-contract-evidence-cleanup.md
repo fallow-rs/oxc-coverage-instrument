@@ -23,12 +23,12 @@
 - Modify: `README.md`
 - Test: `crates/oxc-coverage-instrument-napi/test.mjs`
 
-- [ ] Add or identify a runtime assertion showing whether N-API
+- [x] Add or identify a runtime assertion showing whether N-API
   `remapCoverageMap` returns contiguous IDs after a dropped entry.
-- [ ] Run the assertion before docs edits and record the live behavior.
-- [ ] Rewrite the README sentence to describe map-level contiguous IDs and
+- [x] Run the assertion before docs edits and record the live behavior.
+- [x] Rewrite the README sentence to describe map-level contiguous IDs and
   separately note sparse-ID compatibility in the Rust single-file helper.
-- [ ] Run the N-API runtime oracle and stale-contract search.
+- [x] Run the N-API runtime oracle and stale-contract search.
 
 #### Add durable Plan 006 evidence
 
@@ -36,16 +36,16 @@
 - Create: `plans/evidence/006-v8-range-index-results.json`
 - Modify: `plans/006-index-v8-range-lookups.md`
 
-- [ ] Encode the original baseline and all three candidate rounds from the
+- [x] Encode the original baseline and all three candidate rounds from the
   execution report as JSON objects with stable benchmark IDs, mean
   microseconds, and deltas from the original baseline.
-- [ ] Identify candidates as `unconditional_laminar_index`,
+- [x] Identify candidates as `unconditional_laminar_index`,
   `guarded_eager_preflight`, and `lazy_two_stage_gate`, with their documented
   policies and `decision: "reverted"`.
-- [ ] Add explicit metadata stating that candidate code was not committed,
+- [x] Add explicit metadata stating that candidate code was not committed,
   local Criterion means are not remote CodSpeed evidence, and significance
   comparisons against the original baseline are unavailable.
-- [ ] Link the JSON evidence from Plan 006 and validate JSON parsing.
+- [x] Link the JSON evidence from Plan 006 and validate JSON parsing.
 
 Run:
 
@@ -61,14 +61,14 @@ Expected: exits successfully.
 - Modify: `ROADMAP.md`
 - Modify: `plans/003-synchronize-vitest-types.md`
 
-- [ ] Change the release matrix description to seven native targets plus two
+- [x] Change the release matrix description to seven native targets plus two
   WASI variants.
-- [ ] Check every Plan 003 done criterion only after mapping it to current
+- [x] Check every Plan 003 done criterion only after mapping it to current
   strict typecheck, runtime, package-surface, Vitest, and workspace evidence.
-- [ ] Add a combined-branch resolution note naming the canonical profiles that
+- [x] Add a combined-branch resolution note naming the canonical profiles that
   prove the completed criteria.
-- [ ] Run strict TypeScript, typos, stale wording searches, and diff checks.
-- [ ] Commit with a signed Conventional Commit subject.
+- [x] Run strict TypeScript, typos, stale wording searches, and diff checks.
+- [x] Commit with a signed Conventional Commit subject.
 
 Run:
 

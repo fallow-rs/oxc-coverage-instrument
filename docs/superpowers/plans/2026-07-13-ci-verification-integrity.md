@@ -21,10 +21,10 @@
 **Files:**
 - Modify: `scripts/check-self-test.sh`
 
-- [ ] Add a static workflow assertion that the Ubuntu check path invokes
+- [x] Add a static workflow assertion that the Ubuntu check path invokes
   `./scripts/check.sh self-test`.
-- [ ] Add an assertion that `ci-ok.needs` contains `version-sync`.
-- [ ] Run the self-test and confirm RED against the current workflow.
+- [x] Add an assertion that `ci-ok.needs` contains `version-sync`.
+- [x] Run the self-test and confirm RED against the current workflow.
 
 Run: `./scripts/check-self-test.sh`
 
@@ -35,11 +35,11 @@ Expected: failure names the missing CI self-test or aggregate dependency.
 **Files:**
 - Modify: `.github/workflows/ci.yml`
 
-- [ ] Add a `Verification runner self-test` step to `jobs.check.steps` with
+- [x] Add a `Verification runner self-test` step to `jobs.check.steps` with
   `if: runner.os == 'Linux'` and command `./scripts/check.sh self-test`.
-- [ ] Add `version-sync` to `jobs.ci-ok.needs`.
-- [ ] Run self-test, actionlint, and zizmor until GREEN.
-- [ ] Commit with a signed Conventional Commit subject.
+- [x] Add `version-sync` to `jobs.ci-ok.needs`.
+- [x] Run self-test, actionlint, and zizmor until GREEN.
+- [x] Commit with a signed Conventional Commit subject.
 
 Run:
 
