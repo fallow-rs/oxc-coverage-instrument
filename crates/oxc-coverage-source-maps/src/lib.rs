@@ -1210,7 +1210,7 @@ struct OriginalLookup<'a> {
 /// original side first (mirroring trace-mapping's `sliceGeneratedPositions`).
 /// That scan is linear in the map's mapping count; resolving the matched column
 /// this way (rather than via a generated-position round-trip) is what keeps the
-/// result faithful when several mappings share a generated column. A
+/// result faithful when several mappings share a generated column.
 /// The first lookup for a `(source, line)` pair builds a sorted original-column
 /// index in [`RemapContext`]; following lookups on that line are logarithmic.
 fn all_generated_positions_for_lub(
