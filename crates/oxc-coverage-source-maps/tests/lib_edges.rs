@@ -830,7 +830,7 @@ fn one_line_identity_map() -> serde_json::Value {
 /// one on line 1 (kept) and one on line 2 (pruned); branch `drop_no_arms`
 /// has its umbrella `loc` on line 1 but every arm on line 2 (drop because
 /// no arms survive); branch `drop_outer` has its umbrella `loc` on line 2
-/// (drop even though arms map).
+/// and falls back to its first mapped arm.
 fn mixed_mapped_file_coverage() -> FileCoverage {
     let pos = |line: u32, col: u32| Position { line, column: col };
     let loc =
@@ -1022,18 +1022,30 @@ fn drop_unmapped_drops_whole_branch_when_no_arms_survive() {
 }
 
 #[test]
-fn drop_unmapped_drops_branch_when_outer_loc_fails() {
+fn drop_unmapped_falls_back_to_first_mapped_arm_when_outer_loc_fails() {
     let fc = mixed_mapped_file_coverage();
     let opts = RemapOptions { drop_unmapped: true };
-    let remapped = remap_coverage_with_options(&fc, opts).expect("drop_unmapped remap succeeds");
+    let embedded = remap_coverage_with_options(&fc, opts).expect("embedded remap succeeds");
 
-    assert!(
-        !remapped.branch_map.contains_key("drop_outer"),
-        "branch drops when the umbrella `loc` fails to remap, even if arms would map",
-    );
-    assert!(!remapped.b.contains_key("drop_outer"));
-    let b_t = remapped.b_t.as_ref().expect("bT exists for the surviving branches");
-    assert!(!b_t.contains_key("drop_outer"));
+    let mut stored_fc = fc;
+    let map = stored_fc.input_source_map.take().expect("fixture has an embedded map");
+    let mut store = SourceMapStore::new();
+    store.add_map(stored_fc.path.clone(), &map);
+    let stored =
+        store.transform_coverage_with_options(&stored_fc, opts).expect("stored remap succeeds");
+
+    for remapped in [&embedded, &stored] {
+        let branch =
+            remapped.branch_map.get("drop_outer").expect("mapped arms preserve the branch");
+        let first_arm = &branch.locations[0];
+        assert_eq!(branch.loc.start.line, first_arm.start.line);
+        assert_eq!(branch.loc.start.column, first_arm.start.column);
+        assert_eq!(branch.loc.end.line, first_arm.end.line);
+        assert_eq!(branch.loc.end.column, first_arm.end.column);
+        assert_eq!(branch.line, first_arm.start.line);
+        assert_eq!(remapped.b["drop_outer"], vec![8, 9]);
+        assert_eq!(remapped.b_t.as_ref().expect("bT")["drop_outer"], vec![14, 15]);
+    }
 }
 
 #[test]

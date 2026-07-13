@@ -470,10 +470,7 @@ fn prune_single_source_unmapped(coverage: &mut FileCoverage, ctx: &mut RemapCont
 
     let mut surviving_arms = BTreeMap::new();
     coverage.branch_map.retain(|id, branch| {
-        if !try_remap_single_source_location(&mut branch.loc, ctx) {
-            dropped.push(id.clone());
-            return false;
-        }
+        let umbrella_maps = try_remap_single_source_location(&mut branch.loc, ctx);
         let mut indices = Vec::new();
         let mut locations = Vec::new();
         for (index, arm) in branch.locations.iter_mut().enumerate() {
@@ -485,6 +482,9 @@ fn prune_single_source_unmapped(coverage: &mut FileCoverage, ctx: &mut RemapCont
         if locations.is_empty() {
             dropped.push(id.clone());
             return false;
+        }
+        if !umbrella_maps {
+            branch.loc.clone_from(&locations[0]);
         }
         branch.locations = locations;
         branch.line = branch.loc.start.line;
