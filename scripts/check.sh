@@ -44,6 +44,7 @@ vitest-verify       primitive  Vitest TypeScript coverage assertions
 actionlint          primitive  GitHub Actions syntax
 zizmor              primitive  GitHub Actions security
 commitlint          primitive  Conventional branch commits
+self-test           primitive  Verification runner regression tests
 rust                aggregate  Rust format, lint, tests, and docs
 pre-push            aggregate  Fast hook checks with optional typos and tests
 all-local           aggregate  Every host-reproducible verification profile
@@ -85,6 +86,19 @@ require_node_22() {
   major="$(node -p 'process.versions.node.split(".")[0]')"
   if [ "$major" != "22" ]; then
     die "Node.js 22 is required for inspector-smoke. Found major version $major."
+  fi
+}
+
+require_python_311() {
+  require_tool python3 "Install Python 3.11 or newer."
+  local version
+  if ! version="$(python3 -c '
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+import tomllib
+raise SystemExit(sys.version_info < (3, 11))
+' 2>/dev/null)"; then
+    die "Python 3.11 or newer with tomllib is required for version-sync. Found ${version:-unknown}."
   fi
 }
 
@@ -160,7 +174,7 @@ run_typos() {
 }
 
 run_version_sync() {
-  require_tool python3 "Install Python 3.11 or newer."
+  require_python_311
   echo "[check:version-sync] ./scripts/check-version-sync.sh --mode=pins"
   ./scripts/check-version-sync.sh --mode=pins
 }
@@ -298,6 +312,11 @@ run_commitlint() {
   npm run commitlint -- --from origin/main --to HEAD
 }
 
+run_self_test() {
+  echo "[check:self-test] ./scripts/check-self-test.sh"
+  ./scripts/check-self-test.sh
+}
+
 run_rust() {
   run_fmt
   run_clippy
@@ -327,6 +346,7 @@ CI_ONLY
 }
 
 run_all_local() {
+  run_self_test
   run_rust
   run_rust_check
   run_rust_test_fast
@@ -383,6 +403,7 @@ case "$profile" in
   actionlint) run_actionlint ;;
   zizmor) run_zizmor ;;
   commitlint) run_commitlint ;;
+  self-test) run_self_test ;;
   rust) run_rust ;;
   pre-push) run_pre_push ;;
   all-local) run_all_local ;;

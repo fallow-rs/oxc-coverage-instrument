@@ -5,8 +5,11 @@ set -euo pipefail
 ROOT="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
 NAPI_DIR="$ROOT/crates/oxc-coverage-instrument-napi"
 THREADED_PACKAGE="$NAPI_DIR/npm/wasm32-wasi"
+SINGLE_THREADED_PACKAGE="$NAPI_DIR/npm/wasm32-wasi-singlethreaded"
+NAPI_CLI_DIST="$NAPI_DIR/node_modules/@napi-rs/cli/dist"
 TMP="$(mktemp -d)"
-THREAD_ROOT_READY=0
+COMMITTED=0
+SNAPSHOT_READY=0
 
 die() {
   echo "prepare-package-surface: $1" >&2
@@ -43,19 +46,106 @@ copy_package_files() {
   done < <(package_files "$manifest")
 }
 
-restore_threaded_root() {
-  if [ "$THREAD_ROOT_READY" != "1" ]; then
-    return
-  fi
-  copy_package_files "$TMP/threaded" "$NAPI_DIR" "$THREADED_PACKAGE/package.json"
-  cp "$TMP/browser.js" "$NAPI_DIR/browser.js"
-  (cd "$NAPI_DIR" && node scripts/patch-browser-loader.mjs)
-  THREAD_ROOT_READY=0
+snapshot_manifest_files() {
+  local source_dir="$1"
+  local snapshot_dir="$2"
+  local manifest="$3"
+  local file
+  mkdir -p "$snapshot_dir"
+  while IFS= read -r file; do
+    if [ -f "$source_dir/$file" ]; then
+      cp "$source_dir/$file" "$snapshot_dir/$file"
+    fi
+  done < <(package_files "$manifest")
+}
+
+restore_manifest_files() {
+  local target_dir="$1"
+  local snapshot_dir="$2"
+  local manifest="$3"
+  local file
+  while IFS= read -r file; do
+    rm -f "$target_dir/$file"
+    if [ -f "$snapshot_dir/$file" ]; then
+      cp "$snapshot_dir/$file" "$target_dir/$file"
+    fi
+  done < <(package_files "$manifest")
+}
+
+snapshot_root_artifacts() {
+  local snapshot_dir="$1"
+  local artifact
+  snapshot_manifest_files "$NAPI_DIR" "$snapshot_dir" "$NAPI_DIR/package.json"
+  for artifact in "$NAPI_DIR"/coverage-instrument.wasm32-wasi*.wasm; do
+    if [ -f "$artifact" ]; then
+      cp "$artifact" "$snapshot_dir/"
+    fi
+  done
+}
+
+restore_root_artifacts() {
+  local snapshot_dir="$1"
+  local artifact
+  restore_manifest_files "$NAPI_DIR" "$snapshot_dir" "$NAPI_DIR/package.json"
+  rm -f "$NAPI_DIR"/coverage-instrument.wasm32-wasi*.wasm
+  for artifact in "$snapshot_dir"/coverage-instrument.wasm32-wasi*.wasm; do
+    if [ -f "$artifact" ]; then
+      cp "$artifact" "$NAPI_DIR/"
+    fi
+  done
+}
+
+snapshot_napi_cli() {
+  local file
+  mkdir -p "$TMP/original-napi-cli"
+  for file in cli.js index.js index.cjs; do
+    if [ -f "$NAPI_CLI_DIST/$file" ]; then
+      cp "$NAPI_CLI_DIST/$file" "$TMP/original-napi-cli/$file"
+    fi
+  done
+}
+
+restore_napi_cli() {
+  local file
+  for file in cli.js index.js index.cjs; do
+    rm -f "$NAPI_CLI_DIST/$file"
+    if [ -f "$TMP/original-napi-cli/$file" ]; then
+      cp "$TMP/original-napi-cli/$file" "$NAPI_CLI_DIST/$file"
+    fi
+  done
+}
+
+snapshot_destinations() {
+  snapshot_root_artifacts "$TMP/original-root"
+  snapshot_manifest_files \
+    "$THREADED_PACKAGE" "$TMP/original-threaded" "$THREADED_PACKAGE/package.json"
+  snapshot_manifest_files \
+    "$SINGLE_THREADED_PACKAGE" \
+    "$TMP/original-single-threaded" \
+    "$SINGLE_THREADED_PACKAGE/package.json"
+  snapshot_napi_cli
+}
+
+restore_destinations() {
+  restore_root_artifacts "$TMP/original-root"
+  restore_manifest_files \
+    "$THREADED_PACKAGE" "$TMP/original-threaded" "$THREADED_PACKAGE/package.json"
+  restore_manifest_files \
+    "$SINGLE_THREADED_PACKAGE" \
+    "$TMP/original-single-threaded" \
+    "$SINGLE_THREADED_PACKAGE/package.json"
+  restore_napi_cli
 }
 
 cleanup() {
-  restore_threaded_root
+  local status=$?
+  trap - EXIT
+  if [ "$SNAPSHOT_READY" = "1" ] && [ "$COMMITTED" != "1" ] && ! restore_destinations; then
+    echo "prepare-package-surface: failed to restore original artifacts" >&2
+    status=1
+  fi
   rm -rf "$TMP"
+  exit "$status"
 }
 trap cleanup EXIT
 
@@ -76,6 +166,9 @@ for target in wasm32-wasip1-threads wasm32-wasip1; do
   fi
 done
 
+snapshot_destinations
+SNAPSHOT_READY=1
+
 echo "[prepare:package-surface] build threaded wasm32-wasip1-threads artifacts"
 (
   cd "$NAPI_DIR"
@@ -84,9 +177,7 @@ echo "[prepare:package-surface] build threaded wasm32-wasip1-threads artifacts"
   npx napi build --release --platform --target wasm32-wasip1-threads
   node scripts/patch-wasi-browser-shim.mjs
 )
-copy_package_files "$NAPI_DIR" "$TMP/threaded" "$THREADED_PACKAGE/package.json"
-cp "$NAPI_DIR/browser.js" "$TMP/browser.js"
-THREAD_ROOT_READY=1
+snapshot_root_artifacts "$TMP/threaded-root"
 
 echo "[prepare:package-surface] build single-threaded wasm32-wasip1 artifacts"
 (
@@ -97,7 +188,9 @@ echo "[prepare:package-surface] build single-threaded wasm32-wasip1 artifacts"
   node scripts/validate-wasi-singlethreaded-package.mjs npm/wasm32-wasi-singlethreaded
 )
 
-copy_package_files "$TMP/threaded" "$THREADED_PACKAGE" "$THREADED_PACKAGE/package.json"
-restore_threaded_root
+copy_package_files "$TMP/threaded-root" "$THREADED_PACKAGE" "$THREADED_PACKAGE/package.json"
+restore_root_artifacts "$TMP/threaded-root"
+(cd "$NAPI_DIR" && node scripts/patch-browser-loader.mjs)
+COMMITTED=1
 
 echo "[prepare:package-surface] package artifacts are ready"
