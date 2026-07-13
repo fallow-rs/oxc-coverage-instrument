@@ -25,6 +25,38 @@ use oxc_coverage_v8::{
 // and slot 62 maps to `-` in the URL-safe alphabet.
 const SAMPLE_MAP: &str = r#"{"version":3,"sources":["foo.ts"],"mappings":"","note":"~~~~~~"}"#;
 
+fn single_if_arm_coverage() -> FileCoverage {
+    let mut coverage = FileCoverage {
+        path: "arm.js".to_string(),
+        statement_map: BTreeMap::new(),
+        fn_map: BTreeMap::new(),
+        branch_map: BTreeMap::new(),
+        s: BTreeMap::new(),
+        f: BTreeMap::new(),
+        b: BTreeMap::new(),
+        b_t: None,
+        input_source_map: None,
+        x_fallow_function_map: None,
+    };
+    coverage.branch_map.insert(
+        "0".to_string(),
+        BranchEntry {
+            loc: Location {
+                start: Position { line: 3, column: 0 },
+                end: Position { line: 3, column: 11 },
+            },
+            line: 3,
+            branch_type: "if".to_string(),
+            locations: vec![Location {
+                start: Position { line: 3, column: 4 },
+                end: Position { line: 3, column: 6 },
+            }],
+        },
+    );
+    coverage.b.insert("0".to_string(), vec![0]);
+    coverage
+}
+
 /// Tiny base64 encoder using the URL-safe alphabet (`-` / `_`) and no
 /// padding. We bring our own so the test does not pull in a base64 crate
 /// just to round-trip eight characters; equally importantly, hitting the
@@ -121,47 +153,85 @@ fn arm_tiebreaker_prefers_tighter_v8_range_at_equal_distance() {
     //   A: [25, 28) -> distance 1+0 = 1, width 3
     //   B: [26, 27) -> distance 0+1 = 1, width 1
     // Same total distance, but B is the narrower (more block-specific) range,
-    // so its count must win. Ranges are appended in `A, B` order so the
+    // so its count must win. Child ranges are appended in `A, B` order so the
     // tie-breaker actually has to replace `best`.
     let source = "let x = 1;\nlet y = 2;\nif (xx) y;\n";
 
-    let mut fc = FileCoverage {
-        path: "tiebreak.js".to_string(),
-        statement_map: BTreeMap::new(),
-        fn_map: BTreeMap::new(),
-        branch_map: BTreeMap::new(),
-        s: BTreeMap::new(),
-        f: BTreeMap::new(),
-        b: BTreeMap::new(),
-        b_t: None,
-        input_source_map: None,
-        x_fallow_function_map: None,
-    };
-    fc.branch_map.insert(
-        "0".to_string(),
-        BranchEntry {
-            loc: Location {
-                start: Position { line: 3, column: 0 },
-                end: Position { line: 3, column: 11 },
-            },
-            line: 3,
-            branch_type: "if".to_string(),
-            locations: vec![Location {
-                start: Position { line: 3, column: 4 },
-                end: Position { line: 3, column: 6 },
-            }],
-        },
-    );
-    fc.b.insert("0".to_string(), vec![0]);
+    let mut fc = single_if_arm_coverage();
 
     let wider = V8CoverageRange { start_offset: 25, end_offset: 28, count: 7 };
     let tighter = V8CoverageRange { start_offset: 26, end_offset: 27, count: 99 };
     let functions = vec![V8FunctionCoverage {
         function_name: String::new(),
-        ranges: vec![wider, tighter],
+        ranges: vec![
+            V8CoverageRange { start_offset: 0, end_offset: source.len() as u32, count: 1 },
+            wider,
+            tighter,
+        ],
         is_block_coverage: true,
     }];
 
     apply_v8_coverage(&mut fc, source, &functions, 0, &BTreeMap::new());
     assert_eq!(fc.b["0"][0], 99, "tighter range must win the tie-breaker for arm count");
+}
+
+#[test]
+fn if_arm_without_body_span_does_not_inherit_enclosing_count() {
+    let source = "let x = 1;\nlet y = 2;\nif (xx) y;\n";
+    let mut fc = single_if_arm_coverage();
+    let functions = vec![V8FunctionCoverage {
+        function_name: String::new(),
+        ranges: vec![V8CoverageRange {
+            start_offset: 0,
+            end_offset: source.len() as u32,
+            count: 5,
+        }],
+        is_block_coverage: true,
+    }];
+
+    apply_v8_coverage(&mut fc, source, &functions, 0, &BTreeMap::new());
+    assert_eq!(fc.b["0"][0], 0, "missing body span must keep inheritance conservative");
+}
+
+#[test]
+fn tight_zero_arm_range_wins_before_enclosing_inheritance() {
+    let source = "let x = 1;\nlet y = 2;\nif (xx) y;\n";
+    let mut fc = single_if_arm_coverage();
+    let functions = vec![V8FunctionCoverage {
+        function_name: String::new(),
+        ranges: vec![
+            V8CoverageRange { start_offset: 0, end_offset: source.len() as u32, count: 5 },
+            V8CoverageRange { start_offset: 25, end_offset: 27, count: 0 },
+        ],
+        is_block_coverage: true,
+    }];
+    let body_spans = BTreeMap::from([("0".to_string(), vec![(26, 28)])]);
+
+    apply_v8_coverage(&mut fc, source, &functions, 0, &body_spans);
+    assert_eq!(fc.b["0"][0], 0, "a tight zero range must not fall through to the outer count");
+}
+
+#[test]
+fn zero_width_synthetic_else_does_not_match_adjacent_then_range() {
+    const SYNTHETIC_ANCHOR: u32 = 21;
+
+    let source = "function f(x){if(x){}}\n";
+    let mut fc = single_if_arm_coverage();
+    fc.branch_map.get_mut("0").unwrap().locations[0] = Location {
+        start: Position { line: 1, column: SYNTHETIC_ANCHOR },
+        end: Position { line: 1, column: SYNTHETIC_ANCHOR },
+    };
+    let functions = vec![V8FunctionCoverage {
+        function_name: "f".to_string(),
+        ranges: vec![
+            V8CoverageRange { start_offset: 0, end_offset: source.len() as u32, count: 5 },
+            V8CoverageRange { start_offset: 19, end_offset: SYNTHETIC_ANCHOR, count: 3 },
+        ],
+        is_block_coverage: true,
+    }];
+    let body_spans =
+        BTreeMap::from([("0".to_string(), vec![(SYNTHETIC_ANCHOR, SYNTHETIC_ANCHOR)])]);
+
+    apply_v8_coverage(&mut fc, source, &functions, 0, &body_spans);
+    assert_eq!(fc.b["0"][0], 0, "synthetic else must remain uncovered");
 }

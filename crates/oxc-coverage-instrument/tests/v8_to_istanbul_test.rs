@@ -18,6 +18,34 @@ fn function(name: &str, ranges: Vec<V8CoverageRange>, is_block: bool) -> V8Funct
     V8FunctionCoverage { function_name: name.to_string(), ranges, is_block_coverage: is_block }
 }
 
+const REAL_V8_IF_FUNCTION_SOURCE: &str =
+    "function f(x) { if (x) { return 1; } else { return -1; } }";
+const REAL_V8_FUNCTION_END: u32 = 58;
+const REAL_V8_THEN_START: u32 = 23;
+const REAL_V8_THEN_END: u32 = 36;
+const REAL_V8_ELSE_START: u32 = 36;
+const REAL_V8_ELSE_END: u32 = 56;
+
+fn assert_real_v8_if_counts(calls: &str, ranges: Vec<V8CoverageRange>, expected: &[u32]) {
+    assert_real_v8_if_functions(calls, &[function("f", ranges, true)], expected);
+}
+
+fn assert_real_v8_if_functions(calls: &str, functions: &[V8FunctionCoverage], expected: &[u32]) {
+    let source = format!("{REAL_V8_IF_FUNCTION_SOURCE} {calls}\n");
+    assert_if_counts(&source, functions, expected);
+}
+
+fn assert_if_counts(source: &str, functions: &[V8FunctionCoverage], expected: &[u32]) {
+    let fc = v8_to_istanbul(source, "real-inspector-if.js", functions, 0).unwrap();
+    let arm_counts = fc
+        .branch_map
+        .iter()
+        .find(|(_, branch)| branch.branch_type == "if")
+        .and_then(|(id, _)| fc.b.get(id))
+        .expect("if branch must appear in branchMap");
+    assert_eq!(arm_counts, expected);
+}
+
 #[test]
 fn assigns_function_count_from_outer_range() {
     // Three lines, one statement each. The V8 module-level range covers the
@@ -385,6 +413,81 @@ fn if_arm_zero_resolves_when_alternate_is_missing() {
     assert_eq!(arm_counts.len(), 2, "if without else still has two arms");
     assert_eq!(arm_counts[0], 4, "arm[0] reflects then-block count");
     assert_eq!(arm_counts[1], 0, "synthetic else-arm honestly reports zero");
+}
+
+#[test]
+fn real_v8_if_inherits_then_count_when_only_else_has_a_child_range() {
+    assert_real_v8_if_counts(
+        "f(true); f(true);",
+        vec![range(0, REAL_V8_FUNCTION_END, 2), range(REAL_V8_ELSE_START, REAL_V8_ELSE_END, 0)],
+        &[2, 0],
+    );
+}
+
+#[test]
+fn real_v8_if_inherits_else_count_when_only_then_has_a_child_range() {
+    assert_real_v8_if_counts(
+        "f(false); f(false);",
+        vec![range(0, REAL_V8_FUNCTION_END, 2), range(REAL_V8_THEN_START, REAL_V8_THEN_END, 0)],
+        &[0, 2],
+    );
+}
+
+#[test]
+fn real_v8_if_matches_explicit_then_and_else_ranges() {
+    assert_real_v8_if_counts(
+        "f(true); f(false); f(true);",
+        vec![
+            range(0, REAL_V8_FUNCTION_END, 3),
+            range(REAL_V8_THEN_START, REAL_V8_THEN_END, 2),
+            range(REAL_V8_ELSE_START, REAL_V8_ELSE_END, 1),
+        ],
+        &[2, 1],
+    );
+}
+
+#[test]
+fn function_only_v8_coverage_does_not_infer_if_arm_counts() {
+    let calls = "f(true); f(true);";
+    let source = format!("{REAL_V8_IF_FUNCTION_SOURCE} {calls}\n");
+    assert_real_v8_if_functions(
+        calls,
+        &[
+            function("", vec![range(0, source.len() as u32, 1)], true),
+            function("f", vec![range(0, REAL_V8_FUNCTION_END, 2)], false),
+        ],
+        &[0, 0],
+    );
+}
+
+#[test]
+fn real_v8_if_ignores_uncalled_nested_function_outer_range() {
+    let source = "if (true) { function g() {} }\n";
+    let functions = [
+        function("", vec![range(0, source.len() as u32, 1)], true),
+        function("g", vec![range(12, 27, 0)], false),
+    ];
+    assert_if_counts(source, &functions, &[1, 0]);
+}
+
+#[test]
+fn real_v8_if_ignores_called_nested_function_outer_range() {
+    let source = "if (true) { function g() {} }\ng(); g();\n";
+    let functions = [
+        function("", vec![range(0, source.len() as u32, 1)], true),
+        function("g", vec![range(12, 27, 2)], true),
+    ];
+    assert_if_counts(source, &functions, &[1, 0]);
+}
+
+#[test]
+fn real_v8_if_uses_strict_parent_for_annex_b_function_arm() {
+    let source = "if (true) function g() {}\ng(); g();\n";
+    let functions = [
+        function("", vec![range(0, source.len() as u32, 1)], true),
+        function("g", vec![range(10, 25, 2)], true),
+    ];
+    assert_if_counts(source, &functions, &[1, 0]);
 }
 
 #[test]

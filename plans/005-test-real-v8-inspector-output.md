@@ -9,6 +9,7 @@
 
 ## Status
 
+- **Status**: DONE
 - **Priority**: P1
 - **Effort**: M
 - **Risk**: MED
@@ -149,12 +150,12 @@ cargo test --workspace --all-targets
 
 ## Done criteria
 
-- [ ] At least one test consumes actual Node inspector function records.
-- [ ] The test asserts observable Istanbul counts and invariants.
-- [ ] A checked-in fixture also passes through the inspector path.
-- [ ] The test runs in the existing Node 22 CI job.
-- [ ] Existing N-API and full workspace tests pass.
-- [ ] Only in-scope files and `plans/README.md` are modified.
+- [x] At least one test consumes actual Node inspector function records.
+- [x] The test asserts observable Istanbul counts and invariants.
+- [x] A checked-in fixture also passes through the inspector path.
+- [x] The test runs in the existing Node 22 CI job.
+- [x] Existing N-API and full workspace tests pass.
+- [x] Only in-scope files and `plans/README.md` are modified.
 
 ## STOP conditions
 

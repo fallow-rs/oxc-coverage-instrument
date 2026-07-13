@@ -191,6 +191,9 @@ jobs:
         working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi build --platform
 
+      - name: Validate V8 inspector coverage
+        run: node scripts/v8-inspector-smoke.mjs
+
       - name: Run napi tests
         working-directory: crates/oxc-coverage-instrument-napi
         run: node test.mjs

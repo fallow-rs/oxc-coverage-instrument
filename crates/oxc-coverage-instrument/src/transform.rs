@@ -500,11 +500,16 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             Some(alt) if !(alt.span().start == 0 && alt.span().end == 0) => alt.span(),
             _ => Span::new(synthetic_anchor, synthetic_anchor),
         };
+        // V8 alternate ranges begin where the consequent ends and include the
+        // `else` transition. Keep Istanbul's narrower alternate location for
+        // reporters while retaining the V8-visible span for count matching.
+        let v8_body_span = Span::new(synthetic_anchor, arm_span.end);
         // Eager gate: if the else arm does not remap, skip it entirely. Resolved
         // BEFORE synthesizing the empty block so an unmapped synthetic else does
         // not leave a spurious `else {}` in the output. Outside eager mode
-        // `add_branch_path` always returns `Some`, so behavior is unchanged.
-        let Some(path_idx) = self.add_branch_path(branch_id, arm_span) else {
+        // `add_branch_path_with_body` always returns `Some`.
+        let Some(path_idx) = self.add_branch_path_with_body(branch_id, arm_span, v8_body_span)
+        else {
             return;
         };
         if stmt.alternate.is_none() {

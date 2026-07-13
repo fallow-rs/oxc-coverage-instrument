@@ -12,12 +12,13 @@ These plans are implementation-ready, but no source changes were made during the
 | [002](002-preserve-source-map-coverage.md) | P1 | L | High | DONE | Preserve multi-source mappings and merge mapped coverage collisions. |
 | [003](003-synchronize-vitest-types.md) | P1 | S | Low | DONE | Keep Vitest declarations synchronized with runtime options and strict TypeScript. |
 | [004](004-validate-emitted-behavior.md) | P1 | M | Low | DONE | Reparse and execute emitted instrumentation in real projects. |
-| [005](005-test-real-v8-inspector-output.md) | P1 | M | Medium | TODO | Validate V8 conversion against real Node inspector output. |
+| [005](005-test-real-v8-inspector-output.md) | P1 | M | Medium | DONE | Validate V8 conversion against real Node inspector output. |
 | [006](006-index-v8-range-lookups.md) | P1 | M | Medium | TODO | Replace repeated V8 range scans with a verified index. |
 | [007](007-add-repository-agent-guidance.md) | P2 | S | Low | TODO | Add concise repository-specific agent guidance. |
 | [008](008-centralize-verification-commands.md) | P2 | M | Medium | TODO | Share canonical verification profiles across local use, hooks, and CI. |
 | [009](009-correct-npm-repository-metadata.md) | P2 | S | Low | TODO | Point npm repository metadata at actual package directories. |
 | [010](010-refresh-roadmap-contracts.md) | P3 | S | Low | TODO | Align roadmap API and benchmark descriptions with current behavior. |
+| [011](011-fix-real-inspector-branch-counts.md) | P1 | S | Medium | DONE | Preserve inherited if-arm counts from real V8 inspector ranges. |
 
 ## Recommended execution order
 
@@ -26,7 +27,7 @@ These plans are implementation-ready, but no source changes were made during the
 3. Measured performance: 006, after 005 supplies a real V8 fixture.
 4. Contributor and documentation maintenance: 007, 008, 009, 010.
 
-Plans 001 through 005 can be developed independently if each branch starts from the same current base. Plan 006 depends on plan 005. Plan 008 should incorporate the commands introduced by plans 004 and 005 if those plans land first.
+Plans 001 through 005 can be developed independently if each branch starts from the same current base. Plan 006 depends on plan 005. Plan 008 should incorporate the commands introduced by plans 004 and 005 if those plans land first. Plan 011 depends on the real inspector contract introduced by plan 005 and must pass before plan 005 can be completed.
 
 ## Audit baseline
 

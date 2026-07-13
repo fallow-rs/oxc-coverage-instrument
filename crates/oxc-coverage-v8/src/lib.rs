@@ -69,11 +69,18 @@ pub struct V8CoverageRange {
     pub count: u32,
 }
 
+#[derive(Clone, Copy)]
+struct CoverageRangeWithMode {
+    range: V8CoverageRange,
+    is_block_coverage: bool,
+}
+
 struct CoverageContext<'a> {
     source: &'a str,
     line_offsets: &'a [u32],
     ranges: &'a [V8CoverageRange],
     arm_ranges: &'a [V8CoverageRange],
+    inheritance_ranges: &'a [CoverageRangeWithMode],
     wrapper_length: u32,
 }
 
@@ -92,11 +99,42 @@ impl CoverageContext<'_> {
         smallest_containing_range_count(start, end, self.ranges)
     }
 
-    // Branch arms need a tight V8 block range. Falling back to an enclosing
-    // function/module range would over-report uncovered ternary and logical arms.
-    fn arm_count_for_arm(&self, arm_loc: &Location, body_byte_span: Option<(u32, u32)>) -> u32 {
+    // Expression arms need a tight V8 block range because an enclosing count
+    // cannot distinguish them. Concrete if bodies inherit the smallest
+    // enclosing range when V8 omits a child range with the same count.
+    fn arm_count_for_arm(
+        &self,
+        arm_loc: &Location,
+        body_byte_span: Option<(u32, u32)>,
+        inherit_enclosing_count: bool,
+    ) -> u32 {
+        if body_byte_span.is_some_and(|(start, end)| start == end) {
+            return 0;
+        }
         let (arm_start, arm_end) = self.arm_byte_span(arm_loc, body_byte_span);
+        let (location_start, location_end) = self.location_byte_span(arm_loc);
         self.best_arm_range_count(arm_start, arm_end)
+            .or_else(|| self.best_arm_range_count(location_start, location_end))
+            .unwrap_or_else(|| {
+                let has_concrete_body = body_byte_span.is_some_and(|(start, end)| start < end);
+                if inherit_enclosing_count && has_concrete_body {
+                    self.smallest_inheritable_range_count(arm_start, arm_end)
+                } else {
+                    0
+                }
+            })
+    }
+
+    fn smallest_inheritable_range_count(&self, start: u32, end: u32) -> u32 {
+        self.inheritance_ranges
+            .iter()
+            .find(|entry| {
+                entry.range.start_offset <= start
+                    && entry.range.end_offset >= end
+                    && (entry.range.start_offset < start || entry.range.end_offset > end)
+            })
+            .filter(|entry| entry.is_block_coverage)
+            .map_or(0, |entry| entry.range.count)
     }
 
     fn arm_byte_span(&self, arm_loc: &Location, body_byte_span: Option<(u32, u32)>) -> (u32, u32) {
@@ -104,16 +142,18 @@ impl CoverageContext<'_> {
             Some((start, end)) if !(start == 0 && end == 0) => {
                 (start + self.wrapper_length, end + self.wrapper_length)
             }
-            _ => (
-                self.position_to_byte_offset(arm_loc.start.line, arm_loc.start.column)
-                    + self.wrapper_length,
-                self.position_to_byte_offset(arm_loc.end.line, arm_loc.end.column)
-                    + self.wrapper_length,
-            ),
+            _ => self.location_byte_span(arm_loc),
         }
     }
 
-    fn best_arm_range_count(&self, arm_start: u32, arm_end: u32) -> u32 {
+    fn location_byte_span(&self, loc: &Location) -> (u32, u32) {
+        (
+            self.position_to_byte_offset(loc.start.line, loc.start.column) + self.wrapper_length,
+            self.position_to_byte_offset(loc.end.line, loc.end.column) + self.wrapper_length,
+        )
+    }
+
+    fn best_arm_range_count(&self, arm_start: u32, arm_end: u32) -> Option<u32> {
         const TOLERANCE: u32 = 4;
 
         let mut best: Option<(V8CoverageRange, u32)> = None;
@@ -143,7 +183,7 @@ impl CoverageContext<'_> {
                 }
             }
         }
-        best.map_or(0, |(r, _)| r.count)
+        best.map(|(r, _)| r.count)
     }
 
     // Istanbul columns are UTF-16 code units, while V8 ranges are byte offsets.
@@ -208,13 +248,35 @@ fn apply_v8_coverage_inner(file_coverage: &mut FileCoverage, input: &CoverageInp
     let mut ranges: Vec<V8CoverageRange> =
         input.functions.iter().flat_map(|f| f.ranges.iter().copied()).collect();
     ranges.sort_by_key(|r| r.end_offset.saturating_sub(r.start_offset));
-    let mut arm_ranges = ranges.clone();
+    // The first range in every FunctionCoverage record is that function's
+    // outer range, not a branch range. Nested function declarations can sit
+    // inside an if arm, so only child ranges from block coverage records are
+    // eligible for tight arm matching.
+    let mut arm_ranges: Vec<V8CoverageRange> = input
+        .functions
+        .iter()
+        .filter(|function| function.is_block_coverage)
+        .flat_map(|function| function.ranges.iter().skip(1).copied())
+        .collect();
     arm_ranges.sort_by_key(|r| r.start_offset);
+    let mut inheritance_ranges: Vec<CoverageRangeWithMode> = input
+        .functions
+        .iter()
+        .flat_map(|function| {
+            function.ranges.iter().copied().map(|range| CoverageRangeWithMode {
+                range,
+                is_block_coverage: function.is_block_coverage,
+            })
+        })
+        .collect();
+    inheritance_ranges
+        .sort_by_key(|entry| entry.range.end_offset.saturating_sub(entry.range.start_offset));
     let context = CoverageContext {
         source: input.source,
         line_offsets: &line_offsets,
         ranges: &ranges,
         arm_ranges: &arm_ranges,
+        inheritance_ranges: &inheritance_ranges,
         wrapper_length: input.wrapper_length,
     };
 
@@ -251,15 +313,15 @@ fn apply_branch_counts(
             continue;
         };
         let body_spans = input.arm_body_byte_spans.get(id);
+        let inherit_enclosing_count = branch_entry.branch_type == "if";
         slot.clear();
         slot.reserve(branch_entry.locations.len());
         for (arm_idx, loc) in branch_entry.locations.iter().enumerate() {
-            slot.push(
-                context.arm_count_for_arm(
-                    loc,
-                    body_spans.and_then(|spans| spans.get(arm_idx).copied()),
-                ),
-            );
+            slot.push(context.arm_count_for_arm(
+                loc,
+                body_spans.and_then(|spans| spans.get(arm_idx).copied()),
+                inherit_enclosing_count,
+            ));
         }
     }
 }
