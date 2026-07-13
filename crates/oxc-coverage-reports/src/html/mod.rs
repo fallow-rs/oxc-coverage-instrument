@@ -143,7 +143,7 @@ pub fn write(
         coverage_map
     };
     let root = summarize(report_map);
-    validate_report_paths(&root)?;
+    validate_report_output_plan(&root, output_dir)?;
 
     fs::create_dir_all(output_dir)?;
     fs::write(output_dir.join("base.css"), BASE_CSS)?;
@@ -155,23 +155,67 @@ pub fn write(
     Ok(())
 }
 
-fn validate_report_paths(node: &ReportNode) -> io::Result<()> {
+fn validate_report_output_plan(root: &ReportNode, output_dir: &Path) -> io::Result<()> {
+    for asset in ["base.css", "coverage-tokens.css", "base.js"] {
+        reject_existing_symlink(output_dir, Path::new(asset))?;
+    }
+    validate_report_paths(root, output_dir)
+}
+
+fn validate_report_paths(node: &ReportNode, output_dir: &Path) -> io::Result<()> {
     if let NodeKind::Folder { children } = &node.kind {
         for child in children {
-            validate_report_paths(child)?;
+            validate_report_paths(child, output_dir)?;
         }
     }
 
-    if node.relative_path.is_empty()
-        || node.relative_path.split('/').all(is_safe_report_path_component)
+    if !node.relative_path.is_empty()
+        && !node.relative_path.split('/').all(is_safe_report_path_component)
     {
-        return Ok(());
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsafe HTML report path: {}", node.relative_path),
+        ));
     }
 
-    Err(io::Error::new(
-        io::ErrorKind::InvalidInput,
-        format!("unsafe HTML report path: {}", node.relative_path),
-    ))
+    let output_path = match &node.kind {
+        NodeKind::Folder { .. } => Path::new(&node.relative_path).join(INDEX_FILE),
+        NodeKind::File { .. } => {
+            let parent = node.relative_path.rsplit_once('/').map_or("", |(parent, _)| parent);
+            Path::new(parent).join(format!("{}{DETAIL_SUFFIX}", node.name))
+        }
+    };
+    reject_existing_symlink(output_dir, &output_path)?;
+
+    Ok(())
+}
+
+fn reject_existing_symlink(output_dir: &Path, relative_path: &Path) -> io::Result<()> {
+    let mut path = output_dir.to_path_buf();
+    for component in relative_path.components() {
+        let Component::Normal(component) = component else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("unsafe HTML report path: {}", relative_path.display()),
+            ));
+        };
+        path.push(component);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "unsafe HTML report path traverses an existing symlink: {}",
+                        relative_path.display()
+                    ),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 fn is_safe_report_path_component(component: &str) -> bool {
@@ -1044,6 +1088,34 @@ mod tests {
     fn rejects_windows_drive_prefixes_before_writing_assets() {
         let json = r#"{"C:/safe/a.js":{"path":"C:/safe/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"D:/other/b.js":{"path":"D:/other/b.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
         assert_rejects_unsafe_report_path(json, "C:/safe/a.js");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_output_component_before_writing_assets() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let output_dir = dir.path().join("report");
+        let outside_dir = dir.path().join("outside");
+        let sentinel = outside_dir.join("pwn.js.html");
+        fs::create_dir_all(&output_dir).unwrap();
+        fs::create_dir_all(&outside_dir).unwrap();
+        fs::write(&sentinel, "sentinel").unwrap();
+        symlink(&outside_dir, output_dir.join("link")).unwrap();
+        let map = parse_coverage_map(
+            r#"{"safe.js":{"path":"safe.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"link/pwn.js":{"path":"link/pwn.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#,
+        )
+        .unwrap();
+
+        let error = write(&map, Path::new(""), &output_dir, &HtmlOptions::default()).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("link"), "got: {error}");
+        assert_eq!(fs::read_to_string(sentinel).unwrap(), "sentinel");
+        assert!(!output_dir.join("base.css").exists());
+        assert!(!output_dir.join("coverage-tokens.css").exists());
+        assert!(!output_dir.join("base.js").exists());
     }
 
     #[test]
