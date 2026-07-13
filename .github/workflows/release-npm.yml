@@ -421,7 +421,7 @@ jobs:
           "
 
       - name: Verify npm pack surfaces
-        run: node scripts/npm-pack-surface-check.mjs
+        run: node scripts/npm-pack-surface-check.mjs --require-release-artifacts
 
       - name: Publish platform packages
         working-directory: crates/oxc-coverage-instrument-napi

@@ -139,6 +139,41 @@ workflow_version_sync_has_node_and_profile() {
   ' "$workflow"
 }
 
+release_workflow_uses_strict_pack_check() {
+  local workflow="$1"
+
+  awk \
+    -v target_name="      - name: Verify npm pack surfaces" \
+    -v target_run="        run: node scripts/npm-pack-surface-check.mjs --require-release-artifacts" '
+    function finish_step() {
+      if (in_target && has_run) {
+        found = 1
+      }
+    }
+
+    $0 == "  publish:" {
+      in_job = 1
+      next
+    }
+    in_job && $0 ~ /^  [[:alnum:]_-]+:$/ {
+      finish_step()
+      exit
+    }
+    in_job && $0 ~ /^      - / {
+      finish_step()
+      in_target = ($0 == target_name)
+      has_run = 0
+      next
+    }
+    in_target && $0 == target_run { has_run = 1 }
+
+    END {
+      finish_step()
+      exit(found ? 0 : 1)
+    }
+  ' "$workflow"
+}
+
 write_fake_surface_fixture() {
   local napi_dir="$1"
   local bin_dir="$2"
@@ -413,6 +448,10 @@ fi
 if ! workflow_version_sync_has_node_and_profile "$workflow"; then
   fail "CI version-sync job is missing Node.js 22 or the metadata validation profile"
 fi
+release_workflow="$ROOT/.github/workflows/release-npm.yml"
+if ! release_workflow_uses_strict_pack_check "$release_workflow"; then
+  fail "npm release is missing strict platform artifact validation"
+fi
 
 invalid_self_test_workflow="$TMP/invalid-self-test-workflow.yml"
 printf '%s\n' \
@@ -472,6 +511,22 @@ printf '%s\n' \
   >"$invalid_version_sync_workflow"
 if workflow_version_sync_has_node_and_profile "$invalid_version_sync_workflow"; then
   fail "CI version-sync validator accepted a Node.js version from another step"
+fi
+
+invalid_release_workflow="$TMP/invalid-release-workflow.yml"
+printf '%s\n' \
+  'jobs:' \
+  '  publish:' \
+  '    steps:' \
+  '      - name: Verify npm pack surfaces' \
+  '        run: node scripts/npm-pack-surface-check.mjs' \
+  '      - name: Unrelated strict command' \
+  '        run: node scripts/npm-pack-surface-check.mjs --require-release-artifacts' \
+  '  release:' \
+  '    runs-on: ubuntu-latest' \
+  >"$invalid_release_workflow"
+if release_workflow_uses_strict_pack_check "$invalid_release_workflow"; then
+  fail "npm release validator accepted strict mode from another step"
 fi
 
 while read -r documented_profile; do

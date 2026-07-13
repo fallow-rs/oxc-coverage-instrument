@@ -8,7 +8,7 @@ const rootDir = fileURLToPath(new URL('..', import.meta.url));
 const napiDir = 'crates/oxc-coverage-instrument-napi';
 const platformDir = `${napiDir}/npm`;
 
-const targetPackages = new Map([
+const targetPackageEntries = [
   ['aarch64-apple-darwin', 'darwin-arm64'],
   ['x86_64-apple-darwin', 'darwin-x64'],
   ['aarch64-unknown-linux-gnu', 'linux-arm64-gnu'],
@@ -18,17 +18,22 @@ const targetPackages = new Map([
   ['wasm32-wasip1', 'wasm32-wasi-singlethreaded'],
   ['aarch64-pc-windows-msvc', 'win32-arm64-msvc'],
   ['x86_64-pc-windows-msvc', 'win32-x64-msvc'],
-]);
+];
+const targetPackages = new Map(targetPackageEntries);
 const packageName = (packageDir) => `@oxc-coverage-instrument/binding-${packageDir}`;
 
 const platformPackSpecs = [
-  { packageDir: 'darwin-arm64', files: [] },
-  { packageDir: 'darwin-x64', files: [] },
-  { packageDir: 'linux-arm64-gnu', files: [] },
-  { packageDir: 'linux-x64-gnu', files: [] },
-  { packageDir: 'linux-x64-musl', files: [] },
+  { packageDir: 'darwin-arm64', files: ['package/coverage-instrument.darwin-arm64.node'] },
+  { packageDir: 'darwin-x64', files: ['package/coverage-instrument.darwin-x64.node'] },
+  {
+    packageDir: 'linux-arm64-gnu',
+    files: ['package/coverage-instrument.linux-arm64-gnu.node'],
+  },
+  { packageDir: 'linux-x64-gnu', files: ['package/coverage-instrument.linux-x64-gnu.node'] },
+  { packageDir: 'linux-x64-musl', files: ['package/coverage-instrument.linux-x64-musl.node'] },
   {
     packageDir: 'wasm32-wasi',
+    requiresLocalArtifacts: true,
     files: [
       'package/coverage-instrument.wasm32-wasi.wasm',
       'package/coverage-instrument.wasi.cjs',
@@ -39,6 +44,7 @@ const platformPackSpecs = [
   },
   {
     packageDir: 'wasm32-wasi-singlethreaded',
+    requiresLocalArtifacts: true,
     files: [
       'package/coverage-instrument.wasm32-wasi.wasm',
       'package/coverage-instrument.wasi.cjs',
@@ -47,13 +53,18 @@ const platformPackSpecs = [
       'package/wasi-worker-browser.mjs',
     ],
   },
-  { packageDir: 'win32-arm64-msvc', files: [] },
-  { packageDir: 'win32-x64-msvc', files: [] },
+  {
+    packageDir: 'win32-arm64-msvc',
+    files: ['package/coverage-instrument.win32-arm64-msvc.node'],
+  },
+  { packageDir: 'win32-x64-msvc', files: ['package/coverage-instrument.win32-x64-msvc.node'] },
 ];
 
 const args = process.argv.slice(2);
 const metadataOnly = args.length === 1 && args[0] === '--metadata-only';
-if (args.length > 0 && !metadataOnly) {
+const requireReleaseArtifacts =
+  args.length === 1 && args[0] === '--require-release-artifacts';
+if (args.length > 0 && !metadataOnly && !requireReleaseArtifacts) {
   throw new Error(`Unknown argument: ${args.join(' ')}`);
 }
 
@@ -63,6 +74,17 @@ const expectedTargets = new Set(targetPackages.keys());
 const expectedPackages = new Set([...targetPackages.values()].map(packageName));
 
 const contractErrors = [];
+const checkUnique = (label, values) => {
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const value of values) {
+    if (seen.has(value)) duplicates.add(value);
+    seen.add(value);
+  }
+  if (duplicates.size > 0) {
+    contractErrors.push(`duplicate ${label}: ${[...duplicates].sort().join(', ')}`);
+  }
+};
 const checkSet = (label, expected, actual) => {
   const missing = [...expected].filter((value) => !actual.has(value)).sort();
   const unexpected = [...actual].filter((value) => !expected.has(value)).sort();
@@ -75,7 +97,17 @@ const checkSet = (label, expected, actual) => {
   contractErrors.push(`${label}: ${details.join('; ')}`);
 };
 
-checkSet('napi.targets', expectedTargets, new Set(rootManifest.napi?.targets ?? []));
+checkUnique(
+  'canonical target triples',
+  targetPackageEntries.map(([target]) => target),
+);
+checkUnique(
+  'canonical package directories',
+  targetPackageEntries.map(([, packageDir]) => packageDir),
+);
+const napiTargets = rootManifest.napi?.targets ?? [];
+checkUnique('napi.targets', napiTargets);
+checkSet('napi.targets', expectedTargets, new Set(napiTargets));
 checkSet(
   'optionalDependencies',
   expectedPackages,
@@ -94,21 +126,44 @@ const platformManifests = readdirSync(resolve(rootDir, platformDir), {
   .filter((manifest) => existsSync(resolve(rootDir, manifest)))
   .sort();
 
-const platformPackages = new Set(
-  platformManifests.map((manifest) => {
-    const packageJson = JSON.parse(readFileSync(resolve(rootDir, manifest), 'utf8'));
-    return packageJson.name;
-  }),
-);
+const platformManifestRecords = platformManifests.map((manifest) => {
+  const packageJson = JSON.parse(readFileSync(resolve(rootDir, manifest), 'utf8'));
+  const packageDir = manifest.slice(
+    `${platformDir}/`.length,
+    -'/package.json'.length,
+  );
+  return { packageDir, packageName: packageJson.name };
+});
+const platformPackageNames = platformManifestRecords.map((record) => record.packageName);
+checkUnique('platform manifest names', platformPackageNames);
+const platformMappingErrors = [];
+for (const record of platformManifestRecords) {
+  const expectedName = packageName(record.packageDir);
+  if (!expectedPackages.has(expectedName)) {
+    platformMappingErrors.push(`${record.packageDir} is not a registered package directory`);
+  } else if (record.packageName !== expectedName) {
+    platformMappingErrors.push(
+      `${record.packageDir} expected ${expectedName}, got ${record.packageName}`,
+    );
+  }
+}
+if (platformMappingErrors.length > 0) {
+  contractErrors.push(`platform directory mappings: ${platformMappingErrors.join('; ')}`);
+}
+const platformPackages = new Set(platformPackageNames);
 checkSet('platform manifests', expectedPackages, platformPackages);
 
 const releaseWorkflow = readFileSync(resolve(rootDir, '.github/workflows/release-npm.yml'), 'utf8');
-const releaseTargets = new Set(
-  [...releaseWorkflow.matchAll(/^\s+target:\s+([^\s#]+)\s*$/gm)].map((match) => match[1]),
-);
+const releaseTargetList = [
+  ...releaseWorkflow.matchAll(/^\s+target:\s+([^\s#]+)\s*$/gm),
+].map((match) => match[1]);
+checkUnique('release targets', releaseTargetList);
+const releaseTargets = new Set(releaseTargetList);
 checkSet('release targets', expectedTargets, releaseTargets);
 
-const packPackages = new Set(platformPackSpecs.map((spec) => packageName(spec.packageDir)));
+const packPackageList = platformPackSpecs.map((spec) => packageName(spec.packageDir));
+checkUnique('pack specs', packPackageList);
+const packPackages = new Set(packPackageList);
 checkSet('pack specs', expectedPackages, packPackages);
 
 if (contractErrors.length > 0) {
@@ -163,7 +218,8 @@ const specs = [
   },
   ...platformPackSpecs.map((spec) => ({
     dir: `${platformDir}/${spec.packageDir}`,
-    files: spec.files,
+    files:
+      requireReleaseArtifacts || spec.requiresLocalArtifacts === true ? spec.files : [],
   })),
 ];
 
