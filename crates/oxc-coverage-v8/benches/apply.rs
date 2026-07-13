@@ -369,13 +369,14 @@ fn external_source_map_source() -> String {
 
 fn bench_apply(c: &mut Criterion) {
     let mut group = c.benchmark_group("v8_apply");
+    let empty_spans = BTreeMap::new();
 
     for (label, unicode) in RANGE_CASES {
         let (source, coverage, functions) = fixture(1_000, *unicode);
         group.bench_with_input(BenchmarkId::new("ranges", label), &coverage, |b, coverage| {
             b.iter(|| {
                 let mut coverage = coverage.clone();
-                apply_v8_coverage(&mut coverage, &source, &functions, 0, &BTreeMap::new());
+                apply_v8_coverage(&mut coverage, &source, &functions, 0, &empty_spans);
                 coverage
             });
         });
@@ -395,6 +396,7 @@ fn bench_apply(c: &mut Criterion) {
 
 fn bench_apply_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("v8_apply_scaling");
+    let empty_spans = BTreeMap::new();
 
     for shape in [RangeShape::Nested, RangeShape::Disjoint, RangeShape::NonLaminar] {
         for size in SCALING_SIZES {
@@ -405,7 +407,7 @@ fn bench_apply_scaling(c: &mut Criterion) {
                 |b, coverage| {
                     b.iter(|| {
                         let mut coverage = coverage.clone();
-                        apply_v8_coverage(&mut coverage, &source, &functions, 0, &BTreeMap::new());
+                        apply_v8_coverage(&mut coverage, &source, &functions, 0, &empty_spans);
                         coverage
                     });
                 },

@@ -13,7 +13,7 @@ These plans are implementation-ready, but no source changes were made during the
 | [003](003-synchronize-vitest-types.md) | P1 | S | Low | DONE | Keep Vitest declarations synchronized with runtime options and strict TypeScript. |
 | [004](004-validate-emitted-behavior.md) | P1 | M | Low | DONE | Reparse and execute emitted instrumentation in real projects. |
 | [005](005-test-real-v8-inspector-output.md) | P1 | M | Medium | DONE | Validate V8 conversion against real Node inspector output. |
-| [006](006-index-v8-range-lookups.md) | P1 | M | Medium | CLOSED: NO SAFE WIN | Retain scaling benchmarks after three index rounds exceeded regression limits. |
+| [006](006-index-v8-range-lookups.md) | P1 | M | Medium | CLOSED: NO SAFE MEASURED WIN | Retain scaling benchmarks after three index rounds exceeded regression limits. |
 | [007](007-add-repository-agent-guidance.md) | P2 | S | Low | TODO | Add concise repository-specific agent guidance. |
 | [008](008-centralize-verification-commands.md) | P2 | M | Medium | TODO | Share canonical verification profiles across local use, hooks, and CI. |
 | [009](009-correct-npm-repository-metadata.md) | P2 | S | Low | TODO | Point npm repository metadata at actual package directories. |
