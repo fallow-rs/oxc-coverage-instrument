@@ -176,12 +176,17 @@ restore_destinations() {
 
 cleanup() {
   local status=$?
+  local restore_failed=0
   trap - EXIT
   if [ "$SNAPSHOT_READY" = "1" ] && [ "$COMMITTED" != "1" ] && ! restore_destinations; then
     echo "prepare-package-surface: failed to restore original artifacts" >&2
+    echo "prepare-package-surface: recovery snapshot retained at $TMP" >&2
+    restore_failed=1
     status=1
   fi
-  rm -rf "$TMP"
+  if [ "$restore_failed" != "1" ]; then
+    rm -rf "$TMP"
+  fi
   exit "$status"
 }
 trap cleanup EXIT

@@ -103,6 +103,42 @@ workflow_ci_ok_needs_version_sync() {
   ' "$workflow"
 }
 
+workflow_version_sync_has_node_and_profile() {
+  local workflow="$1"
+
+  awk '
+    function finish_step() {
+      if (in_setup_node && has_node_version) {
+        found_setup_node = 1
+      }
+    }
+
+    $0 == "  version-sync:" {
+      in_job = 1
+      next
+    }
+    in_job && $0 ~ /^  [[:alnum:]_-]+:$/ {
+      finish_step()
+      exit
+    }
+    in_job && $0 ~ /^      - / {
+      finish_step()
+      in_setup_node = ($0 ~ /^      - uses: actions\/setup-node@/)
+      has_node_version = 0
+      if ($0 == "      - run: ./scripts/check.sh version-sync") {
+        found_profile = 1
+      }
+      next
+    }
+    in_setup_node && $0 == "          node-version: 22" { has_node_version = 1 }
+
+    END {
+      finish_step()
+      exit(found_setup_node && found_profile ? 0 : 1)
+    }
+  ' "$workflow"
+}
+
 write_fake_surface_fixture() {
   local napi_dir="$1"
   local bin_dir="$2"
@@ -305,9 +341,18 @@ if ! diff -qr "$TMP/fake-napi-restore-failure-before" "$restore_failure_napi" \
   sed -n '1,120p' "$TMP/prepare-restore-failure.diff" >&2
   fail "package preparation stopped restoring after an operation failed"
 fi
+assert_contains "$TMP/prepare-restore-failure.log" "recovery snapshot retained at "
+recovery_snapshot="$(sed -n 's/^prepare-package-surface: recovery snapshot retained at //p' \
+  "$TMP/prepare-restore-failure.log")"
+if [ ! -d "$recovery_snapshot" ]; then
+  fail "package preparation removed the recovery snapshot after restore failure"
+fi
+rm -rf "$recovery_snapshot"
 FAKE_NAPI_DIR="$fake_napi" PATH="$fake_surface_bin:/usr/bin:/bin" \
   "$fake_prepare" >"$TMP/prepare-success.log" 2>&1
 assert_prepared_surface "$fake_napi"
+
+node "$ROOT/scripts/npm-pack-surface-check.test.mjs"
 
 (
   cd "$TMP"
@@ -353,12 +398,20 @@ assert_equal "$actual_list" "$expected_list" "profile inventory"
 sed -n '/^run_all_local() {$/,/^}$/p' "$CHECK" >"$TMP/all-local-body.log"
 assert_contains "$TMP/all-local-body.log" "run_self_test"
 
+sed -n '/^run_version_sync() {$/,/^}$/p' "$CHECK" >"$TMP/version-sync-body.log"
+assert_contains \
+  "$TMP/version-sync-body.log" \
+  "node scripts/npm-pack-surface-check.mjs --metadata-only"
+
 workflow="$ROOT/.github/workflows/ci.yml"
 if ! workflow_check_has_self_test_step "$workflow"; then
   fail "CI check job is missing the Linux-only verification runner self-test step"
 fi
 if ! workflow_ci_ok_needs_version_sync "$workflow"; then
   fail "ci-ok.needs is missing version-sync"
+fi
+if ! workflow_version_sync_has_node_and_profile "$workflow"; then
+  fail "CI version-sync job is missing Node.js 22 or the metadata validation profile"
 fi
 
 invalid_self_test_workflow="$TMP/invalid-self-test-workflow.yml"
@@ -402,6 +455,23 @@ printf '%s\n' \
   >"$unrelated_need_workflow"
 if workflow_ci_ok_needs_version_sync "$unrelated_need_workflow"; then
   fail "ci-ok.needs validator accepted version-sync from an unrelated property"
+fi
+
+invalid_version_sync_workflow="$TMP/invalid-version-sync-workflow.yml"
+printf '%s\n' \
+  'jobs:' \
+  '  version-sync:' \
+  '    steps:' \
+  '      - uses: actions/setup-node@example' \
+  '      - name: Unrelated step' \
+  '        with:' \
+  '          node-version: 22' \
+  '      - run: ./scripts/check.sh version-sync' \
+  '  audit:' \
+  '    runs-on: ubuntu-latest' \
+  >"$invalid_version_sync_workflow"
+if workflow_version_sync_has_node_and_profile "$invalid_version_sync_workflow"; then
+  fail "CI version-sync validator accepted a Node.js version from another step"
 fi
 
 while read -r documented_profile; do

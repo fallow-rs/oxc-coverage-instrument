@@ -175,8 +175,11 @@ run_typos() {
 
 run_version_sync() {
   require_python_311
+  require_tool node "Install Node.js 22."
   echo "[check:version-sync] ./scripts/check-version-sync.sh --mode=pins"
   ./scripts/check-version-sync.sh --mode=pins
+  echo "[check:version-sync] node scripts/npm-pack-surface-check.mjs --metadata-only"
+  node scripts/npm-pack-surface-check.mjs --metadata-only
 }
 
 require_native_napi() {
