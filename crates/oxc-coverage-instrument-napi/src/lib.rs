@@ -441,7 +441,9 @@ pub struct RemapOptions {
     /// any of `decl` / `loc` start or end fails (a matching
     /// `x_fallow_functionMap` overlay entry drops with the function); branch
     /// arms drop per arm, and the whole branch drops when no arms survive or
-    /// when the umbrella `loc` start/end fails to remap.
+    /// retained mapped arms resolve to different sources. Branch ownership
+    /// comes from those retained arms, and an unmapped umbrella `loc` falls
+    /// back to the first retained arm.
     ///
     /// Defaults to `false`.
     pub drop_unmapped: Option<bool>,
