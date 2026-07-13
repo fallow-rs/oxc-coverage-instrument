@@ -62,6 +62,7 @@ readonly fileCoverage: any;
 
 - `crates/oxc-coverage-instrument-napi/vitest.d.ts`
 - `examples/vitest-typescript/vitest.config.ts`
+- `examples/vitest-typescript/strict-consumer.ts`
 - `examples/vitest-typescript/tsconfig.json` only if needed to ensure library
   declarations are checked
 - `crates/oxc-coverage-instrument-napi/test.mjs` only for a package-surface or

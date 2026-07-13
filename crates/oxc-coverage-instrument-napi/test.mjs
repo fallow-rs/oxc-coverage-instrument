@@ -1591,6 +1591,21 @@ function runInstrumented(result, filename, callExpression) {
   const originalCoverage = JSON.parse(result.coverageMap);
   const coverageMap = { 'intermediate.js': originalCoverage };
   const inputJson = JSON.stringify(coverageMap);
+  assert.deepEqual(
+    Object.keys(originalCoverage.statementMap),
+    ['0', '1'],
+    'fixture must contain the two generated statements before remapping',
+  );
+  assert.equal(
+    originalCoverage.statementMap['0'].start.line,
+    1,
+    'original statement 0 must be the unmapped generated-line-1 entry',
+  );
+  assert.equal(
+    originalCoverage.statementMap['1'].start.line,
+    2,
+    'original statement 1 must be the mapped generated-line-2 entry',
+  );
 
   const kept = JSON.parse(remapCoverageMap(inputJson));
   const pruned = JSON.parse(remapCoverageMap(inputJson, { dropUnmapped: true }));
@@ -1610,11 +1625,6 @@ function runInstrumented(result, filename, callExpression) {
     Object.keys(pruned['src/app.ts'].s).sort(),
     Object.keys(pruned['src/app.ts'].statementMap).sort(),
     'surviving `s` keys must match `statementMap` keys',
-  );
-  assert.deepEqual(
-    Object.keys(originalCoverage.statementMap),
-    ['0', '1'],
-    'fixture must drop the first statement while retaining the second',
   );
   assert.deepEqual(
     Object.keys(pruned['src/app.ts'].statementMap),
