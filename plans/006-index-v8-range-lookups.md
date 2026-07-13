@@ -36,6 +36,92 @@ disjoint, and non-laminar scaling benchmarks remain so a future structurally
 different approach can be measured against the same workload. The indexed
 lookup done criteria below remain intentionally unmet.
 
+### Local measurement record
+
+The retained scaling ids are stable across the original baseline and all three
+candidate rounds:
+
+```text
+v8_apply_scaling/nested/64
+v8_apply_scaling/nested/256
+v8_apply_scaling/nested/1024
+v8_apply_scaling/disjoint/64
+v8_apply_scaling/disjoint/256
+v8_apply_scaling/disjoint/1024
+v8_apply_scaling/non_laminar/64
+v8_apply_scaling/non_laminar/256
+v8_apply_scaling/non_laminar/1024
+```
+
+Source, coverage, function records, and the empty branch-span map are built
+outside the measured routine. Criterion `iter_batched` prepares each mutable
+coverage clone outside timing, with `LargeInput` used for the largest fixtures
+to bound setup memory. The measured routine contains only
+`apply_v8_coverage`. Nested fixtures use bounded-depth containment groups,
+disjoint fixtures use separate spans, and non-laminar fixtures use crossing
+pairs.
+
+The original width-sorted linear implementation produced these local Criterion
+means:
+
+| Benchmark | Baseline mean |
+|---|---:|
+| `v8_apply/ranges/ascii` | 280.40 us |
+| `v8_apply/ranges/unicode` | 326.48 us |
+| `v8_apply/branches/dense` | 1267.30 us |
+| `v8_apply_scaling/nested/64` | 7.19 us |
+| `v8_apply_scaling/nested/256` | 45.59 us |
+| `v8_apply_scaling/nested/1024` | 341.20 us |
+| `v8_apply_scaling/disjoint/64` | 5.86 us |
+| `v8_apply_scaling/disjoint/256` | 32.26 us |
+| `v8_apply_scaling/disjoint/1024` | 247.62 us |
+| `v8_apply_scaling/non_laminar/64` | 6.02 us |
+| `v8_apply_scaling/non_laminar/256` | 33.81 us |
+| `v8_apply_scaling/non_laminar/1024` | 267.38 us |
+
+Each candidate improved at least one large valid fixture, but each also crossed
+the rejection threshold on a required workload. The decisive deltas from the
+original baseline were:
+
+| Round | Benchmark | Candidate mean | Delta |
+|---|---|---:|---:|
+| 1 | `v8_apply/branches/dense` | 5120.80 us | +304.1% |
+| 1 | `v8_apply_scaling/nested/64` | 9.19 us | +27.8% |
+| 1 | `v8_apply_scaling/disjoint/256` | 46.07 us | +42.8% |
+| 1 | `v8_apply_scaling/non_laminar/64` | 8.93 us | +48.3% |
+| 1 | `v8_apply_scaling/non_laminar/256` | 56.51 us | +67.1% |
+| 1 | `v8_apply_scaling/non_laminar/1024` | 307.91 us | +15.2% |
+| 2 | `v8_apply/branches/dense` | 1846.50 us | +45.7% |
+| 2 | `v8_apply/ranges/unicode` | 449.75 us | +37.8% |
+| 2 | `v8_apply_scaling/nested/64` | 9.03 us | +25.6% |
+| 2 | `v8_apply_scaling/non_laminar/256` | 35.98 us | +6.4% |
+| 3 | `v8_apply_scaling/disjoint/256` | 35.06 us | +8.7% |
+| 3 | `v8_apply_scaling/non_laminar/256` | 37.98 us | +12.3% |
+| 3 | `v8_apply_scaling/non_laminar/1024` | 293.13 us | +9.6% |
+
+For context, the large nested and disjoint cases improved by 12.0% and 41.8%
+in round 1, 50.6% and 48.3% in round 2, and 54.5% and 50.1% in round 3. Those
+wins did not offset the required regression failures above.
+
+The result parser produced every existing and new benchmark key for the
+baseline and each round. Parsed means matched the middle value from the raw
+Criterion timing interval. Local `cargo codspeed run -m simulation apply`
+discovered every retained benchmark but reported that the environment cannot
+measure performance. Local timing therefore used the same Criterion2 source
+with the CodSpeed adapter temporarily disabled, and the manifest was restored
+after each run.
+
+These deltas compare local mean values with the original baseline. The
+available record does not contain direct original-baseline significance tests,
+candidate commit SHAs, a remote CodSpeed comparison, or durable run links, so
+none are claimed here. A future production attempt still requires the final
+remote aggregate CodSpeed comparison.
+
+Before closeout, the benchmark release build, CodSpeed simulation build and
+discovery, formatting, strict clippy, workspace tests, and real inspector smoke
+all passed. The production index and its oracle tests were then removed, while
+the benchmark-only coverage remained.
+
 ## Why this matters
 
 Each statement and function currently scans the entire width-sorted V8 range
