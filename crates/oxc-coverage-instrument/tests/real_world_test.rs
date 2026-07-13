@@ -36,7 +36,8 @@ fn assert_valid_instrumentation(source: &str, filename: &str) -> InstrumentResul
     let _parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
     let allocator = Allocator::default();
-    let source_type = SourceType::from_path(filename).unwrap_or_default();
+    let source_type = SourceType::from_path(filename)
+        .unwrap_or_else(|_| panic!("{filename}: unable to determine source type from path"));
     let parsed = Parser::new(&allocator, &result.code, source_type).parse();
     let diagnostics = parsed.errors.iter().map(|error| format!("{error}")).collect::<Vec<_>>();
     assert!(
@@ -46,6 +47,12 @@ fn assert_valid_instrumentation(source: &str, filename: &str) -> InstrumentResul
     );
 
     result
+}
+
+#[test]
+#[should_panic(expected = "unknown.fixture: unable to determine source type from path")]
+fn real_world_unknown_source_type_reports_fixture_name() {
+    assert_valid_instrumentation("const value = 1;", "unknown.fixture");
 }
 
 #[test]

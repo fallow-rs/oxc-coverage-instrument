@@ -6,11 +6,28 @@ import { instrument } from '../crates/oxc-coverage-instrument-napi/index.js';
 
 const normalize = (value) => JSON.parse(JSON.stringify(value));
 
+const location = (startLine, startColumn, endLine, endColumn) => ({
+  start: { line: startLine, column: startColumn },
+  end: { line: endLine, column: endColumn },
+});
+
 const matchingIds = (entries, predicate) =>
   Object.entries(entries)
     .filter(([, entry]) => predicate(entry))
     .map(([id]) => id)
     .sort((left, right) => Number(left) - Number(right));
+
+const locationsEqual = (actual, expected) =>
+  actual.start.line === expected.start.line &&
+  actual.start.column === expected.start.column &&
+  actual.end.line === expected.end.line &&
+  actual.end.column === expected.end.column;
+
+const matchingId = (entries, predicate, context) => {
+  const ids = matchingIds(entries, predicate);
+  assert.equal(ids.length, 1, `${context}: expected exactly one coverage entry`);
+  return ids[0];
+};
 
 const statementCount = (coverageMap, coverage, line, context) => {
   const ids = matchingIds(coverageMap.statementMap, (entry) => entry.start.line === line);
@@ -18,18 +35,23 @@ const statementCount = (coverageMap, coverage, line, context) => {
   return coverage.s[ids[0]];
 };
 
-const functionCount = (coverageMap, coverage, predicate, context) => {
-  const ids = matchingIds(coverageMap.fnMap, predicate);
-  assert.equal(ids.length, 1, `${context}: function counter`);
-  return coverage.f[ids[0]];
+const functionCountAt = (coverageMap, coverage, expected, context) => {
+  const id = matchingId(
+    coverageMap.fnMap,
+    (entry) =>
+      locationsEqual(entry.decl, expected.decl) && locationsEqual(entry.loc, expected.loc),
+    `${context}: function location`,
+  );
+  return coverage.f[id];
 };
 
-const branchCounts = (coverageMap, coverage, type, line) => {
-  const ids = matchingIds(
+const branchCountAt = (coverageMap, coverage, expected, context) => {
+  const id = matchingId(
     coverageMap.branchMap,
-    (entry) => entry.type === type && entry.loc.start.line === line,
+    (entry) => entry.type === expected.type && locationsEqual(entry.loc, expected.loc),
+    `${context}: branch location`,
   );
-  return ids.map((id) => normalize(coverage.b[id]));
+  return normalize(coverage.b[id]);
 };
 
 const cases = [
@@ -48,10 +70,26 @@ globalThis.results = [classify(3), classify(-2)];`,
       assert.equal(statementCount(coverageMap, coverage, 3, 'control flow'), 1);
       assert.equal(statementCount(coverageMap, coverage, 5, 'control flow'), 1);
       assert.equal(
-        functionCount(coverageMap, coverage, (entry) => entry.name === 'classify', 'control flow'),
+        functionCountAt(
+          coverageMap,
+          coverage,
+          {
+            decl: location(1, 9, 1, 17),
+            loc: location(1, 25, 6, 1),
+          },
+          'control flow',
+        ),
         2,
       );
-      assert.deepEqual(branchCounts(coverageMap, coverage, 'if', 2), [[1, 1]]);
+      assert.deepEqual(
+        branchCountAt(
+          coverageMap,
+          coverage,
+          { type: 'if', loc: location(2, 2, 4, 3) },
+          'control flow',
+        ),
+        [1, 1],
+      );
     },
   },
   {
@@ -60,19 +98,53 @@ globalThis.results = [classify(3), classify(-2)];`,
     source: `function readName(user) {
   return user?.profile?.name ?? 'missing';
 }
-globalThis.values = [readName({ profile: { name: 'Ada' } }), readName(null)];`,
+globalThis.values = [
+  readName({ profile: { name: 'Ada' } }),
+  readName(null),
+  readName({ profile: null }),
+];`,
     verify: ({ coverageMap, coverage, sandbox }) => {
-      assert.deepEqual(normalize(sandbox.values), ['Ada', 'missing']);
-      assert.equal(statementCount(coverageMap, coverage, 2, 'optional chain on'), 2);
+      assert.deepEqual(normalize(sandbox.values), ['Ada', 'missing', 'missing']);
+      assert.equal(statementCount(coverageMap, coverage, 2, 'optional chain on'), 3);
       assert.equal(
-        functionCount(coverageMap, coverage, (entry) => entry.name === 'readName', 'optional chain on'),
-        2,
+        functionCountAt(
+          coverageMap,
+          coverage,
+          {
+            decl: location(1, 9, 1, 17),
+            loc: location(1, 24, 3, 1),
+          },
+          'optional chain on',
+        ),
+        3,
       );
-      assert.deepEqual(branchCounts(coverageMap, coverage, 'binary-expr', 2), [[2, 1]]);
-      assert.deepEqual(branchCounts(coverageMap, coverage, 'optional-chain', 2), [
-        [1, 1],
-        [1, 1],
-      ]);
+      assert.deepEqual(
+        branchCountAt(
+          coverageMap,
+          coverage,
+          { type: 'binary-expr', loc: location(2, 9, 2, 41) },
+          'optional chain on',
+        ),
+        [3, 2],
+      );
+      assert.deepEqual(
+        branchCountAt(
+          coverageMap,
+          coverage,
+          { type: 'optional-chain', loc: location(2, 9, 2, 28) },
+          'optional chain on outer link',
+        ),
+        [2, 1],
+      );
+      assert.deepEqual(
+        branchCountAt(
+          coverageMap,
+          coverage,
+          { type: 'optional-chain', loc: location(2, 9, 2, 22) },
+          'optional chain on inner link',
+        ),
+        [1, 2],
+      );
     },
   },
   {
@@ -82,16 +154,40 @@ globalThis.values = [readName({ profile: { name: 'Ada' } }), readName(null)];`,
     source: `function readName(user) {
   return user?.profile?.name ?? 'missing';
 }
-globalThis.values = [readName({ profile: { name: 'Ada' } }), readName(null)];`,
+globalThis.values = [
+  readName({ profile: { name: 'Ada' } }),
+  readName(null),
+  readName({ profile: null }),
+];`,
     verify: ({ coverageMap, coverage, result, sandbox }) => {
-      assert.deepEqual(normalize(sandbox.values), ['Ada', 'missing']);
-      assert.equal(statementCount(coverageMap, coverage, 2, 'optional chain off'), 2);
+      assert.deepEqual(normalize(sandbox.values), ['Ada', 'missing', 'missing']);
+      assert.equal(statementCount(coverageMap, coverage, 2, 'optional chain off'), 3);
       assert.equal(
-        functionCount(coverageMap, coverage, (entry) => entry.name === 'readName', 'optional chain off'),
-        2,
+        functionCountAt(
+          coverageMap,
+          coverage,
+          {
+            decl: location(1, 9, 1, 17),
+            loc: location(1, 24, 3, 1),
+          },
+          'optional chain off',
+        ),
+        3,
       );
-      assert.deepEqual(branchCounts(coverageMap, coverage, 'binary-expr', 2), [[2, 1]]);
-      assert.deepEqual(branchCounts(coverageMap, coverage, 'optional-chain', 2), []);
+      assert.deepEqual(
+        branchCountAt(
+          coverageMap,
+          coverage,
+          { type: 'binary-expr', loc: location(2, 9, 2, 41) },
+          'optional chain off',
+        ),
+        [3, 2],
+      );
+      assert.equal(
+        matchingIds(coverageMap.branchMap, (entry) => entry.type === 'optional-chain').length,
+        0,
+        'optional chain off: branch entries',
+      );
       assert.equal(result.code.includes('_oc('), false, 'optional chain off: helper emission');
     },
   },
@@ -118,15 +214,47 @@ globalThis.serviceResults = [service.find('1')?.name, service.find('2')];`,
       assert.equal(statementCount(coverageMap, coverage, 5, 'TypeScript service'), 1);
       assert.equal(statementCount(coverageMap, coverage, 8, 'TypeScript service'), 2);
       assert.equal(
-        functionCount(coverageMap, coverage, (entry) => entry.name === 'add', 'TypeScript service'),
+        functionCountAt(
+          coverageMap,
+          coverage,
+          {
+            decl: location(4, 2, 4, 5),
+            loc: location(4, 24, 6, 3),
+          },
+          'TypeScript service add',
+        ),
         1,
       );
       assert.equal(
-        functionCount(coverageMap, coverage, (entry) => entry.name === 'find', 'TypeScript service'),
+        functionCountAt(
+          coverageMap,
+          coverage,
+          {
+            decl: location(7, 2, 7, 6),
+            loc: location(7, 32, 9, 3),
+          },
+          'TypeScript service find',
+        ),
         2,
       );
-      assert.deepEqual(branchCounts(coverageMap, coverage, 'binary-expr', 8), [[2, 1]]);
-      assert.deepEqual(branchCounts(coverageMap, coverage, 'optional-chain', 13), [[0, 1]]);
+      assert.deepEqual(
+        branchCountAt(
+          coverageMap,
+          coverage,
+          { type: 'binary-expr', loc: location(8, 11, 8, 37) },
+          'TypeScript service fallback',
+        ),
+        [2, 1],
+      );
+      assert.deepEqual(
+        branchCountAt(
+          coverageMap,
+          coverage,
+          { type: 'optional-chain', loc: location(13, 29, 13, 52) },
+          'TypeScript service optional chain',
+        ),
+        [0, 1],
+      );
     },
   },
   {
@@ -146,14 +274,38 @@ globalThis.completion = Promise.all([load(true), load(false)]).then(values => {
       assert.equal(statementCount(coverageMap, coverage, 3, 'async paths'), 1);
       assert.equal(statementCount(coverageMap, coverage, 5, 'async paths'), 1);
       assert.equal(
-        functionCount(coverageMap, coverage, (entry) => entry.name === 'load', 'async paths'),
+        functionCountAt(
+          coverageMap,
+          coverage,
+          {
+            decl: location(1, 15, 1, 19),
+            loc: location(1, 26, 6, 1),
+          },
+          'async load',
+        ),
         2,
       );
       assert.equal(
-        functionCount(coverageMap, coverage, (entry) => entry.decl.start.line === 7, 'async paths'),
+        functionCountAt(
+          coverageMap,
+          coverage,
+          {
+            decl: location(7, 68, 7, 69),
+            loc: location(7, 78, 9, 1),
+          },
+          'async completion callback',
+        ),
         1,
       );
-      assert.deepEqual(branchCounts(coverageMap, coverage, 'if', 2), [[1, 1]]);
+      assert.deepEqual(
+        branchCountAt(
+          coverageMap,
+          coverage,
+          { type: 'if', loc: location(2, 2, 4, 3) },
+          'async paths',
+        ),
+        [1, 1],
+      );
     },
   },
 ];
