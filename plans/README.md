@@ -19,15 +19,17 @@ These plans are implementation-ready, but no source changes were made during the
 | [009](009-correct-npm-repository-metadata.md) | P2 | S | Low | TODO | Point npm repository metadata at actual package directories. |
 | [010](010-refresh-roadmap-contracts.md) | P3 | S | Low | TODO | Align roadmap API and benchmark descriptions with current behavior. |
 | [011](011-fix-real-inspector-branch-counts.md) | P1 | S | Medium | DONE | Preserve inherited if-arm counts from real V8 inspector ranges. |
+| [012](012-normalize-v8-utf16-offsets.md) | P1 | M | High | DONE | Normalize every V8 containment query to inspector UTF-16 units. |
 
 ## Recommended execution order
 
 1. Correctness and security: 001, 002, 003.
 2. Behavior-facing validation: 004, 005.
-3. Measured performance: 006, after 005 supplies a real V8 fixture.
-4. Contributor and documentation maintenance: 007, 008, 009, 010.
+3. V8 range correctness: 011, then 012, after 005 supplies a real V8 fixture.
+4. Measured performance: 006, after 011 and 012 stabilize range semantics and units.
+5. Contributor and documentation maintenance: 007, 008, 009, 010.
 
-Plans 001 through 005 can be developed independently if each branch starts from the same current base. Plan 006 depends on plan 005. Plan 008 should incorporate the commands introduced by plans 004 and 005 if those plans land first. Plan 011 depends on the real inspector contract introduced by plan 005 and must pass before plan 005 can be completed.
+Plans 001 through 005 can be developed independently if each branch starts from the same current base. Plan 011 depends on the real inspector contract introduced by plan 005. Plan 012 depends on plans 005 and 011. Plan 006 depends on plans 005, 011, and 012 so it indexes the final branch semantics and UTF-16 coordinate contract. Plan 008 should incorporate the commands introduced by plans 004 and 005 if those plans land first.
 
 ## Audit baseline
 

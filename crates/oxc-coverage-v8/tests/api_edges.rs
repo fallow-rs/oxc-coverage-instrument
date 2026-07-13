@@ -235,3 +235,38 @@ fn zero_width_synthetic_else_does_not_match_adjacent_then_range() {
     apply_v8_coverage(&mut fc, source, &functions, 0, &body_spans);
     assert_eq!(fc.b["0"][0], 0, "synthetic else must remain uncovered");
 }
+
+#[test]
+fn oversized_column_cannot_cross_into_a_later_line() {
+    let source = "a();\nlate();\n";
+    let mut fc = FileCoverage {
+        path: "manual-location.js".to_string(),
+        statement_map: BTreeMap::from([(
+            "0".to_string(),
+            Location {
+                start: Position { line: 1, column: 100 },
+                end: Position { line: 1, column: 100 },
+            },
+        )]),
+        fn_map: BTreeMap::new(),
+        branch_map: BTreeMap::new(),
+        s: BTreeMap::from([("0".to_string(), 0)]),
+        f: BTreeMap::new(),
+        b: BTreeMap::new(),
+        b_t: None,
+        input_source_map: None,
+        x_fallow_function_map: None,
+    };
+    let functions = [V8FunctionCoverage {
+        function_name: String::new(),
+        ranges: vec![
+            V8CoverageRange { start_offset: 0, end_offset: 4, count: 1 },
+            V8CoverageRange { start_offset: 5, end_offset: 13, count: 9 },
+        ],
+        is_block_coverage: true,
+    }];
+
+    apply_v8_coverage(&mut fc, source, &functions, 0, &BTreeMap::new());
+
+    assert_eq!(fc.s["0"], 1, "invalid line-one column must clamp before line two");
+}

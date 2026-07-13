@@ -1,19 +1,20 @@
 # Plan 006: Make V8 containment lookup scale sublinearly on valid range trees
 
-> **Executor instructions**: Execute only after Plan 005 is DONE. Measure before
+> **Executor instructions**: Execute only after Plans 005, 011, and 012 are DONE. Measure before
 > changing code and retain only a measured win. Run every verification gate and
 > stop on any STOP condition. Update `plans/README.md` when complete.
 >
 > **Drift check (run first)**: `git diff --stat 321630c..HEAD -- crates/oxc-coverage-v8/src/lib.rs crates/oxc-coverage-v8/benches/apply.rs crates/oxc-coverage-v8/tests/api_edges.rs scripts/v8-inspector-smoke.mjs`
-> Plan 005 is expected to add the inspector script. Stop if Plan 005 is not DONE
-> or the lookup semantics in `lib.rs` changed.
+> Plans 005, 011, and 012 are expected to change inspector validation, branch
+> semantics, and coordinate normalization. Stop if any plan is not DONE or its
+> contract is absent. Do not stop merely because `lib.rs` changed as planned.
 
 ## Status
 
 - **Priority**: P1
 - **Effort**: M
 - **Risk**: MED
-- **Depends on**: `plans/005-test-real-v8-inspector-output.md`
+- **Depends on**: `plans/005-test-real-v8-inspector-output.md`, `plans/011-fix-real-inspector-branch-counts.md`, `plans/012-normalize-v8-utf16-offsets.md`
 - **Category**: perf
 - **Planned at**: commit `321630c`, 2026-07-13
 
@@ -28,8 +29,10 @@ must safely fall back for malformed or partially overlapping input.
 
 ## Current state
 
-- `apply_v8_coverage_inner` flattens every function range, sorts one copy by
-  width, and clones another copy sorted by start for branch-arm queries.
+- `apply_v8_coverage_inner` builds one source coordinate index, keeps inspector
+  ranges in native UTF-16 units, sorts one flattened copy by width, partitions
+  child block ranges for tight branch-arm queries, and retains outer range mode
+  and provenance for inheritance.
 - `apply_statement_counts` and `apply_function_counts` call
   `CoverageContext::count_for_location` for every entry.
 - `smallest_containing_range_count` is the current correctness oracle:
@@ -45,7 +48,8 @@ for r in ranges {
 
 - `benches/apply.rs` already has dense ASCII, Unicode, and branch fixtures.
   Extend this harness instead of adding another benchmark framework.
-- Plan 005 provides real Node inspector validation and must land first.
+- Plans 005, 011, and 012 provide real inspector validation, branch semantics,
+  and UTF-16 normalization and must land first.
 
 ## Commands you will need
 
@@ -68,7 +72,10 @@ for r in ranges {
 **Out of scope**:
 
 - Branch-arm tolerance lookup, already start-indexed.
-- Changing wrapper-offset or UTF-16 conversion behavior.
+- Changing wrapper-base or UTF-16 normalization behavior.
+- Changing child block-range partitioning, outer inheritance provenance,
+  block-coverage mode, strict containment, equal-span exclusion, or zero-width
+  rejection.
 - New dependencies.
 - Keeping a rewrite that does not produce a measured CodSpeed improvement.
 
@@ -102,6 +109,9 @@ tie behavior. Add deterministic generated cases covering nested, disjoint,
 duplicate-span, zero-width, wrapper-shifted, and partially overlapping ranges.
 For each query, assert the new index returns exactly the oracle count.
 
+All queries and indexed ranges are absolute UTF-16 offsets. Normalize source
+coordinates before the index and never convert an indexed result again.
+
 **Verify**: the new equivalence tests fail before the index exists and pass
 after it is wired.
 
@@ -127,8 +137,10 @@ of the correctness contract.
 ### Step 4: Use the index for statements and functions
 
 Construct `RangeIndex` once in `apply_v8_coverage_inner` and replace only
-`count_for_location`'s statement/function lookup. Leave `arm_ranges` and
-`best_arm_range_count` unchanged.
+`count_for_location`'s statement/function lookup. Leave child-only
+`arm_ranges`, `best_arm_range_count`, and provenance-bearing inheritance
+ranges unchanged. Preserve block-coverage mode, strict parent containment,
+equal-span exclusion, and zero-width body rejection exactly.
 
 Avoid cloning the full range vector more than the branch path still requires.
 Keep code single-purpose and document the laminar invariant and fallback.
@@ -170,7 +182,11 @@ node scripts/v8-inspector-smoke.mjs
 - Exact equivalence with the old linear oracle.
 - Nested, disjoint, duplicate, zero-width, non-laminar, Unicode, and wrapper
   cases.
-- Real Node inspector output from Plan 005.
+- Real Node inspector output from Plans 005, 011, and 012.
+- UTF-16 normalization before indexing, including astral, BMP, CRLF, and
+  explicit shifted-producer wrapper-base cases.
+- Child block-range partitioning, inheritance provenance, block mode, strict
+  containment, equal-span exclusion, and zero-width rejection.
 - Scaling benchmarks with fixed ids and sizes.
 - Full workspace regression suite.
 
@@ -190,11 +206,13 @@ node scripts/v8-inspector-smoke.mjs
 Stop and report if:
 
 - Plan 005 is not complete.
+- Plan 011 or Plan 012 is not complete.
 - Real inspector ranges violate the proposed laminar model and make fallback
   the common path.
 - Equal-span tie behavior differs from the linear oracle.
 - The optimization is not a measured win.
 - Correctness requires changing branch-arm lookup semantics.
+- Correctness requires moving UTF-16 normalization after indexed lookup.
 - A verification fails twice after a reasonable correction.
 
 ## Maintenance notes

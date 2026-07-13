@@ -23,6 +23,8 @@ const inlineFilename = 'inspector-inline.js';
 const inlineUrl = 'oxc-coverage-instrument://inline-precise-coverage.js';
 const nestedArmFilename = 'inspector-nested-arm.js';
 const nestedArmUrl = 'oxc-coverage-instrument://nested-function-arm.js';
+const unicodeFilename = 'inspector-unicode.js';
+const unicodeUrl = 'oxc-coverage-instrument://unicode-offsets.js';
 const fixtureUrl = 'oxc-coverage-instrument://repository-nested-functions.js';
 
 const withSourceUrl = (source, url) => `${source.trimEnd()}\n//# sourceURL=${url}\n`;
@@ -56,6 +58,13 @@ const assertCounterMetadata = (coverage) => {
   assert.deepEqual(Object.keys(coverage.s).sort(), Object.keys(coverage.statementMap).sort());
   assert.deepEqual(Object.keys(coverage.f).sort(), Object.keys(coverage.fnMap).sort());
   assert.deepEqual(Object.keys(coverage.b).sort(), Object.keys(coverage.branchMap).sort());
+  for (const [id, metadata] of Object.entries(coverage.branchMap)) {
+    assert.equal(
+      coverage.b[id].length,
+      metadata.locations.length,
+      `branch ${id} counter vector must align with its locations`,
+    );
+  }
 };
 
 const functionCount = (coverage, name) => {
@@ -119,6 +128,33 @@ nestedArm();`,
   );
 };
 
+const runUnicodeOffsetSmoke = async () => {
+  const source = withSourceUrl(
+    `const prefix = '😀😀😀😀😀😀é';
+function unicodeBranch(value) {
+  if (value) {
+    return '✓';
+  } else {
+    return 'miss';
+  }
+}
+unicodeBranch(true);
+unicodeBranch(true);`,
+    unicodeUrl,
+  );
+  const functions = await captureFunctions(source, unicodeUrl, () => undefined);
+  const coverage = JSON.parse(v8ToIstanbul(source, unicodeFilename, JSON.stringify(functions)));
+
+  assert.equal(coverage.path, unicodeFilename);
+  assertCounterMetadata(coverage);
+  assert.equal(functionCount(coverage, 'unicodeBranch'), 2);
+  assert.deepEqual(
+    ifBranchCounts(coverage),
+    [2, 0],
+    'UTF-16 inspector offsets must preserve taken and untaken arms',
+  );
+};
+
 const runRepositoryFixtureSmoke = async () => {
   const fixtureSource = await readFile(fixturePath, 'utf8');
   const source = withSourceUrl(fixtureSource, fixtureUrl);
@@ -136,5 +172,6 @@ const runRepositoryFixtureSmoke = async () => {
 
 await runInlineSmoke();
 await runNestedFunctionArmSmoke();
+await runUnicodeOffsetSmoke();
 await runRepositoryFixtureSmoke();
 console.log('PASS v8 inspector coverage converts to stable Istanbul behavior');

@@ -97,21 +97,18 @@ fn returns_empty_when_no_coverage_ranges_apply() {
 }
 
 #[test]
-fn applies_wrapper_length_for_cjs_modules() {
-    // Stock Node wraps CJS modules in `(function(...){`; V8 byte offsets are
-    // shifted by that wrapper. The caller passes `wrapper_length` to undo
-    // the shift on the source side.
-    let source = "const x = 1;\nconst y = 2;\n";
-    let module_end = source.len() as u32;
-    // The wrapped (V8-visible) source is `<wrapper>const x = 1;\nconst y = 2;\n`.
-    // V8 reports ranges in the WRAPPED source's offsets.
+fn applies_utf16_wrapper_base_for_shifted_producers() {
+    let source = "const marker = '😀é';\r\nconst y = 2;\n";
+    let module_end = source.encode_utf16().count() as u32;
+    // Inspector coverage is normally source-relative. Some other producers
+    // report a wrapper-shifted range and pass that UTF-16 base explicitly.
     let wrapper_length = 62;
     let functions =
         vec![function("", vec![range(wrapper_length, wrapper_length + module_end, 1)], false)];
 
     let fc = v8_to_istanbul(source, "cjs.js", &functions, wrapper_length).unwrap();
     let s_values: Vec<u32> = fc.s.values().copied().collect();
-    assert!(s_values.iter().all(|&c| c == 1), "wrapper offset must be subtracted: {s_values:?}");
+    assert!(s_values.iter().all(|&c| c == 1), "wrapper base must be applied: {s_values:?}");
 }
 
 #[test]
@@ -301,12 +298,13 @@ fn encode_base64(bytes: &[u8]) -> String {
 
 #[test]
 fn handles_non_ascii_source_columns() {
-    // Istanbul reports UTF-16 columns; srcmap and V8 work in bytes. A
+    // Istanbul and V8 report UTF-16 positions; srcmap's generated columns use
+    // UTF-16 while Oxc spans use bytes. A
     // statement that follows a non-ASCII character must still land inside
     // the V8 range that contains it. `π` is 2 bytes UTF-8 / 1 UTF-16 unit,
     // so the byte position of `const y` shifts by an extra byte per π.
     let source = "const π = 1;\nconst y = π + 1;\n";
-    let end = source.len() as u32;
+    let end = source.encode_utf16().count() as u32;
     let functions = vec![function("", vec![range(0, end, 7)], false)];
 
     let fc = v8_to_istanbul(source, "greek.js", &functions, 0).unwrap();
@@ -315,6 +313,106 @@ fn handles_non_ascii_source_columns() {
         s_values.iter().all(|&c| c == 7),
         "non-ASCII statements must still resolve into the V8 range, got: {s_values:?}"
     );
+}
+
+#[test]
+fn normalizes_real_inspector_utf16_offsets_before_matching() {
+    let source = r"const prefix = '😀😀😀😀😀😀é';
+function unicodeBranch(value) {
+  if (value) {
+    return '✓';
+  } else {
+    return 'miss';
+  }
+}
+unicodeBranch(true);
+unicodeBranch(true);
+//# sourceURL=oxc-coverage-instrument://unicode-offsets.js
+";
+    // Captured from Node's Profiler.takePreciseCoverage. These offsets are
+    // UTF-16 code units, including the astral and BMP characters above.
+    let functions = vec![
+        function("", vec![range(0, 232, 1)], true),
+        function("unicodeBranch", vec![range(32, 130, 2), range(98, 128, 0)], true),
+    ];
+
+    let fc = v8_to_istanbul(source, "inspector-unicode.js", &functions, 0).unwrap();
+    let function_count = fc
+        .fn_map
+        .iter()
+        .find(|(_, entry)| entry.name == "unicodeBranch")
+        .and_then(|(id, _)| fc.f.get(id))
+        .copied();
+    let branch_counts = fc
+        .branch_map
+        .iter()
+        .find(|(_, entry)| entry.branch_type == "if")
+        .and_then(|(id, entry)| fc.b.get(id).map(|counts| (entry, counts)))
+        .expect("if branch must appear in branchMap");
+
+    assert_eq!(function_count, Some(2));
+    assert_eq!(branch_counts.1, &[2, 0]);
+    assert_eq!(branch_counts.1.len(), branch_counts.0.locations.len());
+}
+
+#[test]
+fn preserves_utf16_offsets_across_crlf_and_mixed_newlines() {
+    let source = "const astral = '😀';\r\nconst bmp = 'é';\nconst value = astral + bmp;\r\n";
+    let source_end = source.encode_utf16().count() as u32;
+    let expression_start =
+        source[..source.rfind("astral + bmp").unwrap()].encode_utf16().count() as u32;
+    let expression_end = expression_start + "astral + bmp".encode_utf16().count() as u32;
+    let functions = vec![function(
+        "",
+        vec![range(0, source_end, 1), range(expression_start, expression_end, 9)],
+        true,
+    )];
+
+    let fc = v8_to_istanbul(source, "mixed-newlines.js", &functions, 0).unwrap();
+    let line_three_id = fc
+        .statement_map
+        .iter()
+        .find(|(_, location)| location.start.line == 3)
+        .map(|(id, _)| id)
+        .expect("third-line expression must be tracked");
+
+    assert_eq!(fc.s.get(line_three_id), Some(&9));
+}
+
+#[test]
+fn unicode_prior_line_preserves_nested_function_arm_inheritance() {
+    let source = "const marker = '😀é';\r\nif (true) { function g() {} }\r\ng(); g();\n";
+    let source_end = source.encode_utf16().count() as u32;
+    let function_start = source[..source.find("function g").unwrap()].encode_utf16().count() as u32;
+    let function_end = function_start + "function g() {}".encode_utf16().count() as u32;
+    let functions = [
+        function("", vec![range(0, source_end, 1)], true),
+        function("g", vec![range(function_start, function_end, 2)], true),
+    ];
+
+    assert_if_counts(source, &functions, &[1, 0]);
+}
+
+#[test]
+fn unicode_offsets_do_not_change_attached_source_map_locations() {
+    let map_json = r#"{"version":3,"sources":["src/app.ts"],"mappings":"AAAA","names":[]}"#;
+    let base64 = encode_base64(map_json.as_bytes());
+    let source = format!(
+        "const marker = '😀é';\r\nconst value = 1;\n//# sourceMappingURL=data:application/json;base64,{base64}\n"
+    );
+    let end = source.encode_utf16().count() as u32;
+    let functions = vec![function("", vec![range(0, end, 3)], false)];
+
+    let fc = v8_to_istanbul(&source, "unicode-map.js", &functions, 0).unwrap();
+    let line_two = fc
+        .statement_map
+        .iter()
+        .find(|(_, location)| location.start.line == 2)
+        .expect("second-line statement must remain in generated-source coordinates");
+
+    assert_eq!(fc.s.get(line_two.0), Some(&3));
+    assert_eq!(line_two.1.start.line, 2);
+    assert_eq!(fc.input_source_map.as_ref().unwrap()["sources"][0], "src/app.ts");
 }
 
 #[test]

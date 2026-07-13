@@ -9,16 +9,17 @@
 //! ## Position semantics
 //!
 //! Istanbul's `Position` is 1-based line + 0-based UTF-16 column. V8 ranges are
-//! byte offsets into the V8-visible source. This crate walks each location's
-//! UTF-16 column into a byte offset, then intersects against the V8 ranges.
+//! absolute UTF-16 code-unit offsets into the V8-visible source. Oxc branch
+//! body spans use UTF-8 byte offsets, so this crate converts source-side
+//! coordinates to absolute UTF-16 offsets before intersecting V8 ranges.
 //!
-//! ## CJS wrapper offset
+//! ## Wrapper base
 //!
 //! Node wraps every CommonJS module in `(function(exports,require,module,...){`
-//! before V8 sees it. V8 byte offsets are relative to that wrapped source. Pass
-//! the wrapper length (62 by default on stock Node CJS) so this crate can shift
-//! offsets back into the user's source. ESM modules and bare `eval` sources
-//! have a wrapper length of zero.
+//! Some coverage producers report offsets relative to a wrapped source. Pass
+//! their wrapper prefix length in UTF-16 code units so source-side coordinates
+//! use the same base. Node inspector coverage is normally source-relative, so
+//! its wrapper length is zero.
 //!
 //! ## Companion helpers for inline / external source maps
 //!
@@ -46,7 +47,7 @@ pub struct V8FunctionCoverage {
     /// or the implicit top-level module function).
     #[serde(rename = "functionName")]
     pub function_name: String,
-    /// One or more byte ranges. With `is_block_coverage = false` there is
+    /// One or more UTF-16 code-unit ranges. With `is_block_coverage = false` there is
     /// exactly one range (the whole function); with `is_block_coverage = true`
     /// the outermost range covers the function and inner ranges cover blocks.
     pub ranges: Vec<V8CoverageRange>,
@@ -59,10 +60,10 @@ pub struct V8FunctionCoverage {
 /// A single V8 coverage range.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct V8CoverageRange {
-    /// Byte offset of the range start (inclusive) in the V8-visible source.
+    /// UTF-16 code-unit offset of the range start (inclusive).
     #[serde(rename = "startOffset")]
     pub start_offset: u32,
-    /// Byte offset of the range end (exclusive).
+    /// UTF-16 code-unit offset of the range end (exclusive).
     #[serde(rename = "endOffset")]
     pub end_offset: u32,
     /// Hit count. Zero means the range was reachable but never executed.
@@ -76,12 +77,97 @@ struct CoverageRangeWithMode {
 }
 
 struct CoverageContext<'a> {
-    source: &'a str,
-    line_offsets: &'a [u32],
+    source_index: &'a SourceIndex,
     ranges: &'a [V8CoverageRange],
     arm_ranges: &'a [V8CoverageRange],
     inheritance_ranges: &'a [CoverageRangeWithMode],
     wrapper_length: u32,
+}
+
+#[derive(Clone, Copy)]
+struct NonAsciiSpan {
+    byte_start: u32,
+    byte_end: u32,
+    utf16_start: u32,
+    utf16_end: u32,
+}
+
+struct SourceIndex {
+    line_starts_utf16: Vec<u32>,
+    line_ends_utf16: Vec<u32>,
+    non_ascii_spans: Vec<NonAsciiSpan>,
+    byte_len: u32,
+    utf16_len: u32,
+}
+
+impl SourceIndex {
+    fn new(source: &str) -> Self {
+        let mut line_starts_utf16 = vec![0];
+        let mut line_ends_utf16 = Vec::new();
+        let mut non_ascii_spans = Vec::new();
+        let mut utf16_offset = 0u32;
+        let mut previous_was_carriage_return = false;
+
+        for (byte_start, ch) in source.char_indices() {
+            let byte_start = u32::try_from(byte_start).unwrap_or(u32::MAX);
+            let byte_width = ch.len_utf8() as u32;
+            let utf16_width = ch.len_utf16() as u32;
+            if byte_width != utf16_width {
+                non_ascii_spans.push(NonAsciiSpan {
+                    byte_start,
+                    byte_end: byte_start.saturating_add(byte_width),
+                    utf16_start: utf16_offset,
+                    utf16_end: utf16_offset.saturating_add(utf16_width),
+                });
+            }
+            if ch == '\n' {
+                line_ends_utf16
+                    .push(utf16_offset.saturating_sub(u32::from(previous_was_carriage_return)));
+            }
+            utf16_offset = utf16_offset.saturating_add(utf16_width);
+            if ch == '\n' {
+                line_starts_utf16.push(utf16_offset);
+            }
+            previous_was_carriage_return = ch == '\r';
+        }
+        line_ends_utf16.push(utf16_offset);
+
+        Self {
+            line_starts_utf16,
+            line_ends_utf16,
+            non_ascii_spans,
+            byte_len: u32::try_from(source.len()).unwrap_or(u32::MAX),
+            utf16_len: utf16_offset,
+        }
+    }
+
+    fn byte_to_utf16(&self, byte_offset: u32) -> u32 {
+        let byte_offset = byte_offset.min(self.byte_len);
+        let index = self.non_ascii_spans.partition_point(|span| span.byte_end <= byte_offset);
+        if let Some(span) = self.non_ascii_spans.get(index)
+            && byte_offset > span.byte_start
+            && byte_offset < span.byte_end
+        {
+            return span.utf16_start;
+        }
+        let byte_utf16_delta = index
+            .checked_sub(1)
+            .and_then(|previous| self.non_ascii_spans.get(previous))
+            .map_or(0, |span| span.byte_end.saturating_sub(span.utf16_end));
+        byte_offset.saturating_sub(byte_utf16_delta).min(self.utf16_len)
+    }
+
+    fn position_to_utf16(&self, line_1based: u32, column_utf16: u32) -> u32 {
+        if line_1based == 0 {
+            return 0;
+        }
+        let line_index = (line_1based - 1) as usize;
+        let Some(line_start) = self.line_starts_utf16.get(line_index).copied() else {
+            return self.utf16_len;
+        };
+        let line_end = self.line_ends_utf16.get(line_index).copied().unwrap_or(self.utf16_len);
+        line_start.saturating_add(column_utf16.min(line_end.saturating_sub(line_start)))
+    }
 }
 
 struct CoverageInput<'a> {
@@ -93,9 +179,14 @@ struct CoverageInput<'a> {
 
 impl CoverageContext<'_> {
     fn count_for_location(&self, loc: &Location) -> u32 {
-        let start =
-            self.position_to_byte_offset(loc.start.line, loc.start.column) + self.wrapper_length;
-        let end = self.position_to_byte_offset(loc.end.line, loc.end.column) + self.wrapper_length;
+        let start = self
+            .source_index
+            .position_to_utf16(loc.start.line, loc.start.column)
+            .saturating_add(self.wrapper_length);
+        let end = self
+            .source_index
+            .position_to_utf16(loc.end.line, loc.end.column)
+            .saturating_add(self.wrapper_length);
         smallest_containing_range_count(start, end, self.ranges)
     }
 
@@ -111,8 +202,8 @@ impl CoverageContext<'_> {
         if body_byte_span.is_some_and(|(start, end)| start == end) {
             return 0;
         }
-        let (arm_start, arm_end) = self.arm_byte_span(arm_loc, body_byte_span);
-        let (location_start, location_end) = self.location_byte_span(arm_loc);
+        let (arm_start, arm_end) = self.arm_utf16_span(arm_loc, body_byte_span);
+        let (location_start, location_end) = self.location_utf16_span(arm_loc);
         self.best_arm_range_count(arm_start, arm_end)
             .or_else(|| self.best_arm_range_count(location_start, location_end))
             .unwrap_or_else(|| {
@@ -137,19 +228,24 @@ impl CoverageContext<'_> {
             .map_or(0, |entry| entry.range.count)
     }
 
-    fn arm_byte_span(&self, arm_loc: &Location, body_byte_span: Option<(u32, u32)>) -> (u32, u32) {
+    fn arm_utf16_span(&self, arm_loc: &Location, body_byte_span: Option<(u32, u32)>) -> (u32, u32) {
         match body_byte_span {
-            Some((start, end)) if !(start == 0 && end == 0) => {
-                (start + self.wrapper_length, end + self.wrapper_length)
-            }
-            _ => self.location_byte_span(arm_loc),
+            Some((start, end)) if !(start == 0 && end == 0) => (
+                self.source_index.byte_to_utf16(start).saturating_add(self.wrapper_length),
+                self.source_index.byte_to_utf16(end).saturating_add(self.wrapper_length),
+            ),
+            _ => self.location_utf16_span(arm_loc),
         }
     }
 
-    fn location_byte_span(&self, loc: &Location) -> (u32, u32) {
+    fn location_utf16_span(&self, loc: &Location) -> (u32, u32) {
         (
-            self.position_to_byte_offset(loc.start.line, loc.start.column) + self.wrapper_length,
-            self.position_to_byte_offset(loc.end.line, loc.end.column) + self.wrapper_length,
+            self.source_index
+                .position_to_utf16(loc.start.line, loc.start.column)
+                .saturating_add(self.wrapper_length),
+            self.source_index
+                .position_to_utf16(loc.end.line, loc.end.column)
+                .saturating_add(self.wrapper_length),
         )
     }
 
@@ -185,36 +281,6 @@ impl CoverageContext<'_> {
         }
         best.map(|(r, _)| r.count)
     }
-
-    // Istanbul columns are UTF-16 code units, while V8 ranges are byte offsets.
-    fn position_to_byte_offset(&self, line_1based: u32, col_utf16: u32) -> u32 {
-        if line_1based == 0 {
-            return 0;
-        }
-        let line_idx = (line_1based - 1) as usize;
-        if line_idx >= self.line_offsets.len() - 1 {
-            return *self.line_offsets.last().unwrap_or(&0);
-        }
-        let line_start = self.line_offsets[line_idx] as usize;
-        let line_end = self.line_offsets[line_idx + 1] as usize;
-        let line_bytes = self.source.get(line_start..line_end).unwrap_or("");
-
-        let mut utf16_remaining = col_utf16;
-        let mut byte_in_line = 0usize;
-        for ch in line_bytes.chars() {
-            if utf16_remaining == 0 {
-                break;
-            }
-            let units = ch.len_utf16() as u32;
-            if units > utf16_remaining {
-                break;
-            }
-            utf16_remaining -= units;
-            byte_in_line += ch.len_utf8();
-        }
-
-        u32::try_from(line_start + byte_in_line).unwrap_or(u32::MAX)
-    }
 }
 
 /// Apply V8 coverage ranges to a pre-built `FileCoverage` by filling in its
@@ -229,9 +295,8 @@ impl CoverageContext<'_> {
 /// if-arm 0 case that istanbul's whole-IfStatement convention puts at
 /// `locations[0]`.
 ///
-/// `wrapper_length` accounts for Node's CJS module wrapper prefix
-/// (`(function(exports,require,module,__filename,__dirname){`). Pass 0 for
-/// ESM.
+/// `wrapper_length` is an explicit UTF-16 code-unit base for producers that
+/// report wrapper-shifted ranges. Pass 0 for source-relative inspector output.
 pub fn apply_v8_coverage(
     file_coverage: &mut FileCoverage,
     source: &str,
@@ -244,7 +309,7 @@ pub fn apply_v8_coverage(
 }
 
 fn apply_v8_coverage_inner(file_coverage: &mut FileCoverage, input: &CoverageInput<'_>) {
-    let line_offsets = compute_line_offsets(input.source);
+    let source_index = SourceIndex::new(input.source);
     let mut ranges: Vec<V8CoverageRange> =
         input.functions.iter().flat_map(|f| f.ranges.iter().copied()).collect();
     ranges.sort_by_key(|r| r.end_offset.saturating_sub(r.start_offset));
@@ -272,8 +337,7 @@ fn apply_v8_coverage_inner(file_coverage: &mut FileCoverage, input: &CoverageInp
     inheritance_ranges
         .sort_by_key(|entry| entry.range.end_offset.saturating_sub(entry.range.start_offset));
     let context = CoverageContext {
-        source: input.source,
-        line_offsets: &line_offsets,
+        source_index: &source_index,
         ranges: &ranges,
         arm_ranges: &arm_ranges,
         inheritance_ranges: &inheritance_ranges,
@@ -437,28 +501,11 @@ fn urlencoding_decode(input: &str) -> Result<String, ()> {
     String::from_utf8(out).map_err(|_| ())
 }
 
-/// Precompute byte offsets for the start of each line in `source`.
-/// `line_offsets[N]` is the byte offset of the (0-based) Nth line's first
-/// character. `line_offsets.len()` equals the line count plus one (sentinel
-/// at the end of the source so the last line's range is also bounded).
-fn compute_line_offsets(source: &str) -> Vec<u32> {
-    let mut offsets = vec![0u32];
-    for (i, b) in source.bytes().enumerate() {
-        if b == b'\n' {
-            let next = u32::try_from(i + 1).unwrap_or(u32::MAX);
-            offsets.push(next);
-        }
-    }
-    let end = u32::try_from(source.len()).unwrap_or(u32::MAX);
-    offsets.push(end);
-    offsets
-}
-
 /// Pick the count of the smallest V8 range that fully contains `[start, end)`.
 /// Smaller ranges represent inner blocks (with their own counts under
 /// `isBlockCoverage`) and override the outer function-level count.
 ///
-/// Both V8 ranges and the statement byte span use the half-open convention
+/// Both V8 ranges and the statement UTF-16 span use the half-open convention
 /// (`endOffset` / `end` are exclusive). The containment predicate is therefore
 /// `r.start <= start && r.end >= end`: a range whose exclusive end is equal
 /// to the statement's exclusive end is the smallest possible exact container.

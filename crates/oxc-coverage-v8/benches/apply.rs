@@ -39,18 +39,22 @@ fn fixture(lines: u32, unicode: bool) -> (String, FileCoverage, Vec<V8FunctionCo
     let mut f = BTreeMap::new();
     let mut b = BTreeMap::new();
     let mut ranges = Vec::new();
+    let mut source_utf16_len = 0u32;
 
     for line in 1..=lines {
-        let line_start = source.len() as u32;
+        let line_start_byte = source.len();
+        let line_start_utf16 = source_utf16_len;
         if unicode && line % 8 == 0 {
             let _ = writeln!(source, "const value{line} = \"emoji 😀\";");
         } else {
             let _ = writeln!(source, "const value{line} = input + {line};");
         }
-        let line_end = source.len() as u32;
+        source_utf16_len = source_utf16_len.saturating_add(
+            source[line_start_byte..].encode_utf16().count().try_into().unwrap_or(u32::MAX),
+        );
         ranges.push(V8CoverageRange {
-            start_offset: line_start,
-            end_offset: line_end.saturating_sub(1),
+            start_offset: line_start_utf16,
+            end_offset: source_utf16_len.saturating_sub(1),
             count: u32::from(line % 7 != 0),
         });
 
@@ -87,8 +91,7 @@ fn fixture(lines: u32, unicode: bool) -> (String, FileCoverage, Vec<V8FunctionCo
         }
     }
 
-    ranges
-        .insert(0, V8CoverageRange { start_offset: 0, end_offset: source.len() as u32, count: 1 });
+    ranges.insert(0, V8CoverageRange { start_offset: 0, end_offset: source_utf16_len, count: 1 });
 
     let coverage = FileCoverage {
         path: "src/app.ts".to_string(),

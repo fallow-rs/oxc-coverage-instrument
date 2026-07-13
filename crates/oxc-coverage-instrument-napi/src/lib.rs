@@ -610,14 +610,15 @@ pub fn remap_coverage_map_with_loader(
         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))
 }
 
-/// Convert V8 byte-range coverage into Istanbul `FileCoverage` JSON.
+/// Convert V8 UTF-16 range coverage into Istanbul `FileCoverage` JSON.
 ///
 /// `v8FunctionsJson` is the JSON array shape that the V8 inspector emits
 /// under `Profiler.takePreciseCoverage().result[].functions` (the same shape
 /// Node's `--experimental-coverage` and `@vitest/coverage-v8` consume).
 ///
-/// `wrapperLength` accounts for Node's CJS module wrapper prefix and defaults
-/// to 0 (correct for ESM).
+/// `wrapperLength` is an explicit UTF-16 code-unit base for producers that
+/// report wrapper-shifted ranges. It defaults to 0, which is correct for
+/// source-relative Node inspector coverage.
 ///
 /// Returns a JSON object compatible with Istanbul's `FileCoverage`. Statement,
 /// function, and branch counts are populated from the V8 ranges. Branch arm

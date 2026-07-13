@@ -621,7 +621,7 @@ pub(crate) struct V8CollectResult {
 /// serialization. This is the visit-only path `v8_to_istanbul` uses; the
 /// codegen + preamble + hash work that `instrument()` performs is dead work
 /// when the caller only needs the location maps to intersect against V8
-/// byte ranges.
+/// UTF-16 ranges.
 #[expect(
     clippy::redundant_pub_crate,
     reason = "crate-internal function intentionally; the explicit pub(crate) documents that this is not part of the public API even though the parent module is already private"
@@ -646,12 +646,12 @@ pub(crate) fn collect_for_v8_to_istanbul(
         source,
         cov_fn_name: &cov_fn_name,
         report_logic: false,
-        // V8-collect builds the location maps that V8 byte ranges intersect
+        // V8-collect builds the location maps that V8 UTF-16 ranges intersect
         // against, so optional-chain branches stay tracked (the default); this
         // path emits no runtime helper, only the maps.
         track_optional_chain: true,
         ignore_class_methods: Vec::new(),
-        // V8-collect builds only the position maps that V8 byte ranges
+        // V8-collect builds only the position maps that V8 UTF-16 ranges
         // intersect against; the fnMap names never reach a consumer here, so
         // it stays Istanbul-exact (no callback naming) with no options to wire.
         name_callback_arguments: false,

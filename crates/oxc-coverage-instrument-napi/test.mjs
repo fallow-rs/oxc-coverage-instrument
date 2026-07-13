@@ -1075,7 +1075,7 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] remapCoverageMap fans out and merges like Istanbul');
 }
 
-// Test 18: v8ToIstanbul converts V8 byte-range coverage into Istanbul FileCoverage
+// Test 18: v8ToIstanbul converts V8 UTF-16 range coverage into Istanbul FileCoverage
 {
   const source = 'const x = 1;\nconst y = 2;\nconst z = 3;\n';
   const functions = [

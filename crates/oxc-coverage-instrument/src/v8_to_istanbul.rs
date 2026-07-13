@@ -1,4 +1,4 @@
-//! Convert V8 byte-range coverage into Istanbul `FileCoverage`.
+//! Convert V8 UTF-16 range coverage into Istanbul `FileCoverage`.
 //!
 //! Thin orchestrator that combines this crate's AST-traversal pass
 //! ([`crate::instrument::collect_for_v8_to_istanbul`]) with
@@ -37,8 +37,9 @@ impl std::error::Error for V8ToIstanbulError {}
 
 /// Convert V8 function coverage into Istanbul `FileCoverage`.
 ///
-/// `wrapper_length` accounts for Node's CJS module wrapper prefix
-/// (`(function(exports,require,module,__filename,__dirname){`). Pass 0 for ESM.
+/// `wrapper_length` is an explicit UTF-16 code-unit base for coverage producers
+/// that report wrapper-shifted ranges. Pass 0 for source-relative Node inspector
+/// coverage.
 ///
 /// Statement, function, and branch counts are each populated from the smallest
 /// V8 range containing the corresponding location. When the source carries an
