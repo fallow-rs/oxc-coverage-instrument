@@ -94,4 +94,3 @@ the repository's full `all-local` profile.
 - No performance implementation is restored from Plan 006.
 - No new release promises or workflow topology changes beyond enforcing the
   existing jobs.
-
