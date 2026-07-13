@@ -17,7 +17,7 @@ cargo run --example instrument
 
 Versioned hooks under `.githooks/` mirror the CI jobs that block PR merges, so catching a failure locally saves a round-trip:
 
-- **`pre-push`** runs the fast checks (`cargo fmt --check`, `cargo clippy -D warnings`, `typos .`) before every push.
+- **`pre-push`** delegates the fast checks to `./scripts/check.sh pre-push` before every push.
 - **`commit-msg`** lints the commit message against the Conventional Commits rules (the CI "Commit messages" job). It skips itself when commitlint is not installed, so a pure-Rust contributor is never blocked.
 
 **Enable once per clone:**
@@ -44,7 +44,7 @@ npm ci   # installs @commitlint/cli from package.json
 RUN_TESTS=1 git push   # also run `cargo test --workspace` (~5-10s)
 ```
 
-**Bypass (use sparingly — prefer fixing the root cause):**
+**Bypass (use sparingly, prefer fixing the root cause):**
 
 ```bash
 SKIP_PRE_PUSH=1 git push
@@ -52,26 +52,50 @@ SKIP_PRE_PUSH=1 git push
 
 ## Development workflow
 
+List the canonical repository checks and run focused profiles as needed:
+
 ```bash
 # Check it compiles
-cargo check --workspace
+./scripts/check.sh rust-check
 
 # Run tests (including doc tests)
-cargo test --workspace --all-targets
-cargo test --workspace --doc
+./scripts/check.sh rust-test
+./scripts/check.sh doc-test
 
 # Run clippy (strict: all + pedantic + nursery)
-cargo clippy --workspace --all-targets -- -D warnings
+./scripts/check.sh clippy
 
 # Format
-cargo fmt --all --check
+./scripts/check.sh fmt
 
 # Typos
-typos
+./scripts/check.sh typos
 
 # Docs
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
+./scripts/check.sh rust-doc
+
+# Show every primitive and aggregate profile
+./scripts/check.sh --list
 ```
+
+The full local profile requires Rust, Node.js 22, npm dependencies at the
+repository root, N-API package, and Vitest example, plus `typos`, `cargo-audit`,
+`cargo-shear`, `actionlint`, and `zizmor`. Build the native N-API artifact
+before running it. The package-surface primitive also requires the generated
+threaded and single-threaded WASI package artifacts prepared by the release
+tooling.
+
+```bash
+npm install
+npm --prefix crates/oxc-coverage-instrument-napi install
+npm --prefix crates/oxc-coverage-instrument-napi run build:debug
+npm --prefix examples/vitest-typescript install
+./scripts/check.sh all-local
+```
+
+Direct profiles fail with an installation or artifact hint when a prerequisite
+is missing. Only the pre-push aggregate may skip `typos`, and it reports the
+skip.
 
 ### Dependency and supply-chain gates
 
@@ -80,7 +104,7 @@ The CI runs `cargo audit`, `cargo deny`, and `cargo shear` on every push. Reprod
 ```bash
 # Security advisories (RustSec)
 cargo install cargo-audit
-cargo audit
+./scripts/check.sh audit
 
 # License / dependency policy (see deny.toml)
 cargo install cargo-deny
@@ -88,7 +112,7 @@ cargo deny check
 
 # Unused / misplaced dependencies
 cargo install cargo-shear
-cargo shear
+./scripts/check.sh shear
 ```
 
 ### Workflow files (`.github/`)
@@ -97,8 +121,8 @@ When editing anything under `.github/workflows/` or `.github/actions/`, the CI r
 
 ```bash
 brew install actionlint zizmor                 # or `cargo install` / `pip install`
-actionlint .github/workflows/*.yml
-zizmor --config .github/zizmor.yml --min-confidence medium --format plain .github/
+./scripts/check.sh actionlint
+./scripts/check.sh zizmor
 ```
 
 Every external action must be SHA-pinned with a version comment (`uses: owner/action@<40-hex> # vX.Y.Z`). Floating `@v6` / `@main` tags are rejected by zizmor's policy.
@@ -109,7 +133,7 @@ CI enforces conventional commits via commitlint. To reproduce locally before pus
 
 ```bash
 npm ci --ignore-scripts                                  # installs @commitlint/cli
-npm run commitlint -- --from origin/main --to HEAD       # lint your branch's commits
+./scripts/check.sh commitlint                             # lint your branch's commits
 ```
 
 Config lives in `commitlint.config.mjs`. Allowed types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`.
@@ -120,8 +144,20 @@ Config lives in `commitlint.config.mjs`. Allowed types: `build`, `chore`, `ci`, 
 cd crates/oxc-coverage-instrument-napi
 npm install
 npx napi build --platform
-node test.mjs
+cd ../..
+./scripts/check.sh napi-test
+./scripts/check.sh wasi-shim-test
 ```
+
+### Checks that stay in CI
+
+CI continues to own the OS and target matrices, MSRV toolchain selection,
+clean-worktree postcondition, WASM builds and tests, native versus WASM parity,
+platform examples, coverage generation and upload, artifact handling, and
+release publication. The Typos and Cargo Deny jobs stay action-owned. Their
+setup, environment, matrices, and artifact inputs are not reproduced by
+`all-local`; the profile prints this remainder instead of describing it as
+passed.
 
 ## Conformance test suite
 
@@ -166,7 +202,7 @@ node crates/oxc-coverage-instrument/tests/conformance/generate-reference.mjs
 3. Make your changes
 4. Run the full quality check:
    ```bash
-   cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --all-targets && npm --prefix crates/oxc-coverage-instrument-napi run build:debug && node scripts/istanbul-diff.mjs && node crates/oxc-coverage-instrument-napi/test.mjs && typos
+   ./scripts/check.sh all-local
    ```
 5. Open a PR with a clear description of what changed and why. The PR body must contain a `Closes #N` (or `Fixes #N` / `Resolves #N`) keyword for any issue it closes, or the literal string `N/A` if it does not close an issue. A workflow rejects PRs that omit both; the check is skipped for `[bot]` authors.
 

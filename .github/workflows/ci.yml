@@ -90,7 +90,7 @@ jobs:
       - name: Check documentation
         env:
           RUSTDOCFLAGS: "-D warnings"
-        run: cargo doc --no-deps --document-private-items
+        run: ./scripts/check.sh rust-doc
 
   typos:
     name: Typos
@@ -115,7 +115,7 @@ jobs:
       # in the release-npm.yml publish-crate job. Catches pin drift (e.g. a
       # consumer pinning source_maps "0.3.0" while it is locally 0.3.2) before
       # it reaches a release.
-      - run: ./scripts/check-version-sync.sh --mode=pins
+      - run: ./scripts/check.sh version-sync
 
   audit:
     name: Security Audit
@@ -128,7 +128,7 @@ jobs:
       - uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: cargo-audit
-      - run: cargo audit
+      - run: ./scripts/check.sh audit
 
   deny:
     name: Cargo Deny
@@ -151,7 +151,7 @@ jobs:
       - uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: cargo-shear
-      - run: cargo shear
+      - run: ./scripts/check.sh shear
 
   zizmor:
     name: Actions Security
@@ -192,17 +192,17 @@ jobs:
         run: npx napi build --platform
 
       - name: Validate V8 inspector coverage
-        run: node scripts/v8-inspector-smoke.mjs
+        run: ./scripts/check.sh inspector-smoke
 
       - name: Run napi tests
         working-directory: crates/oxc-coverage-instrument-napi
         run: node test.mjs
 
       - name: Validate production-like emitted behavior
-        run: node scripts/real-world-output.mjs
+        run: ./scripts/check.sh real-world-output
 
       - name: Run upstream Istanbul spec subset
-        run: node scripts/istanbul-upstream-specs.mjs
+        run: ./scripts/check.sh istanbul-upstream
 
   napi-wasm:
     # Build the napi binding for both WASI variants. The threaded variant runs
@@ -381,7 +381,7 @@ jobs:
 
       - name: Typecheck example
         working-directory: examples/vitest-typescript
-        run: npm run typecheck
+        run: ../../scripts/check.sh vitest-typecheck
 
       - name: Run vitest with coverage
         working-directory: examples/vitest-typescript

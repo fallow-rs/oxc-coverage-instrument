@@ -124,7 +124,7 @@ impl PositionRemapper {
         get_mapping_location_cached(&mut ctx, loc).is_some()
     }
 
-    /// Non-mutating mirror of [`legacy_try_remap_position`]: `true` when the
+    /// Non-mutating mirror of the former `legacy_try_remap_position`: `true` when the
     /// istanbul position (1-based `line`, 0-based UTF-16 `column`) has a direct
     /// greatest-lower-bound mapping, or when it is the `line == 0` sentinel.
     fn legacy_position_maps(&self, pos: &Position) -> bool {
