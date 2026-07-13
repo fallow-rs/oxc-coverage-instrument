@@ -97,6 +97,42 @@ const checkSet = (label, expected, actual) => {
   contractErrors.push(`${label}: ${details.join('; ')}`);
 };
 
+const findYamlBlock = (lines, parent, key, indent) => {
+  const header = `${' '.repeat(indent)}${key}:`;
+  const headerIndex = lines.findIndex(
+    (line, index) => index >= parent.start && index < parent.end && line === header,
+  );
+  if (headerIndex === -1) return { start: parent.end, end: parent.end };
+
+  let end = parent.end;
+  for (let index = headerIndex + 1; index < parent.end; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trimStart();
+    if (trimmed === '' || trimmed.startsWith('#')) continue;
+    const lineIndent = line.length - trimmed.length;
+    if (lineIndent <= indent) {
+      end = index;
+      break;
+    }
+  }
+  return { start: headerIndex + 1, end };
+};
+
+const releaseBuildTargets = (workflow) => {
+  const lines = workflow.split(/\r?\n/);
+  const root = { start: 0, end: lines.length };
+  const jobs = findYamlBlock(lines, root, 'jobs', 0);
+  const build = findYamlBlock(lines, jobs, 'build', 2);
+  const strategy = findYamlBlock(lines, build, 'strategy', 4);
+  const matrix = findYamlBlock(lines, strategy, 'matrix', 6);
+  const include = findYamlBlock(lines, matrix, 'include', 8);
+  const prefix = `${' '.repeat(12)}target:`;
+  return lines
+    .slice(include.start, include.end)
+    .filter((line) => line.startsWith(prefix))
+    .map((line) => line.slice(prefix.length).trim().split(/\s+#/, 1)[0]);
+};
+
 checkUnique(
   'canonical target triples',
   targetPackageEntries.map(([target]) => target),
@@ -154,9 +190,7 @@ const platformPackages = new Set(platformPackageNames);
 checkSet('platform manifests', expectedPackages, platformPackages);
 
 const releaseWorkflow = readFileSync(resolve(rootDir, '.github/workflows/release-npm.yml'), 'utf8');
-const releaseTargetList = [
-  ...releaseWorkflow.matchAll(/^\s+target:\s+([^\s#]+)\s*$/gm),
-].map((match) => match[1]);
+const releaseTargetList = releaseBuildTargets(releaseWorkflow);
 checkUnique('release targets', releaseTargetList);
 const releaseTargets = new Set(releaseTargetList);
 checkSet('release targets', expectedTargets, releaseTargets);

@@ -190,6 +190,37 @@ expectParityFailure(
 );
 
 expectParityFailure(
+  'release target relocated outside build matrix',
+  ({ fixture }) => {
+    const workflowPath = resolve(fixture, '.github/workflows/release-npm.yml');
+    const workflow = readFileSync(workflowPath, 'utf8')
+      .replace('            target: aarch64-apple-darwin\n', '')
+      .replace(
+        '  publish:\n',
+        '  publish:\n    metadata:\n      target: aarch64-apple-darwin\n',
+      );
+    writeFileSync(workflowPath, workflow);
+  },
+  /release targets: missing aarch64-apple-darwin/,
+);
+
+{
+  const { fixture, script, binDir } = makeFixture();
+  try {
+    const workflowPath = resolve(fixture, '.github/workflows/release-npm.yml');
+    const workflow = readFileSync(workflowPath, 'utf8').replace(
+      '  publish:\n',
+      '  publish:\n    metadata:\n      target: documentation-only\n',
+    );
+    writeFileSync(workflowPath, workflow);
+    const result = runFixture(fixture, script, binDir);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+}
+
+expectParityFailure(
   'missing pack specification',
   ({ script }) => {
     const source = readFileSync(script, 'utf8').replace(
