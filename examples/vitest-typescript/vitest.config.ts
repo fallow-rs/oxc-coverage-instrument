@@ -5,7 +5,17 @@ export default defineConfig({
   test: {
     coverage: {
       provider: 'istanbul',
-      instrumenter: (options) => createOxcInstrumenter(options),
+      instrumenter: (options) =>
+        createOxcInstrumenter({
+          ...options,
+          reportLogic: false,
+          trackOptionalChainBranches: false,
+          stripTypescript: false,
+          experimentalDecorators: false,
+          emitDecoratorMetadata: false,
+          functionIdentityOverlay: false,
+          nameCallbackArguments: false,
+        }),
       include: ['src/**/*.ts'],
       exclude: ['**/*.test.ts'],
       reporter: ['json', 'text'],

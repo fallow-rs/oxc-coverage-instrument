@@ -12,6 +12,13 @@ export interface OxcInstrumenterOptions {
   /** When true, adds truthy-value tracking (bT) for logical expressions. */
   reportLogic?: boolean;
   /**
+   * Track each optional chaining (`?.`) link as a branch. Defaults to true.
+   * Set to false to leave optional chains native with no `_oc` helper or
+   * `optional-chain` branch, matching `istanbul-lib-instrument` and avoiding
+   * per-operand helper calls in `?.`-dense hot paths.
+   */
+  trackOptionalChainBranches?: boolean;
+  /**
    * Attach the optional `x_fallow_functionMap` extension to the last file
    * coverage object. Defaults to false.
    */
@@ -33,6 +40,94 @@ export interface OxcInstrumenterOptions {
    * strip. Non-boolean values throw `TypeError`.
    */
   stripTypescript?: boolean;
+  /**
+   * Lower legacy `experimentalDecorators` syntax into `_decorate(...)` calls.
+   * Defaults to false and only applies when the TypeScript strip pass runs.
+   * Requires `@oxc-project/runtime` at execution. This option is not detected
+   * from `tsconfig.json` and must be enabled explicitly.
+   */
+  experimentalDecorators?: boolean;
+  /**
+   * Emit `_decorateMetadata` type metadata alongside decorated members.
+   * Required for NestJS dependency injection and TypeORM column inference.
+   * Setting this to true auto-promotes `experimentalDecorators` to true at
+   * this adapter layer, matching `tsconfig.json` semantics.
+   */
+  emitDecoratorMetadata?: boolean;
+}
+
+/** A JSON primitive accepted in an input source map. */
+export type JsonPrimitive = string | number | boolean | null;
+
+/** A JSON-compatible value accepted in an input source map. */
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+
+/** A JSON-compatible object accepted as an input source map. */
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
+
+/** A source map returned by the instrumenter. */
+export interface OxcSourceMap {
+  [key: string]: JsonValue | undefined;
+  version: number;
+  sources: string[];
+  names: string[];
+  mappings: string;
+  file?: string;
+  sourceRoot?: string;
+  sourcesContent?: Array<string | null>;
+}
+
+/** A position in an Istanbul coverage location. */
+export interface IstanbulPosition {
+  line?: number;
+  column?: number;
+}
+
+/** A source range in Istanbul coverage data. */
+export interface IstanbulLocation {
+  start: IstanbulPosition;
+  end: IstanbulPosition;
+}
+
+/** Function metadata in Istanbul coverage data. */
+export interface IstanbulFunction {
+  name: string;
+  line: number;
+  decl: IstanbulLocation;
+  loc: IstanbulLocation;
+}
+
+/** Branch metadata in Istanbul coverage data. */
+export interface IstanbulBranch {
+  loc: IstanbulLocation;
+  line: number;
+  type: string;
+  locations: IstanbulLocation[];
+}
+
+/** Coverage data for one instrumented file. */
+export interface IstanbulFileCoverage {
+  path: string;
+  statementMap: Record<string, IstanbulLocation>;
+  fnMap: Record<string, IstanbulFunction>;
+  branchMap: Record<string, IstanbulBranch>;
+  s: Record<string, number>;
+  f: Record<string, number>;
+  b: Record<string, number[]>;
+  bT?: Record<string, number[]>;
+  inputSourceMap?: JsonValue;
+  x_fallow_functionMap?: Record<string, JsonObject>;
+}
+
+/** Instrumenter returned by `createOxcInstrumenter`. */
+export interface OxcInstrumenter {
+  instrumentSync(code: string, filename: string, inputSourceMap?: JsonObject): string;
+  lastSourceMap(): OxcSourceMap | null;
+  lastFileCoverage(): IstanbulFileCoverage | null;
+  /** Property alias for compatibility with vite-plugin-istanbul. */
+  readonly fileCoverage: IstanbulFileCoverage | null;
 }
 
 /**
@@ -54,10 +149,4 @@ export interface OxcInstrumenterOptions {
  * })
  * ```
  */
-export declare function createOxcInstrumenter(options?: OxcInstrumenterOptions): {
-  instrumentSync(code: string, filename: string, inputSourceMap?: any): string;
-  lastSourceMap(): any;
-  lastFileCoverage(): any;
-  /** Property alias for compatibility with vite-plugin-istanbul. */
-  readonly fileCoverage: any;
-};
+export declare function createOxcInstrumenter(options?: OxcInstrumenterOptions): OxcInstrumenter;
