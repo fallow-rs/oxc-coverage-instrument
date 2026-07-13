@@ -195,18 +195,20 @@ helpers and `SourceMapStore::transform_coverage_map` use that one-to-many path
 automatically, so each original source receives its own `FileCoverage`.
 
 When generated chunks map to the same original path, their coverage is merged
-instead of replaced. Statements merge by location, functions by name plus
-declaration and body locations, and branches by type plus umbrella and ordered
-arm locations. Matching `s`, `f`, `b`, and `bT` counts use saturating `u32`
-addition. The optional `x_fallow_functionMap` follows renumbered function ids;
-if equivalent functions carry conflicting identities, the optional overlay is
-dropped rather than selecting one record.
+instead of replaced. Statements merge by location, functions by declaration
+location, and branches by ordered arm locations, matching
+`istanbul-lib-source-maps`. The first function or branch supplies metadata such
+as name, body, type, and umbrella location. Matching `s`, `f`, `b`, and `bT`
+counts use saturating `u32` addition. The optional
+`x_fallow_functionMap` follows renumbered function ids; if equivalent functions
+carry conflicting identities, the optional overlay is dropped rather than
+selecting one record. Statement-only chunks do not affect overlay completeness.
 
 For runners (Jest with `transform`, plugins that hand maps in incrementally) that want continuous remapping during collection, `SourceMapStore` accumulates per-file maps via `add_map` and applies them via `transform_coverage`.
 
 Surviving positions are resolved through an istanbul `getMapping`-equivalent range remap, not a direct per-position lookup: starts resolve with greatest-lower-bound and ends resolve to the next original segment (or the end of the original line), byte-for-byte with `createSourceMapStore().transformCoverage`. So an exclusive end that lands between source-map segments widens to the full token instead of truncating backward, and a sub-segment span (e.g. a 1-char arrow declaration) balloons to its enclosing span. Line numbers and coverage percentages are unaffected, but because `istanbul-lib-coverage`'s `keyFromLoc` includes columns, flush pre-`0.4.0` coverage caches before merging them with newer runs.
 
-By default, positions whose source-map lookup returns `None` are silently kept at their generated-output coordinates for an unambiguous single-source map (matching the legacy Mode A flow). An unmapped position in a multi-source map has no safe original owner and is omitted. Pass `RemapOptions { drop_unmapped: true }` (or `{ dropUnmapped: true }` from JS) to drop statement / function / branch entries that fail to remap, along with their matching `s` / `f` / `b` / `bT` slots. Drop semantics align with `istanbul-lib-source-maps`'s `transformer.js`: statements drop when start or end fails, functions drop when any of `decl` / `loc` start or end fails, and branch arms drop per arm (the whole branch drops when no arms survive, the umbrella `loc` fails to remap, or retained locations disagree on their source). Use this when instrumenting compiler-emitted boilerplate that has no original-source mapping (e.g. the `?vue&type=script` chunk produced by `@vitejs/plugin-vue`) to keep downstream Istanbul reporters from rendering chunk-line positions against `.vue` paths.
+By default, positions whose source-map lookup returns `None` are silently kept at their generated-output coordinates for an unambiguous single-source map (matching the legacy Mode A flow). An unmapped position in a multi-source map has no safe original owner and is omitted. Pass `RemapOptions { drop_unmapped: true }` (or `{ dropUnmapped: true }` from JS) to drop statement / function / branch entries that fail to remap, along with their matching `s` / `f` / `b` / `bT` slots. Drop semantics align with `istanbul-lib-source-maps`'s `transformer.js`: statements drop when start or end fails, functions drop when any of `decl` / `loc` start or end fails, and branch arms drop per arm. The whole branch drops when no arms survive or retained mapped arms disagree on their source. Branch ownership comes from those arms, so an unmapped umbrella falls back to the first retained arm and a mapped umbrella remains branch metadata even when it resolves elsewhere. Use this when instrumenting compiler-emitted boilerplate that has no original-source mapping (e.g. the `?vue&type=script` chunk produced by `@vitejs/plugin-vue`) to keep downstream Istanbul reporters from rendering chunk-line positions against `.vue` paths.
 
 ```rust
 use oxc_coverage_instrument::{remap_coverage_map_with_options, RemapOptions};

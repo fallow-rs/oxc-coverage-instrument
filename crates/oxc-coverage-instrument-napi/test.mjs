@@ -917,6 +917,15 @@ function runInstrumented(result, filename, callExpression) {
     assert(file, `Istanbul oracle must contain ${suffix}`);
     return coverageMap.fileCoverageFor(file).data;
   };
+  const assertFinalIdAlignment = (coverage) => {
+    assert.deepEqual(Object.keys(coverage.s), Object.keys(coverage.statementMap));
+    assert.deepEqual(Object.keys(coverage.f), Object.keys(coverage.fnMap));
+    assert.deepEqual(Object.keys(coverage.b), Object.keys(coverage.branchMap));
+    assert.deepEqual(Object.keys(coverage.bT), Object.keys(coverage.branchMap));
+    if (coverage.x_fallow_functionMap) {
+      assert.deepEqual(Object.keys(coverage.x_fallow_functionMap), Object.keys(coverage.fnMap));
+    }
+  };
 
   const bundle = makeCoverage(
     'dist/bundle.js',
@@ -946,7 +955,16 @@ function runInstrumented(result, filename, callExpression) {
       1,
       `${source} keeps the function overlay`,
     );
+    assertFinalIdAlignment(bundleOurs[source]);
   }
+  assert.deepEqual(
+    bundleOurs['src/a.ts'].x_fallow_functionMap['0'],
+    bundle.x_fallow_functionMap['0'],
+  );
+  assert.deepEqual(
+    bundleOurs['src/b.ts'].x_fallow_functionMap['0'],
+    bundle.x_fallow_functionMap['1'],
+  );
 
   const first = makeCoverage(
     'dist/first.js',
@@ -964,6 +982,10 @@ function runInstrumented(result, filename, callExpression) {
     ]),
     20,
   );
+  second.fnMap['0'].name = 'different';
+  second.fnMap['0'].loc = makeLoc(2, 0, 5);
+  second.branchMap['0'].type = 'cond-expr';
+  second.branchMap['0'].loc = makeLoc(2, 0, 5);
   const collisionInput = { [first.path]: first, [second.path]: second };
   const collisionOracle = await createSourceMapStore().transformCoverage(
     createCoverageMap(collisionInput),
@@ -980,6 +1002,39 @@ function runInstrumented(result, filename, callExpression) {
     ([, branch]) => branch.loc.start.line === 1,
   )[0];
   assert.deepEqual(collisionOurs['src/shared.ts'].bT[sharedBranchId], [26, 28], 'bT sums by arm');
+  assertFinalIdAlignment(collisionOurs['src/shared.ts']);
+  assert.deepEqual(
+    collisionOurs['src/shared.ts'].x_fallow_functionMap['0'],
+    first.x_fallow_functionMap['0'],
+  );
+
+  const conflicting = structuredClone(second);
+  conflicting.x_fallow_functionMap['0'].id = 'fallow:fn:conflict';
+  const conflictInput = { [first.path]: first, [conflicting.path]: conflicting };
+  const conflictOurs = JSON.parse(
+    remapCoverageMap(JSON.stringify(conflictInput), { dropUnmapped: true }),
+  );
+  assert.equal(
+    conflictOurs['src/shared.ts'].x_fallow_functionMap,
+    undefined,
+    'conflicting overlay records drop the optional overlay',
+  );
+  assertFinalIdAlignment(conflictOurs['src/shared.ts']);
+
+  const statementOnly = structuredClone(second);
+  statementOnly.fnMap = {};
+  statementOnly.f = {};
+  statementOnly.x_fallow_functionMap = undefined;
+  const statementOnlyInput = { [first.path]: first, [statementOnly.path]: statementOnly };
+  const statementOnlyOurs = JSON.parse(
+    remapCoverageMap(JSON.stringify(statementOnlyInput), { dropUnmapped: true }),
+  );
+  assertFinalIdAlignment(statementOnlyOurs['src/shared.ts']);
+  assert.deepEqual(
+    statementOnlyOurs['src/shared.ts'].x_fallow_functionMap['0'],
+    first.x_fallow_functionMap['0'],
+    'statement-only collision preserves a complete overlay record',
+  );
 
   const crossSource = makeCoverage(
     'dist/cross-source.js',

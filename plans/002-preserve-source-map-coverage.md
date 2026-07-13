@@ -135,9 +135,10 @@ struct MappedLocation {
 
 Change the cached get-mapping path to retain the source index alongside the
 location. A statement or function belongs to one source only when every
-required span resolves to that source. A branch belongs to a source only when
-its umbrella location and retained arms agree with that source. Follow the
-upstream oracle for cross-source branch arms.
+required span resolves to that source. A branch belongs to the source selected
+by its retained mapped arms. Drop cross-source arms, fall back to the first
+retained arm when the umbrella is unmapped, and retain a mapped umbrella as
+metadata even when it resolves elsewhere, matching the upstream oracle.
 
 Keep the existing location-only wrapper for callers that do not need source
 identity, so `PositionRemapper::location_maps` and eager-gate behavior remain
@@ -161,7 +162,9 @@ Keep the current `Option<FileCoverage>` functions source-compatible. They may
 delegate to the new primitive and return `Some` only when exactly one remapped
 file exists. For a true multi-source result, return `None` and document that
 callers needing complete results must use the map-returning API. Do not pick one
-source silently.
+source silently. When a multi-source map yields one surviving output, preserve
+the legacy wrapper's original metadata IDs and aligned counter and overlay
+shape rather than returning the map API's canonicalized IDs.
 
 **Verify**: the multi-source Rust repro returns both original paths with the
 expected entries and counts.
@@ -175,14 +178,16 @@ merge locally without a new dependency.
 Merge rules:
 
 - Equivalent statement locations share one output id and their `s` counts sum.
-- Equivalent functions use declaration location, body location, and name as
-  identity; their `f` counts sum.
-- Equivalent branches use type, umbrella location, and ordered arm locations;
-  `b` and `bT` sum arm by arm.
+- Equivalent functions use declaration location as identity; their `f` counts
+  sum and the first entry supplies name and body metadata.
+- Equivalent branches use ordered arm locations as identity; `b` and `bT` sum
+  arm by arm and the first entry supplies type and umbrella metadata.
 - Distinct entries append with new contiguous ids.
 - Overlay entries follow the final function id. If equivalent functions carry
   conflicting overlay records, stop and follow the upstream or documented
   extension contract instead of choosing arbitrarily.
+- Statement-only inputs do not participate in overlay completeness or conflict
+  decisions.
 - Use checked or saturating addition consistently with existing counter types;
   document the choice and test the boundary.
 
