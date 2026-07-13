@@ -295,6 +295,23 @@ assert_equal "$actual_list" "$expected_list" "profile inventory"
 sed -n '/^run_all_local() {$/,/^}$/p' "$CHECK" >"$TMP/all-local-body.log"
 assert_contains "$TMP/all-local-body.log" "run_self_test"
 
+workflow="$ROOT/.github/workflows/ci.yml"
+sed -n '/^  check:$/,/^  msrv:$/p' "$workflow" >"$TMP/ci-check-job.log"
+if ! grep -Fq -- "- name: Verification runner self-test" "$TMP/ci-check-job.log"; then
+  fail "CI check job is missing the verification runner self-test"
+fi
+if ! grep -Fq -- "if: runner.os == 'Linux'" "$TMP/ci-check-job.log"; then
+  fail "CI verification runner self-test is not Ubuntu-only"
+fi
+if ! grep -Fq -- "run: ./scripts/check.sh self-test" "$TMP/ci-check-job.log"; then
+  fail "CI check job does not invoke ./scripts/check.sh self-test"
+fi
+
+sed -n '/^  ci-ok:$/,/^    runs-on:/p' "$workflow" >"$TMP/ci-ok-needs.log"
+if ! grep -Fq -- "- version-sync" "$TMP/ci-ok-needs.log"; then
+  fail "ci-ok.needs is missing version-sync"
+fi
+
 while read -r documented_profile; do
   if ! grep -Eq "^${documented_profile}[[:space:]]" "$TMP/list.log"; then
     fail "CONTRIBUTING.md references unknown check profile '$documented_profile'"

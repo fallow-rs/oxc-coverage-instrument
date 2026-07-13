@@ -36,6 +36,10 @@ jobs:
           components: clippy, rustfmt
           cache-key: check-${{ matrix.os }}
 
+      - name: Verification runner self-test
+        if: runner.os == 'Linux'
+        run: ./scripts/check.sh self-test
+
       - name: Run tests
         run: cargo test --workspace --all-targets
 
@@ -651,6 +655,7 @@ jobs:
       - msrv
       - doc
       - typos
+      - version-sync
       - audit
       - deny
       - shear
