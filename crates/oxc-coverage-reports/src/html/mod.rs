@@ -47,6 +47,7 @@
 
 mod highlight;
 mod output;
+mod paths;
 
 use crate::escape::{html_attr, html_text};
 use output::OutputDir;
