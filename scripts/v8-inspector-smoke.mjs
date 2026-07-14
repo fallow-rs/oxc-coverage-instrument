@@ -25,6 +25,8 @@ const nestedArmFilename = 'inspector-nested-arm.js';
 const nestedArmUrl = 'oxc-coverage-instrument://nested-function-arm.js';
 const unicodeFilename = 'inspector-unicode.js';
 const unicodeUrl = 'oxc-coverage-instrument://unicode-offsets.js';
+const lineTerminatorFilename = 'inspector-line-terminators.js';
+const lineTerminatorUrl = 'oxc-coverage-instrument://line-terminators.js';
 const fixtureUrl = 'oxc-coverage-instrument://repository-nested-functions.js';
 
 const withSourceUrl = (source, url) => `${source.trimEnd()}\n//# sourceURL=${url}\n`;
@@ -155,6 +157,27 @@ unicodeBranch(true);`,
   );
 };
 
+const runLineTerminatorSmoke = async () => {
+  const source = withSourceUrl(
+    'globalThis.first = 1;\r' +
+      'globalThis.second = 2;\r\n' +
+      'globalThis.third = 3;\u2028' +
+      'globalThis.fourth = 4;\u2029' +
+      'globalThis.fifth = 5;',
+    lineTerminatorUrl,
+  );
+  const functions = await captureFunctions(source, lineTerminatorUrl, () => undefined);
+  const coverage = JSON.parse(
+    v8ToIstanbul(source, lineTerminatorFilename, JSON.stringify(functions)),
+  );
+  const lines = Object.values(coverage.statementMap).map(({ start }) => start.line);
+
+  assert.equal(coverage.path, lineTerminatorFilename);
+  assertCounterMetadata(coverage);
+  assert.deepEqual(lines.slice(0, 5), [1, 2, 3, 4, 5]);
+  assert(Object.values(coverage.s).slice(0, 5).every((count) => count > 0));
+};
+
 const runRepositoryFixtureSmoke = async () => {
   const fixtureSource = await readFile(fixturePath, 'utf8');
   const source = withSourceUrl(fixtureSource, fixtureUrl);
@@ -173,5 +196,6 @@ const runRepositoryFixtureSmoke = async () => {
 await runInlineSmoke();
 await runNestedFunctionArmSmoke();
 await runUnicodeOffsetSmoke();
+await runLineTerminatorSmoke();
 await runRepositoryFixtureSmoke();
 console.log('PASS v8 inspector coverage converts to stable Istanbul behavior');

@@ -57,6 +57,24 @@ fn single_if_arm_coverage() -> FileCoverage {
     coverage
 }
 
+fn single_statement_coverage(location: Location) -> FileCoverage {
+    let mut coverage = FileCoverage {
+        path: "line.js".to_string(),
+        statement_map: BTreeMap::new(),
+        fn_map: BTreeMap::new(),
+        branch_map: BTreeMap::new(),
+        s: BTreeMap::new(),
+        f: BTreeMap::new(),
+        b: BTreeMap::new(),
+        b_t: None,
+        input_source_map: None,
+        x_fallow_function_map: None,
+    };
+    coverage.statement_map.insert("0".to_string(), location);
+    coverage.s.insert("0".to_string(), 0);
+    coverage
+}
+
 /// Tiny base64 encoder using the URL-safe alphabet (`-` / `_`) and no
 /// padding. We bring our own so the test does not pull in a base64 crate
 /// just to round-trip eight characters; equally importantly, hitting the
@@ -181,6 +199,39 @@ fn inline_source_mapping_url_requires_a_final_directive_line() {
         "const value = 1;\n//# sourceMappingURL=data:application/json;base64,{payload}\n \t"
     );
     assert_eq!(extract_inline_source_map(&trailer).unwrap()["version"], 3);
+}
+
+#[test]
+fn v8_source_index_supports_every_ecmascript_line_terminator() {
+    for (name, terminator) in
+        [("LF", "\n"), ("CRLF", "\r\n"), ("CR", "\r"), ("LS", "\u{2028}"), ("PS", "\u{2029}")]
+    {
+        let source = format!("a();{terminator}b(); tail();");
+        let byte_start = source.find("b();").unwrap();
+        let utf16_start = source[..byte_start].encode_utf16().count() as u32;
+        let mut coverage = single_statement_coverage(Location {
+            start: Position { line: 2, column: 0 },
+            end: Position { line: 2, column: 4 },
+        });
+        let functions = vec![V8FunctionCoverage {
+            function_name: String::new(),
+            ranges: vec![
+                V8CoverageRange {
+                    start_offset: 0,
+                    end_offset: source.encode_utf16().count() as u32,
+                    count: 1,
+                },
+                V8CoverageRange {
+                    start_offset: utf16_start,
+                    end_offset: utf16_start + 4,
+                    count: 9,
+                },
+            ],
+            is_block_coverage: true,
+        }];
+        apply_v8_coverage(&mut coverage, &source, &functions, 0, &BTreeMap::new());
+        assert_eq!(coverage.s["0"], 9, "{name}");
+    }
 }
 
 #[test]

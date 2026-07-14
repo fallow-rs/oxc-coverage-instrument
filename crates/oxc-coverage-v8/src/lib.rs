@@ -106,9 +106,9 @@ impl SourceIndex {
         let mut line_ends_utf16 = Vec::new();
         let mut non_ascii_spans = Vec::new();
         let mut utf16_offset = 0u32;
-        let mut previous_was_carriage_return = false;
 
-        for (byte_start, ch) in source.char_indices() {
+        let mut chars = source.char_indices().peekable();
+        while let Some((byte_start, ch)) = chars.next() {
             let byte_start = u32::try_from(byte_start).unwrap_or(u32::MAX);
             let byte_width = ch.len_utf8() as u32;
             let utf16_width = ch.len_utf16() as u32;
@@ -120,15 +120,24 @@ impl SourceIndex {
                     utf16_end: utf16_offset.saturating_add(utf16_width),
                 });
             }
-            if ch == '\n' {
-                line_ends_utf16
-                    .push(utf16_offset.saturating_sub(u32::from(previous_was_carriage_return)));
+
+            match ch {
+                '\r' => {
+                    line_ends_utf16.push(utf16_offset);
+                    utf16_offset = utf16_offset.saturating_add(1);
+                    if chars.peek().is_some_and(|(_, next)| *next == '\n') {
+                        chars.next();
+                        utf16_offset = utf16_offset.saturating_add(1);
+                    }
+                    line_starts_utf16.push(utf16_offset);
+                }
+                '\n' | '\u{2028}' | '\u{2029}' => {
+                    line_ends_utf16.push(utf16_offset);
+                    utf16_offset = utf16_offset.saturating_add(utf16_width);
+                    line_starts_utf16.push(utf16_offset);
+                }
+                _ => utf16_offset = utf16_offset.saturating_add(utf16_width),
             }
-            utf16_offset = utf16_offset.saturating_add(utf16_width);
-            if ch == '\n' {
-                line_starts_utf16.push(utf16_offset);
-            }
-            previous_was_carriage_return = ch == '\r';
         }
         line_ends_utf16.push(utf16_offset);
 
