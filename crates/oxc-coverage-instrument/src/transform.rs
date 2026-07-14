@@ -7,6 +7,7 @@
 //! 3. Converts arrow expression bodies to block bodies when needed
 //! 4. Prepends the coverage initialization preamble to the program
 
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::mem;
 
@@ -1764,32 +1765,45 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         }
 
         let cov_fn = self.cov_fn_name;
-        let mut insertions: Vec<(usize, Statement<'a>)> = Vec::new();
-
-        for (idx, stmt) in stmts.iter().enumerate() {
-            if self.pending_stmts.is_empty() {
-                break;
-            }
+        let mut insertions_by_target = BTreeMap::new();
+        for stmt in stmts.iter() {
             let span = stmt.span();
             // Skip injected nodes (SPAN = 0:0) to prevent offset-0 collision
             if span.start == 0 && span.end == 0 {
                 continue;
             }
-            insertions.extend(self.drain_pending_insertions_for_target(span.start).map(
-                |pending| {
-                    (idx, build_counter_stmt(CounterKind::from_pending(cov_fn, &pending), ctx))
-                },
-            ));
+            insertions_by_target.entry(span.start).or_insert_with(Vec::new);
         }
 
-        if insertions.is_empty() {
+        let mut unmatched = Vec::with_capacity(self.pending_stmts.len());
+        let mut matched_count = 0;
+        for pending in mem::take(&mut self.pending_stmts) {
+            if let Some(target) = insertions_by_target.get_mut(&pending.target_start) {
+                target.push(pending);
+                matched_count += 1;
+            } else {
+                unmatched.push(pending);
+            }
+        }
+        self.pending_stmts = unmatched;
+
+        if matched_count == 0 {
             return;
         }
 
-        insertions.sort_by_key(|insertion| std::cmp::Reverse(insertion.0));
-        for (idx, counter) in insertions {
-            stmts.insert(idx, counter);
+        let original = mem::replace(stmts, ctx.ast.vec());
+        let mut rebuilt = ctx.ast.vec_with_capacity(original.len() + matched_count);
+        for stmt in original {
+            let span = stmt.span();
+            if let Some(insertions) = insertions_by_target.remove(&span.start) {
+                for pending in insertions {
+                    rebuilt
+                        .push(build_counter_stmt(CounterKind::from_pending(cov_fn, &pending), ctx));
+                }
+            }
+            rebuilt.push(stmt);
         }
+        *stmts = rebuilt;
     }
 
     fn enter_if_statement(

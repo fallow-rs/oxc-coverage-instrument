@@ -94,6 +94,35 @@ fn statement_export_const_multi_declarator_both_counted() {
     assert!(s0 < export && s2 < export, "both statement counters must run before the export");
 }
 
+#[test]
+fn pending_statement_counters_preserve_source_order() {
+    let source = "export const fn = () => 1;\nwhile (ready) tick();\nbar();\n";
+    let result = instrument(source, "pending-order.js", &InstrumentOptions::default()).unwrap();
+    let first = result
+        .code
+        .find(".s[0];")
+        .unwrap_or_else(|| panic!("first counter must be emitted:\n{}", result.code));
+    let export = result.code.find("export const fn").expect("export statement must be emitted");
+    let while_counter = result.code.find(".s[2];").expect("while counter must be emitted");
+    let loop_counter = result.code.find(".s[3];").expect("loop-child counter must be emitted");
+    let while_stmt = result.code.find("while (ready)").expect("while statement must be emitted");
+    let tick = result.code.find("tick();").expect("loop-child statement must be emitted");
+    let final_counter = result.code.find(".s[4];").expect("final counter must be emitted");
+    let bar = result.code.find("bar();").expect("final statement must be emitted");
+
+    assert!(first < export, "export counter must precede its statement");
+    assert!(export < while_counter && while_counter < while_stmt);
+    assert!(
+        while_stmt < loop_counter && loop_counter < tick,
+        "loop-child counter must remain inside the loop"
+    );
+    assert!(tick < final_counter && final_counter < bar);
+    assert!(
+        first < while_counter && while_counter < loop_counter && loop_counter < final_counter,
+        "counter IDs must remain in source order"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Function coverage
 // ---------------------------------------------------------------------------

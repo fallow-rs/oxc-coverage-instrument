@@ -3,6 +3,8 @@
 //! Measures instrumentation throughput across different file sizes
 //! and complexity levels. Run with: `cargo bench`
 
+use std::fmt::Write as _;
+
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use oxc_coverage_instrument::{InstrumentOptions, instrument};
 
@@ -23,6 +25,7 @@ const NAPI_FIXTURES: &[(&str, &str)] = &[
 ];
 
 const SCALE_COUNTS: &[usize] = &[10, 50, 100, 500];
+const FLAT_STATEMENT_COUNTS: &[usize] = &[100, 1_000, 5_000];
 
 fn read_fixture(name: &str) -> String {
     let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -78,6 +81,27 @@ fn bench_instrument_scaling(c: &mut Criterion) {
     group.finish();
 }
 
+fn flat_statements(count: usize) -> String {
+    let mut source = String::new();
+    for index in 0..count {
+        writeln!(source, "sink({index});").expect("writing to a String cannot fail");
+    }
+    source
+}
+
+fn bench_flat_statement_scaling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("flat_statements");
+
+    for &count in FLAT_STATEMENT_COUNTS {
+        let source = flat_statements(count);
+        group.bench_with_input(BenchmarkId::new("siblings", count), &source, |b, source| {
+            b.iter(|| instrument(source, "flat.js", &InstrumentOptions::default()).unwrap());
+        });
+    }
+
+    group.finish();
+}
+
 /// Mirrors what the napi binding does end-to-end: instrument, then surface a
 /// JSON string of the coverage map. Pre-round-5 the binding ran a second
 /// `serde_json::to_string(&coverage_map)` after `instrument()`; post-round-5
@@ -113,6 +137,7 @@ criterion_group!(
     bench_instrument_fixtures,
     bench_instrument_with_source_map,
     bench_instrument_scaling,
+    bench_flat_statement_scaling,
     bench_napi_path
 );
 criterion_main!(benches);
