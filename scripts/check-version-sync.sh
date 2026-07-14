@@ -63,6 +63,63 @@ for manifest in sorted(crates_dir.glob("*/Cargo.toml")):
 
 dir_to_name = {c["dir"]: n for n, c in crates.items()}
 failures = []
+napi_dir = root / "crates/oxc-coverage-instrument-napi"
+
+
+def load_json(path):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        failures.append(f"{path.relative_to(root)}: cannot read JSON: {error}")
+        return {}
+
+
+def expect_version(label, actual, expected):
+    if actual != expected:
+        failures.append(f'{label} "{actual}" != public Rust version "{expected}"')
+
+
+def check_public_npm_versions():
+    public_version = crates.get("oxc_coverage_instrument", {}).get("version")
+    if public_version is None:
+        failures.append("public crate oxc_coverage_instrument is missing")
+        return
+
+    manifest = load_json(napi_dir / "package.json")
+    expect_version("published npm package version", manifest.get("version"), public_version)
+
+    platform_dir = napi_dir / "npm"
+    for path in sorted(platform_dir.glob("*/package.json")):
+        package = load_json(path)
+        label = f"{path.parent.name} platform package version"
+        expect_version(label, package.get("version"), public_version)
+
+    prefix = "@oxc-coverage-instrument/"
+    manifest_optional = {
+        name: version
+        for name, version in manifest.get("optionalDependencies", {}).items()
+        if name.startswith(prefix)
+    }
+    for name, version in sorted(manifest_optional.items()):
+        expect_version(f"published npm optional dependency {name}", version, public_version)
+
+    lockfile = load_json(napi_dir / "package-lock.json")
+    expect_version("lockfile top-level version", lockfile.get("version"), public_version)
+    lock_root = lockfile.get("packages", {}).get("", {})
+    expect_version("lockfile root package version", lock_root.get("version"), public_version)
+    lock_optional = {
+        name: version
+        for name, version in lock_root.get("optionalDependencies", {}).items()
+        if name.startswith(prefix)
+    }
+    for name in sorted(manifest_optional):
+        expect_version(
+            f"lockfile optional dependency {name}",
+            lock_optional.get(name),
+            public_version,
+        )
+    for name in sorted(set(lock_optional) - set(manifest_optional)):
+        failures.append(f"lockfile optional dependency {name} is absent from package.json")
 
 
 def check_pins():
@@ -110,6 +167,8 @@ def check_pins():
                 f"{name} is publishable but has no `cargo publish -p {name}` "
                 f"step in release-npm.yml (add it or set publish = false)"
             )
+
+    check_public_npm_versions()
 
 
 def index_url(name):

@@ -178,6 +178,8 @@ run_version_sync() {
   require_tool node "Install Node.js 22."
   echo "[check:version-sync] ./scripts/check-version-sync.sh --mode=pins"
   ./scripts/check-version-sync.sh --mode=pins
+  echo "[check:version-sync] node scripts/check-version-sync.test.mjs"
+  node scripts/check-version-sync.test.mjs
   echo "[check:version-sync] node scripts/npm-pack-surface-check.mjs --metadata-only"
   node scripts/npm-pack-surface-check.mjs --metadata-only
 }
