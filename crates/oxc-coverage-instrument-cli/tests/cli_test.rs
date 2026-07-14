@@ -16,6 +16,31 @@ fn write_temp(name: &str, contents: &str) -> std::path::PathBuf {
     path
 }
 
+fn collect_html_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            files.extend(collect_html_files(&path));
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("html") {
+            files.push(path);
+        }
+    }
+    files
+}
+
+fn local_html_hrefs(page: &str) -> Vec<&str> {
+    page.split("href=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split_once('"').map(|(href, _)| href))
+        .filter(|href| {
+            std::path::Path::new(href)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("html"))
+        })
+        .collect()
+}
+
 #[test]
 fn help_flag_prints_usage_and_exits_success() {
     for arg in ["--help", "-h"] {
@@ -455,6 +480,46 @@ fn report_html_format_writes_directory_tree() {
     assert!(detail.contains("Content-Security-Policy"), "CSP meta missing in CLI output");
     assert!(detail.contains("base.js"), "script reference missing in CLI output");
     assert!(detail.contains("<meta name=\"generator\""), "generator meta missing in CLI output");
+}
+
+#[test]
+fn report_html_collision_safe_complete_tree() {
+    let coverage = r#"{
+      "index":{"path":"index","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "keep.js":{"path":"keep.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "src/index":{"path":"src/index","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "base.css/a.js":{"path":"base.css/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "base.js/a.js":{"path":"base.js/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "coverage-tokens.css/a.js":{"path":"coverage-tokens.css/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}
+    }"#;
+    let cov = write_temp("report_html_collisions.json", coverage);
+    let out_dir =
+        std::env::temp_dir().join(format!("oxc_cov_cli_html_collisions_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out_dir);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("html")
+        .arg("--output-dir")
+        .arg(&out_dir)
+        .arg(&cov)
+        .output()
+        .unwrap();
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    for asset in ["base.css", "coverage-tokens.css", "base.js"] {
+        assert!(out_dir.join(asset).is_file(), "missing asset {asset}");
+        assert!(out_dir.join(format!("{asset}.oxc-dir-1/index.html")).is_file());
+    }
+    assert!(out_dir.join("index.oxc-file-1.html").is_file());
+    assert!(out_dir.join("src/index.oxc-file-1.html").is_file());
+
+    for html in collect_html_files(&out_dir) {
+        let page = std::fs::read_to_string(&html).unwrap();
+        for href in local_html_hrefs(&page) {
+            assert!(html.parent().unwrap().join(href).is_file(), "broken link from {html:?}");
+        }
+    }
 }
 
 #[test]

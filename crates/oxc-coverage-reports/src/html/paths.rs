@@ -101,19 +101,10 @@ fn allocate_children(
 
     for child in children.iter().filter(|child| matches!(child.kind, NodeKind::File { .. })) {
         let preferred = format!("{}.html", child.name);
-        let leaf = allocate_leaf(
-            &mut occupied,
-            &protected_preferred,
-            &preferred,
-            "file",
-            ".html",
-        );
+        let leaf = allocate_leaf(&mut occupied, &protected_preferred, &preferred, "file", ".html");
         nodes.insert(
             NodeKey::from_node(child),
-            PhysicalNode {
-                output_path: parent_output_dir.join(&leaf),
-                href_from_parent: leaf,
-            },
+            PhysicalNode { output_path: parent_output_dir.join(&leaf), href_from_parent: leaf },
         );
     }
     Ok(())
@@ -164,9 +155,9 @@ fn validate_unique_outputs(nodes: &BTreeMap<NodeKey, PhysicalNode>) -> io::Resul
 
 fn validate_safe_output_path(path: &Path) -> io::Result<()> {
     let safe = path.components().all(|component| match component {
-        std::path::Component::Normal(component) => component
-            .to_str()
-            .is_some_and(super::is_safe_report_path_component),
+        std::path::Component::Normal(component) => {
+            component.to_str().is_some_and(super::is_safe_report_path_component)
+        }
         _ => false,
     });
     if safe {
@@ -203,9 +194,7 @@ mod tests {
         if node.relative_path == relative_path && current_type == node_type {
             return Some(node);
         }
-        node.children()
-            .iter()
-            .find_map(|child| find_optional(child, relative_path, node_type))
+        node.children().iter().find_map(|child| find_optional(child, relative_path, node_type))
     }
 
     #[test]

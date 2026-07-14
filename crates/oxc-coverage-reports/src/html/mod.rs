@@ -54,6 +54,7 @@ use output::OutputDir;
 use oxc_coverage_report::{CoverageMap, CoverageSummary, Metric, NodeKind, ReportNode, summarize};
 use oxc_coverage_source_maps::remap_coverage_map;
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry};
+use paths::PhysicalPaths;
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -63,9 +64,6 @@ use std::path::{Component, Path, PathBuf};
 
 /// Filename used for every folder-level index page.
 const INDEX_FILE: &str = "index.html";
-
-/// Suffix appended to every per-file detail page (`a.js` -> `a.js.html`).
-const DETAIL_SUFFIX: &str = ".html";
 
 /// Embedded stylesheet copied to `<output_dir>/base.css`.
 const BASE_CSS: &str = include_str!("base.css");
@@ -157,10 +155,11 @@ fn write_with_output_opened_hook(
     };
     let root = summarize(report_map);
     validate_report_paths(&root)?;
+    let physical_paths = PhysicalPaths::build(&root)?;
     let output = OutputDir::open(output_dir)?;
     output_opened()?;
 
-    let ctx = RenderContext { root_dir, options };
+    let ctx = RenderContext { root_dir, options, physical_paths: &physical_paths };
     render_node(RenderNodeInput { node: &root, ctx: &ctx, output_dir: &output, depth: 0 })?;
 
     output.write(Path::new("base.css"), BASE_CSS.as_bytes())?;
@@ -251,6 +250,7 @@ impl Default for HtmlOptions {
 struct RenderContext<'a> {
     root_dir: &'a Path,
     options: &'a HtmlOptions,
+    physical_paths: &'a PhysicalPaths,
 }
 
 #[derive(Clone, Copy)]
@@ -265,14 +265,8 @@ fn render_node(input: RenderNodeInput<'_>) -> io::Result<()> {
     let RenderNodeInput { node, ctx, output_dir, depth } = input;
     match &node.kind {
         NodeKind::Folder { children } => {
-            // Folder pages live at `<output_dir>/<node.relative_path>/index.html`.
-            let folder_dir = if node.relative_path.is_empty() {
-                PathBuf::new()
-            } else {
-                PathBuf::from(&node.relative_path)
-            };
             let html = render_folder_index(FolderIndexInputs { node, children, ctx, depth });
-            output_dir.write(&folder_dir.join(INDEX_FILE), html.as_bytes())?;
+            output_dir.write(ctx.physical_paths.output_path(node), html.as_bytes())?;
 
             // Render children in parallel. The file branch is CPU-bound
             // (syntect tokenization), so per-file fan-out scales well on
@@ -291,13 +285,8 @@ fn render_node(input: RenderNodeInput<'_>) -> io::Result<()> {
                 .collect::<io::Result<Vec<_>>>()?;
         }
         NodeKind::File { coverage } => {
-            // Detail page lives next to the folder index.
-            let parent = node.relative_path.rsplit_once('/').map_or("", |(parent, _)| parent);
-            let detail_dir = if parent.is_empty() { PathBuf::new() } else { PathBuf::from(parent) };
-
-            let filename = format!("{}{DETAIL_SUFFIX}", &node.name);
             let html = render_detail(RenderDetailInputs { node, coverage, ctx, depth });
-            output_dir.write(&detail_dir.join(filename), html.as_bytes())?;
+            output_dir.write(ctx.physical_paths.output_path(node), html.as_bytes())?;
         }
     }
     Ok(())
@@ -348,7 +337,7 @@ fn render_folder_index(inputs: FolderIndexInputs<'_>) -> String {
     body.push_str(&render_summary_table_header());
     body.push_str("        <tbody>\n");
     for child in children {
-        body.push_str(&render_summary_row(child, threshold));
+        body.push_str(&render_summary_row(child, threshold, ctx.physical_paths));
     }
     body.push_str("        </tbody>\n");
     body.push_str("      </table>\n");
@@ -409,11 +398,8 @@ fn render_summary_table_header() -> String {
     out
 }
 
-fn render_summary_row(child: &ReportNode, threshold: f64) -> String {
-    let href = match &child.kind {
-        NodeKind::Folder { .. } => format!("{}/{INDEX_FILE}", html_attr(&child.name)),
-        NodeKind::File { .. } => format!("{}{DETAIL_SUFFIX}", html_attr(&child.name)),
-    };
+fn render_summary_row(child: &ReportNode, threshold: f64, paths: &PhysicalPaths) -> String {
+    let href = html_attr(paths.href_from_parent(child));
     let display = html_text(&child.name);
     let row_class = pct_class(child.summary.lines.pct, threshold);
     let mut out = format!(
@@ -1015,6 +1001,14 @@ mod tests {
     use oxc_coverage_types::parse_coverage_map;
 
     const DAMAGED_BRANCH: &str = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}}},"fnMap":{},"branchMap":{"0":{"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}},"line":1,"type":"if","locations":[{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},{"start":{"line":1,"column":2},"end":{"line":1,"column":3}}]}},"s":{"0":1},"f":{},"b":{"0":[4,0,9]}}}"#;
+    const COLLISION_COVERAGE: &str = r#"{
+      "index":{"path":"index","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "keep.js":{"path":"keep.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "src/index":{"path":"src/index","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "base.css/a.js":{"path":"base.css/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "base.js/a.js":{"path":"base.js/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "coverage-tokens.css/a.js":{"path":"coverage-tokens.css/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}
+    }"#;
 
     fn write_to_temp(json: &str) -> tempfile::TempDir {
         let dir = tempfile::TempDir::new().unwrap();
@@ -1034,6 +1028,33 @@ mod tests {
         assert!(detail.contains("true=4"));
         assert!(detail.contains("false=0"));
         assert!(!detail.contains("arm 3"));
+    }
+
+    #[test]
+    fn renders_root_and_nested_index_files_without_overwriting_folder_indexes() {
+        let dir = write_to_temp(COLLISION_COVERAGE);
+
+        let root_index = fs::read_to_string(dir.path().join("index.html")).unwrap();
+        assert!(root_index.contains("<title>Coverage: All files</title>"));
+        assert!(root_index.contains("href=\"index.oxc-file-1.html\""));
+        assert!(dir.path().join("index.oxc-file-1.html").exists());
+
+        let nested_index = fs::read_to_string(dir.path().join("src/index.html")).unwrap();
+        assert!(nested_index.contains("href=\"index.oxc-file-1.html\""));
+        assert!(dir.path().join("src/index.oxc-file-1.html").exists());
+    }
+
+    #[test]
+    fn renders_asset_named_root_directories_and_keeps_assets_intact() {
+        let dir = write_to_temp(COLLISION_COVERAGE);
+        for asset in ["base.css", "coverage-tokens.css", "base.js"] {
+            assert!(dir.path().join(asset).is_file(), "asset must remain a file: {asset}");
+            let mapped_dir = format!("{asset}.oxc-dir-1");
+            assert!(dir.path().join(&mapped_dir).join("index.html").is_file());
+            assert!(
+                fs::read_to_string(dir.path().join("index.html")).unwrap().contains(&mapped_dir)
+            );
+        }
     }
 
     fn assert_rejects_unsafe_report_path(json: &str, rejected_path: &str) {
