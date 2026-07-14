@@ -1119,7 +1119,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_instrument"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "criterion2",
  "insta",
@@ -1158,14 +1158,14 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_report"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "oxc_coverage_types",
 ]
 
 [[package]]
 name = "oxc_coverage_reports"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
@@ -1185,7 +1185,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_source_maps"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "criterion2",
  "oxc_coverage_types",
@@ -1204,7 +1204,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_v8"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "criterion2",
  "oxc_coverage_types",
