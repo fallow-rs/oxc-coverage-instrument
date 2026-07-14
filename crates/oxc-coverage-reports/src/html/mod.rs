@@ -903,7 +903,7 @@ fn compute_branched_lines(file: &FileCoverage) -> BTreeMap<u32, BranchSummary> {
         if line == 0 {
             continue;
         }
-        let arms = file.b.get(id).cloned().unwrap_or_default();
+        let arms = crate::projection::aligned_branch_hits(file, id, entry);
         let total = arms.len() as u32;
         let covered = arms.iter().filter(|&&v| v > 0).count() as u32;
         let labeled_arms = branch_arms(entry, &arms);
@@ -1013,11 +1013,26 @@ mod tests {
     use super::*;
     use oxc_coverage_types::parse_coverage_map;
 
+    const DAMAGED_BRANCH: &str = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}}},"fnMap":{},"branchMap":{"0":{"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}},"line":1,"type":"if","locations":[{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},{"start":{"line":1,"column":2},"end":{"line":1,"column":3}}]}},"s":{"0":1},"f":{},"b":{"0":[4,0,9]}}}"#;
+
     fn write_to_temp(json: &str) -> tempfile::TempDir {
         let dir = tempfile::TempDir::new().unwrap();
         let map = parse_coverage_map(json).unwrap();
         write(&map, Path::new(""), dir.path(), &HtmlOptions::default()).unwrap();
         dir
+    }
+
+    #[test]
+    fn branch_metadata_controls_detail_arms() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::write(dir.path().join("a.js"), "if (x) y;\n").unwrap();
+        let map = parse_coverage_map(DAMAGED_BRANCH).unwrap();
+        let out_dir = dir.path().join("html");
+        write(&map, dir.path(), &out_dir, &HtmlOptions::default()).unwrap();
+        let detail = fs::read_to_string(out_dir.join("a.js.html")).unwrap();
+        assert!(detail.contains("true=4"));
+        assert!(detail.contains("false=0"));
+        assert!(!detail.contains("arm 3"));
     }
 
     fn assert_rejects_unsafe_report_path(json: &str, rejected_path: &str) {

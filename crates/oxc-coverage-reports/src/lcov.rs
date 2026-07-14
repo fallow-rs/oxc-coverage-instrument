@@ -165,7 +165,7 @@ fn write_branches<W: io::Write>(out: &mut W, file: &FileCoverage) -> io::Result<
     // block=0.
     for (block_idx, (id, entry)) in file.branch_map.iter().enumerate() {
         let block: u32 = id.parse().unwrap_or(block_idx as u32);
-        let arms = file.b.get(id).cloned().unwrap_or_default();
+        let arms = crate::projection::aligned_branch_hits(file, id, entry);
         let block_entered = arms.iter().any(|&c| c > 0);
         for (idx, count) in arms.iter().enumerate() {
             total += 1;
@@ -195,6 +195,9 @@ mod tests {
     use oxc_coverage_report::summarize;
     use oxc_coverage_types::parse_coverage_map;
 
+    const DAMAGED_BRANCH: &str = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}}},"fnMap":{},"branchMap":{"0":{"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}},"line":1,"type":"if","locations":[{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},{"start":{"line":1,"column":2},"end":{"line":1,"column":3}}]}},"s":{"0":1},"f":{},"b":{"0":[4,0,9]}}}"#;
+    const DAMAGED_BRANCH_MISSING: &str = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}}},"fnMap":{},"branchMap":{"0":{"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}},"line":1,"type":"if","locations":[{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},{"start":{"line":1,"column":2},"end":{"line":1,"column":3}}]}},"s":{"0":1},"f":{},"b":{}}}"#;
+
     fn render(json: &str) -> String {
         let map = parse_coverage_map(json).unwrap();
         let root = summarize(&map);
@@ -209,6 +212,25 @@ mod tests {
         let out = render(json);
         assert!(out.starts_with("TN:\nSF:a.js"));
         assert!(out.contains("end_of_record"));
+    }
+
+    #[test]
+    fn branch_metadata_controls_emitted_arms() {
+        let out = render(DAMAGED_BRANCH);
+        assert!(out.contains("BRDA:1,0,0,4"));
+        assert!(out.contains("BRDA:1,0,1,0"));
+        assert!(out.contains("BRF:2"));
+        assert!(out.contains("BRH:1"));
+        assert!(!out.contains("BRDA:1,0,2,9"));
+    }
+
+    #[test]
+    fn missing_branch_array_emits_uncovered_metadata_arms() {
+        let out = render(DAMAGED_BRANCH_MISSING);
+        assert!(out.contains("BRDA:1,0,0,-"));
+        assert!(out.contains("BRDA:1,0,1,-"));
+        assert!(out.contains("BRF:2"));
+        assert!(out.contains("BRH:0"));
     }
 
     #[test]

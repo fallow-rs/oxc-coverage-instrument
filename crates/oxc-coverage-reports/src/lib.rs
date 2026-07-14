@@ -51,6 +51,7 @@ mod escape;
 pub mod html;
 pub mod json_summary;
 pub mod lcov;
+mod projection;
 pub mod text;
 pub mod text_summary;
 

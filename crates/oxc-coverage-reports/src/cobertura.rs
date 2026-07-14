@@ -135,9 +135,7 @@ fn write_class<W: io::Write>(out: &mut W, input: ClassInput<'_>) -> io::Result<(
     let branched_lines = compute_branched_lines(file);
     let (lines_total, lines_covered) =
         (lines.len() as u32, lines.values().filter(|&&v| v > 0).count() as u32);
-    let (branches_total, branches_covered) = file.b.values().fold((0u32, 0u32), |(t, c), arms| {
-        (t + arms.len() as u32, c + arms.iter().filter(|&&v| v > 0).count() as u32)
-    });
+    let (branches_total, branches_covered) = crate::projection::branch_counts(file);
     let line_rate = rate(lines_covered, lines_total);
     let branch_rate = rate(branches_covered, branches_total);
 
@@ -299,7 +297,7 @@ fn compute_branched_lines(file: &FileCoverage) -> BTreeMap<u32, BranchSummary> {
         if line == 0 {
             continue;
         }
-        let arms = file.b.get(id).cloned().unwrap_or_default();
+        let arms = crate::projection::aligned_branch_hits(file, id, entry);
         let total = arms.len() as u32;
         let covered = arms.iter().filter(|&&v| v > 0).count() as u32;
         out.entry(line)
@@ -335,10 +333,9 @@ fn totals_branches(files: &[OwnedFileEntry]) -> (u32, u32) {
     let mut total: u32 = 0;
     let mut covered: u32 = 0;
     for f in files {
-        for arms in f.coverage.b.values() {
-            total += arms.len() as u32;
-            covered += arms.iter().filter(|&&v| v > 0).count() as u32;
-        }
+        let (file_total, file_covered) = crate::projection::branch_counts(&f.coverage);
+        total += file_total;
+        covered += file_covered;
     }
     (total, covered)
 }
@@ -358,10 +355,9 @@ fn sum_branches(files: &[FileEntry<'_>]) -> (u32, u32) {
     let mut total: u32 = 0;
     let mut covered: u32 = 0;
     for f in files {
-        for arms in f.coverage.b.values() {
-            total += arms.len() as u32;
-            covered += arms.iter().filter(|&&v| v > 0).count() as u32;
-        }
+        let (file_total, file_covered) = crate::projection::branch_counts(f.coverage);
+        total += file_total;
+        covered += file_covered;
     }
     (total, covered)
 }
@@ -388,6 +384,9 @@ mod tests {
     use oxc_coverage_report::summarize;
     use oxc_coverage_types::parse_coverage_map;
 
+    const DAMAGED_BRANCH: &str = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}}},"fnMap":{},"branchMap":{"0":{"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}},"line":1,"type":"if","locations":[{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},{"start":{"line":1,"column":2},"end":{"line":1,"column":3}}]}},"s":{"0":1},"f":{},"b":{"0":[4,0,9]}}}"#;
+    const DAMAGED_BRANCH_MISSING: &str = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}}},"fnMap":{},"branchMap":{"0":{"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}},"line":1,"type":"if","locations":[{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},{"start":{"line":1,"column":2},"end":{"line":1,"column":3}}]}},"s":{"0":1},"f":{},"b":{}}}"#;
+
     fn render(json: &str) -> String {
         let map = parse_coverage_map(json).unwrap();
         let root = summarize(&map);
@@ -403,6 +402,22 @@ mod tests {
         assert!(out.contains("line-rate=\""));
         assert!(out.contains("branch-rate=\""));
         assert!(out.contains("timestamp=\"0\""));
+    }
+
+    #[test]
+    fn branch_metadata_controls_rates() {
+        let out = render(DAMAGED_BRANCH);
+        assert!(out.contains("branches-valid=\"2\""));
+        assert!(out.contains("branches-covered=\"1\""));
+        assert!(out.contains("condition-coverage=\"50% (1/2)\""));
+    }
+
+    #[test]
+    fn missing_branch_array_counts_as_uncovered_in_cobertura() {
+        let out = render(DAMAGED_BRANCH_MISSING);
+        assert!(out.contains("branches-valid=\"2\""));
+        assert!(out.contains("branches-covered=\"0\""));
+        assert!(out.contains("condition-coverage=\"0% (0/2)\""));
     }
 
     #[test]
