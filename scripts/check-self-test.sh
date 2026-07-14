@@ -196,10 +196,47 @@ release_workflow_has_deterministic_npm() {
 release_workflow_is_provenance_only() {
   local workflow="$1"
   awk '
+    function strip_shell_comment(text, i, ch, quote, escaped, previous) {
+      quote = ""
+      escaped = 0
+      for (i = 1; i <= length(text); i++) {
+        ch = substr(text, i, 1)
+        if (escaped) {
+          escaped = 0
+          continue
+        }
+        if (quote == "\047") {
+          if (ch == "\047") quote = ""
+          continue
+        }
+        if (quote == "\"") {
+          if (ch == "\\") {
+            escaped = 1
+          } else if (ch == "\"") {
+            quote = ""
+          }
+          continue
+        }
+        if (ch == "\\") {
+          escaped = 1
+          continue
+        }
+        if (ch == "\047" || ch == "\"") {
+          quote = ch
+          continue
+        }
+        previous = i == 1 ? "" : substr(text, i - 1, 1)
+        if (ch == "#" && (i == 1 || previous ~ /[[:space:];|&()]/)) {
+          return substr(text, 1, i - 1)
+        }
+      }
+      return text
+    }
+
     $0 == "  publish:" { in_job = 1; next }
     in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
     in_job && $0 !~ /^[[:space:]]*#/ {
-      line = $0
+      line = strip_shell_comment($0)
       while (match(line, /npm[[:space:]]+publish/)) {
         found = 1
         publish_start = RSTART
@@ -724,6 +761,30 @@ awk '
 ' "$release_workflow" >"$chained_publish_workflow"
 if release_workflow_is_provenance_only "$chained_publish_workflow"; then
   fail "release validator accepted same-line publish without provenance"
+fi
+
+commented_provenance_workflow="$TMP/commented-provenance-workflow.yml"
+awk '
+  !changed && $0 == "            npm publish --access public --provenance --ignore-scripts" {
+    $0 = "            npm publish --access public # --provenance"
+    changed = 1
+  }
+  { print }
+' "$release_workflow" >"$commented_provenance_workflow"
+if release_workflow_is_provenance_only "$commented_provenance_workflow"; then
+  fail "release validator accepted provenance inside a shell comment"
+fi
+
+quoted_hash_workflow="$TMP/quoted-hash-workflow.yml"
+awk '
+  !changed && $0 == "            npm publish --access public --provenance --ignore-scripts" {
+    $0 = "            npm publish --access public --tag \"#stable\" --provenance --ignore-scripts"
+    changed = 1
+  }
+  { print }
+' "$release_workflow" >"$quoted_hash_workflow"
+if ! release_workflow_is_provenance_only "$quoted_hash_workflow"; then
+  fail "release validator treated a quoted hash as a shell comment"
 fi
 
 while read -r documented_profile; do
