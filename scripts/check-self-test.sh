@@ -161,25 +161,36 @@ workflow_job_has_need() {
   ' "$workflow"
 }
 
-workflow_job_contains_line() {
+workflow_job_has_deterministic_npm() {
   local workflow="$1"
   local job="$2"
-  local expected="$3"
+  local allow_bootstrap="$3"
 
-  awk -v job="$job" -v expected="$expected" '
+  awk -v job="$job" -v allow_bootstrap="$allow_bootstrap" '
     $0 == "  " job ":" { in_job = 1; next }
     in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
-    in_job && $0 == expected { found = 1 }
-    END { exit(found ? 0 : 1) }
+    !in_job { next }
+    $0 == "        run: npm ci" {
+      ci_count++
+      next
+    }
+    allow_bootstrap && $0 == "        run: npm install -g npm@11.12.1" {
+      bootstrap_count++
+      next
+    }
+    $0 ~ /npm[[:space:]]+(ci|install)([[:space:]]|$)/ { invalid = 1 }
+    END {
+      expected_bootstrap = allow_bootstrap ? 1 : 0
+      exit(!invalid && ci_count == 1 && bootstrap_count == expected_bootstrap ? 0 : 1)
+    }
   ' "$workflow"
 }
 
 release_workflow_has_deterministic_npm() {
   local workflow="$1"
-  workflow_job_contains_line "$workflow" build '        run: npm ci' || return 1
-  workflow_job_contains_line "$workflow" publish '        run: npm install -g npm@11.12.1' || return 1
-  workflow_job_contains_line "$workflow" publish '        run: npm ci' || return 1
-  ! grep -Eq 'npm@latest|npm ci[[:space:]]*\|\|' "$workflow"
+  workflow_job_has_deterministic_npm "$workflow" build 0 || return 1
+  workflow_job_has_deterministic_npm "$workflow" publish 1 || return 1
+  ! grep -Eq 'npm@latest' "$workflow"
 }
 
 release_workflow_is_provenance_only() {
@@ -187,9 +198,21 @@ release_workflow_is_provenance_only() {
   awk '
     $0 == "  publish:" { in_job = 1; next }
     in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
-    in_job && $0 ~ /^[[:space:]]*(if ! )?npm publish/ {
-      found = 1
-      if ($0 !~ /--provenance/) invalid = 1
+    in_job && $0 !~ /^[[:space:]]*#/ {
+      line = $0
+      while (match(line, /npm[[:space:]]+publish/)) {
+        found = 1
+        publish_start = RSTART
+        publish_length = RLENGTH
+        command = substr(line, publish_start)
+        if (match(command, /(\|\||&&|;)/)) {
+          command = substr(command, 1, RSTART - 1)
+        }
+        if (command !~ /(^|[[:space:]])--provenance([[:space:]]|$)/) {
+          invalid = 1
+        }
+        line = substr(line, publish_start + publish_length)
+      }
     }
     END { exit(found && !invalid ? 0 : 1) }
   ' "$workflow"
@@ -640,6 +663,45 @@ if release_workflow_has_deterministic_npm "$fallback_install_workflow"; then
   fail "release validator accepted fallback dependency installation"
 fi
 
+extra_build_install_workflow="$TMP/extra-build-install-workflow.yml"
+awk '
+  { print }
+  !inserted && $0 == "        run: npm ci" {
+    print "      - name: Unrelated build install"
+    print "        run: npm install"
+    inserted = 1
+  }
+' "$release_workflow" >"$extra_build_install_workflow"
+if release_workflow_has_deterministic_npm "$extra_build_install_workflow"; then
+  fail "release validator accepted extra npm install in build"
+fi
+
+extra_publish_install_workflow="$TMP/extra-publish-install-workflow.yml"
+awk '
+  { print }
+  !inserted && $0 == "        run: npm install -g npm@11.12.1" {
+    print "      - name: Unrelated publish install"
+    print "        run: npm install example-package"
+    inserted = 1
+  }
+' "$release_workflow" >"$extra_publish_install_workflow"
+if release_workflow_has_deterministic_npm "$extra_publish_install_workflow"; then
+  fail "release validator accepted extra npm install in publish"
+fi
+
+chained_install_workflow="$TMP/chained-install-workflow.yml"
+awk '
+  { print }
+  !inserted && $0 == "        run: npm ci" {
+    print "      - name: Reversed install fallback"
+    print "        run: npm install || npm ci"
+    inserted = 1
+  }
+' "$release_workflow" >"$chained_install_workflow"
+if release_workflow_has_deterministic_npm "$chained_install_workflow"; then
+  fail "release validator accepted chained npm install fallback"
+fi
+
 fallback_publish_workflow="$TMP/fallback-publish-workflow.yml"
 awk '
   { print }
@@ -650,6 +712,18 @@ awk '
 ' "$release_workflow" >"$fallback_publish_workflow"
 if release_workflow_is_provenance_only "$fallback_publish_workflow"; then
   fail "release validator accepted publish without provenance"
+fi
+
+chained_publish_workflow="$TMP/chained-publish-workflow.yml"
+awk '
+  !changed && $0 == "            npm publish --access public --provenance --ignore-scripts" {
+    $0 = $0 " || npm publish --access public --ignore-scripts"
+    changed = 1
+  }
+  { print }
+' "$release_workflow" >"$chained_publish_workflow"
+if release_workflow_is_provenance_only "$chained_publish_workflow"; then
+  fail "release validator accepted same-line publish without provenance"
 fi
 
 while read -r documented_profile; do

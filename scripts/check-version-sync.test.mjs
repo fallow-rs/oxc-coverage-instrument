@@ -148,6 +148,16 @@ try {
     (lockfile) => { delete lockfile.packages[''].optionalDependencies[optionalName]; },
     /lockfile optional dependency.*darwin-arm64/,
   );
+  expectDriftFailure(
+    'lockfile extra optional pin',
+    'crates/oxc-coverage-instrument-napi/package-lock.json',
+    (lockfile) => {
+      lockfile.packages[''].optionalDependencies[
+        '@oxc-coverage-instrument/binding-linux-x64-gnu'
+      ] = publicVersion;
+    },
+    /lockfile optional dependency.*linux-x64-gnu.*absent from package\.json/,
+  );
   const syncRoot = makeFixture();
   const syncResult = spawnSync(
     resolve(syncRoot, 'scripts/sync-npm-versions.sh'),
