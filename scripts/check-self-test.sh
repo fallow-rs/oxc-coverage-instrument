@@ -176,9 +176,9 @@ workflow_job_contains_line() {
 
 release_workflow_has_deterministic_npm() {
   local workflow="$1"
-  workflow_job_contains_line "$workflow" build '        run: npm ci --omit=optional' || return 1
+  workflow_job_contains_line "$workflow" build '        run: npm ci' || return 1
   workflow_job_contains_line "$workflow" publish '        run: npm install -g npm@11.12.1' || return 1
-  workflow_job_contains_line "$workflow" publish '        run: npm ci --omit=optional' || return 1
+  workflow_job_contains_line "$workflow" publish '        run: npm ci' || return 1
   ! grep -Eq 'npm@latest|npm ci[[:space:]]*\|\|' "$workflow"
 }
 
@@ -630,8 +630,8 @@ fi
 
 fallback_install_workflow="$TMP/fallback-install-workflow.yml"
 awk '
-  !changed && /npm ci --omit=optional/ {
-    sub(/npm ci --omit=optional/, "npm ci || npm install")
+  !changed && $0 == "        run: npm ci" {
+    sub(/npm ci/, "npm ci || npm install")
     changed = 1
   }
   { print }

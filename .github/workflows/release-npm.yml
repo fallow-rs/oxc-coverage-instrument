@@ -109,7 +109,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: crates/oxc-coverage-instrument-napi
-        run: npm ci --omit=optional
+        run: npm ci
 
       - name: Patch napi-rs WASI link dir selector
         working-directory: crates/oxc-coverage-instrument-napi
@@ -304,7 +304,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: crates/oxc-coverage-instrument-napi
-        run: npm ci --omit=optional
+        run: npm ci
 
       - name: Download all artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
