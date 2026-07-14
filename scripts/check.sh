@@ -180,6 +180,8 @@ run_version_sync() {
   ./scripts/check-version-sync.sh --mode=pins
   echo "[check:version-sync] node scripts/check-version-sync.test.mjs"
   node scripts/check-version-sync.test.mjs
+  echo "[check:version-sync] node scripts/release-workflow-policy.test.mjs"
+  node scripts/release-workflow-policy.test.mjs
   echo "[check:version-sync] node scripts/npm-pack-surface-check.mjs --metadata-only"
   node scripts/npm-pack-surface-check.mjs --metadata-only
 }

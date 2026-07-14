@@ -167,6 +167,51 @@ workflow_job_has_deterministic_npm() {
   local allow_bootstrap="$3"
 
   awk -v job="$job" -v allow_bootstrap="$allow_bootstrap" '
+    function strip_shell_comment(text, i, ch, quote, escaped, previous) {
+      quote = ""
+      escaped = 0
+      for (i = 1; i <= length(text); i++) {
+        ch = substr(text, i, 1)
+        if (escaped) {
+          escaped = 0
+          continue
+        }
+        if (quote == "\047") {
+          if (ch == "\047") quote = ""
+          continue
+        }
+        if (quote == "\"") {
+          if (ch == "\\") {
+            escaped = 1
+          } else if (ch == "\"") {
+            quote = ""
+          }
+          continue
+        }
+        if (ch == "\\") {
+          escaped = 1
+          continue
+        }
+        if (ch == "\047" || ch == "\"") {
+          quote = ch
+          continue
+        }
+        previous = i == 1 ? "" : substr(text, i - 1, 1)
+        if (ch == "#" && (i == 1 || previous ~ /[[:space:];|&()]/)) {
+          return substr(text, 1, i - 1)
+        }
+      }
+      return text
+    }
+
+    function has_npm_token(text) {
+      return text ~ /(^|[^[:alnum:]_])npm([^[:alnum:]_]|$)/
+    }
+
+    function has_npm_install(text) {
+      return text ~ /(^|[^[:alnum:]_])npm([^[:alnum:]_].*)?[[:space:]]+(ci|install)([^[:alnum:]_]|$)/
+    }
+
     $0 == "  " job ":" { in_job = 1; next }
     in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
     !in_job { next }
@@ -178,7 +223,27 @@ workflow_job_has_deterministic_npm() {
       bootstrap_count++
       next
     }
-    $0 ~ /npm[[:space:]]+(ci|install)([[:space:]]|$)/ { invalid = 1 }
+    {
+      line = strip_shell_comment($0)
+    }
+    !continued_npm && line ~ /^[[:space:]]*(-[[:space:]]+)?name:/ { next }
+    !continued_npm && line ~ /^[[:space:]]*$/ { next }
+    continued_npm {
+      continued_command = continued_command " " line
+      if (has_npm_install(continued_command)) invalid = 1
+      if (line !~ /\\[[:space:]]*$/) {
+        continued_npm = 0
+        continued_command = ""
+      }
+      next
+    }
+    has_npm_install(line) {
+      invalid = 1
+    }
+    has_npm_token(line) && line ~ /\\[[:space:]]*$/ {
+      continued_npm = 1
+      continued_command = line
+    }
     END {
       expected_bootstrap = allow_bootstrap ? 1 : 0
       exit(!invalid && ci_count == 1 && bootstrap_count == expected_bootstrap ? 0 : 1)
@@ -188,6 +253,7 @@ workflow_job_has_deterministic_npm() {
 
 release_workflow_has_deterministic_npm() {
   local workflow="$1"
+  workflow_job_has_deterministic_npm "$workflow" prepublish 1 || return 1
   workflow_job_has_deterministic_npm "$workflow" build 0 || return 1
   workflow_job_has_deterministic_npm "$workflow" publish 1 || return 1
   ! grep -Eq 'npm@latest' "$workflow"
@@ -698,6 +764,101 @@ awk '
 ' "$release_workflow" >"$fallback_install_workflow"
 if release_workflow_has_deterministic_npm "$fallback_install_workflow"; then
   fail "release validator accepted fallback dependency installation"
+fi
+
+multiline_install_workflow="$TMP/multiline-install-workflow.yml"
+awk '
+  { print }
+  !inserted && $0 == "        run: npm ci" {
+    print "      - name: Multiline dependency installation"
+    print "        run: |"
+    print "          npm install"
+    inserted = 1
+  }
+' "$release_workflow" >"$multiline_install_workflow"
+if release_workflow_has_deterministic_npm "$multiline_install_workflow"; then
+  fail "release validator accepted multiline dependency installation"
+fi
+
+quoted_install_workflow="$TMP/quoted-install-workflow.yml"
+awk '
+  { print }
+  !inserted && $0 == "        run: npm ci" {
+    print "      - name: Quoted dependency installation"
+    print "        run: \"npm install\""
+    inserted = 1
+  }
+' "$release_workflow" >"$quoted_install_workflow"
+if release_workflow_has_deterministic_npm "$quoted_install_workflow"; then
+  fail "release validator accepted quoted dependency installation"
+fi
+
+command_install_workflow="$TMP/command-install-workflow.yml"
+awk '
+  { print }
+  !inserted && $0 == "        run: npm ci" {
+    print "      - name: Shell-wrapped dependency installation"
+    print "        run: |"
+    print "          command npm install"
+    inserted = 1
+  }
+' "$release_workflow" >"$command_install_workflow"
+if release_workflow_has_deterministic_npm "$command_install_workflow"; then
+  fail "release validator accepted shell-wrapped dependency installation"
+fi
+
+silent_install_workflow="$TMP/silent-install-workflow.yml"
+awk '
+  { print }
+  !inserted && $0 == "        run: npm ci" {
+    print "      - name: Npm global option installation"
+    print "        run: npm --silent install"
+    inserted = 1
+  }
+' "$release_workflow" >"$silent_install_workflow"
+if release_workflow_has_deterministic_npm "$silent_install_workflow"; then
+  fail "release validator accepted npm global option installation"
+fi
+
+prefix_ci_workflow="$TMP/prefix-ci-workflow.yml"
+awk '
+  { print }
+  !inserted && $0 == "        run: npm ci" {
+    print "      - name: Npm prefix clean installation"
+    print "        run: npm --prefix path ci"
+    inserted = 1
+  }
+' "$release_workflow" >"$prefix_ci_workflow"
+if release_workflow_has_deterministic_npm "$prefix_ci_workflow"; then
+  fail "release validator accepted npm prefix clean installation"
+fi
+
+continued_install_workflow="$TMP/continued-install-workflow.yml"
+awk '
+  { print }
+  !inserted && $0 == "        run: npm ci" {
+    print "      - name: Continued dependency installation"
+    print "        run: |"
+    print "          npm --silent \\"
+    print "            install"
+    inserted = 1
+  }
+' "$release_workflow" >"$continued_install_workflow"
+if release_workflow_has_deterministic_npm "$continued_install_workflow"; then
+  fail "release validator accepted continued dependency installation"
+fi
+
+inline_comment_workflow="$TMP/inline-comment-workflow.yml"
+awk '
+  { print }
+  !inserted && $0 == "        run: npm ci" {
+    print "      - name: Inline npm comment"
+    print "        run: echo validated # npm install"
+    inserted = 1
+  }
+' "$release_workflow" >"$inline_comment_workflow"
+if ! release_workflow_has_deterministic_npm "$inline_comment_workflow"; then
+  fail "release validator rejected inline npm comment"
 fi
 
 extra_build_install_workflow="$TMP/extra-build-install-workflow.yml"
