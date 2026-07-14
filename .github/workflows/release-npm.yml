@@ -109,7 +109,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: crates/oxc-coverage-instrument-napi
-        run: npm ci || npm install
+        run: npm ci --omit=optional
 
       - name: Patch napi-rs WASI link dir selector
         working-directory: crates/oxc-coverage-instrument-napi
@@ -299,12 +299,12 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - name: Ensure latest npm (for trusted publishing)
-        run: npm install -g npm@10.9.8 && npm install -g npm@latest
+      - name: Install trusted-publishing npm
+        run: npm install -g npm@11.12.1
 
       - name: Install dependencies
         working-directory: crates/oxc-coverage-instrument-napi
-        run: npm ci || npm install
+        run: npm ci --omit=optional
 
       - name: Download all artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -438,11 +438,8 @@ jobs:
                 continue
               fi
               if ! npm publish "$dir" --access public --provenance; then
-                echo "  Provenance publish failed, retrying without provenance..."
-                if ! npm publish "$dir" --access public; then
-                  echo "::error::Failed to publish $PKG_NAME@$VERSION"
-                  FAILED=1
-                fi
+                echo "::error::Failed to publish $PKG_NAME@$VERSION with provenance"
+                FAILED=1
               fi
             fi
           done
@@ -457,6 +454,5 @@ jobs:
           if npm view "oxc-coverage-instrument@$VERSION" version >/dev/null 2>&1; then
             echo "oxc-coverage-instrument@$VERSION already published, skipping"
           else
-            npm publish --access public --provenance --ignore-scripts || \
-              npm publish --access public --ignore-scripts
+            npm publish --access public --provenance --ignore-scripts
           fi

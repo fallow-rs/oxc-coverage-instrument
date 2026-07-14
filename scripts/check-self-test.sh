@@ -161,6 +161,40 @@ workflow_job_has_need() {
   ' "$workflow"
 }
 
+workflow_job_contains_line() {
+  local workflow="$1"
+  local job="$2"
+  local expected="$3"
+
+  awk -v job="$job" -v expected="$expected" '
+    $0 == "  " job ":" { in_job = 1; next }
+    in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
+    in_job && $0 == expected { found = 1 }
+    END { exit(found ? 0 : 1) }
+  ' "$workflow"
+}
+
+release_workflow_has_deterministic_npm() {
+  local workflow="$1"
+  workflow_job_contains_line "$workflow" build '        run: npm ci --omit=optional' || return 1
+  workflow_job_contains_line "$workflow" publish '        run: npm install -g npm@11.12.1' || return 1
+  workflow_job_contains_line "$workflow" publish '        run: npm ci --omit=optional' || return 1
+  ! grep -Eq 'npm@latest|npm ci[[:space:]]*\|\|' "$workflow"
+}
+
+release_workflow_is_provenance_only() {
+  local workflow="$1"
+  awk '
+    $0 == "  publish:" { in_job = 1; next }
+    in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
+    in_job && $0 ~ /^[[:space:]]*(if ! )?npm publish/ {
+      found = 1
+      if ($0 !~ /--provenance/) invalid = 1
+    }
+    END { exit(found && !invalid ? 0 : 1) }
+  ' "$workflow"
+}
+
 release_workflow_uses_strict_pack_check() {
   local workflow="$1"
 
@@ -477,6 +511,12 @@ fi
 if ! workflow_job_has_need "$release_workflow" publish publish-crate; then
   fail "release publish job must depend on publish-crate"
 fi
+if ! release_workflow_has_deterministic_npm "$release_workflow"; then
+  fail "npm release must use exact npm and strict lockfile installation"
+fi
+if ! release_workflow_is_provenance_only "$release_workflow"; then
+  fail "every npm publish command must require provenance"
+fi
 if ! release_workflow_uses_strict_pack_check "$release_workflow"; then
   fail "npm release is missing strict platform artifact validation"
 fi
@@ -580,6 +620,36 @@ printf '%s\n' \
   >"$invalid_npm_order"
 if workflow_job_has_need "$invalid_npm_order" publish publish-crate; then
   fail "release ordering validator accepted dependency from another job"
+fi
+
+mutable_npm_workflow="$TMP/mutable-npm-workflow.yml"
+sed 's/npm@11\.12\.1/npm@latest/' "$release_workflow" >"$mutable_npm_workflow"
+if release_workflow_has_deterministic_npm "$mutable_npm_workflow"; then
+  fail "release validator accepted npm@latest"
+fi
+
+fallback_install_workflow="$TMP/fallback-install-workflow.yml"
+awk '
+  !changed && /npm ci --omit=optional/ {
+    sub(/npm ci --omit=optional/, "npm ci || npm install")
+    changed = 1
+  }
+  { print }
+' "$release_workflow" >"$fallback_install_workflow"
+if release_workflow_has_deterministic_npm "$fallback_install_workflow"; then
+  fail "release validator accepted fallback dependency installation"
+fi
+
+fallback_publish_workflow="$TMP/fallback-publish-workflow.yml"
+awk '
+  { print }
+  !inserted && /npm publish.*--provenance/ {
+    print "              npm publish \"$dir\" --access public"
+    inserted = 1
+  }
+' "$release_workflow" >"$fallback_publish_workflow"
+if release_workflow_is_provenance_only "$fallback_publish_workflow"; then
+  fail "release validator accepted publish without provenance"
 fi
 
 while read -r documented_profile; do
