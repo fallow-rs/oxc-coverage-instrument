@@ -31,6 +31,7 @@
 mod coverage_builder;
 mod instrument;
 mod pragma;
+mod source_text;
 mod transform;
 mod v8_to_istanbul;
 

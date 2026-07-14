@@ -10,6 +10,8 @@ use oxc_ast::ast::{Comment, Program};
 
 use oxc_coverage_types::UnhandledPragma;
 
+use crate::source_text;
+
 /// Type of coverage ignore directive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IgnoreType {
@@ -80,13 +82,7 @@ impl PragmaMap {
     }
 
     fn line_column(source: &str, offset: u32) -> (u32, u32) {
-        let prefix = &source[..offset as usize];
-        let line = prefix.chars().filter(|&c| c == '\n').count() as u32 + 1;
-        let line_start = prefix.rfind('\n').map_or(0, |p| p + 1);
-        // Istanbul reports columns as UTF-16 code units, matching Babel.
-        let column =
-            source[line_start..offset as usize].chars().map(char::len_utf16).sum::<usize>() as u32;
-        (line, column)
+        source_text::line_column(source, offset)
     }
 
     fn next_token_start(source: &str, offset: u32) -> Option<u32> {
@@ -100,8 +96,8 @@ impl PragmaMap {
 
             let rest = &source[cursor..];
             if rest.starts_with("//") {
-                if let Some(newline) = rest.find('\n') {
-                    cursor += newline + 1;
+                if let Some((line_end, width)) = source_text::find_line_terminator(rest) {
+                    cursor += line_end + width;
                 } else {
                     return None;
                 }
@@ -284,6 +280,17 @@ mod tests {
     #[test]
     fn rejects_non_pragma_legal_comment() {
         assert!(classify("! Copyright (c) 2026").is_none());
+    }
+
+    #[test]
+    fn next_token_start_skips_line_comments_for_every_line_terminator() {
+        for (name, terminator) in
+            [("LF", "\n"), ("CRLF", "\r\n"), ("CR", "\r"), ("LS", "\u{2028}"), ("PS", "\u{2029}")]
+        {
+            let source = format!("// bridge{terminator}next();");
+            let expected = source.find("next").unwrap() as u32;
+            assert_eq!(PragmaMap::next_token_start(&source, 0), Some(expected), "{name}");
+        }
     }
 
     #[test]

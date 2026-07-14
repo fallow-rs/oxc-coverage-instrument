@@ -13,6 +13,9 @@ fn instrument_js(source: &str) -> oxc_coverage_instrument::InstrumentResult {
     instrument(source, "test.js", &default_opts()).unwrap()
 }
 
+const ECMASCRIPT_LINE_TERMINATORS: [(&str, &str); 5] =
+    [("LF", "\n"), ("CRLF", "\r\n"), ("CR", "\r"), ("LS", "\u{2028}"), ("PS", "\u{2029}")];
+
 // ---------------------------------------------------------------------------
 // Statement coverage
 // ---------------------------------------------------------------------------
@@ -28,6 +31,16 @@ fn statement_simple_variable_declaration() {
 fn statement_multiple_statements() {
     let result = instrument_js("const x = 1;\nconst y = 2;\nconst z = x + y;");
     assert_eq!(result.coverage_map.statement_map.len(), 3);
+}
+
+#[test]
+fn statement_locations_follow_ecmascript_line_terminators() {
+    for (name, terminator) in ECMASCRIPT_LINE_TERMINATORS {
+        let source = format!("first();{terminator}second();");
+        let result = instrument_js(&source);
+        let second = &result.coverage_map.statement_map["1"];
+        assert_eq!((second.start.line, second.start.column), (2, 0), "{name}");
+    }
 }
 
 #[test]
@@ -2536,4 +2549,14 @@ fn unhandled_pragma_on_later_line_uses_correct_line_number() {
     let pragma = &result.unhandled_pragmas[0];
     assert_eq!(pragma.line, 3, "pragma should be reported on line 3, got {pragma:?}");
     assert_eq!(pragma.column, 0, "pragma column should be 0 (start of line 3), got {pragma:?}");
+}
+
+#[test]
+fn pragma_diagnostics_follow_ecmascript_line_terminators() {
+    for (name, terminator) in ECMASCRIPT_LINE_TERMINATORS {
+        let source = format!("first();{terminator}/* istanbul ignore bogus */ second();");
+        let result = instrument(&source, "test.js", &InstrumentOptions::default()).unwrap();
+        let pragma = &result.unhandled_pragmas[0];
+        assert_eq!((pragma.line, pragma.column), (2, 0), "{name}");
+    }
 }

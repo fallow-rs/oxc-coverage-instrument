@@ -7,6 +7,7 @@ import {
   v8ToIstanbulWithLoader,
 } from './index.js';
 import { strict as assert } from 'node:assert';
+import { createInstrumenter } from 'istanbul-lib-instrument';
 import { existsSync, statSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -49,6 +50,30 @@ function runInstrumented(result, filename, callExpression) {
   assert.equal(Object.keys(coverageMap.fnMap).length, 1);
   assert.equal(coverageMap.fnMap['0'].name, 'add');
   console.log('  [PASS] Basic instrumentation');
+}
+
+{
+  const terminators = [
+    ['LF', '\n'],
+    ['CRLF', '\r\n'],
+    ['CR', '\r'],
+    ['LS', '\u2028'],
+    ['PS', '\u2029'],
+  ];
+  const locations = (coverage) => Object.values(coverage.statementMap).map(({ start, end }) => ({
+    start,
+    end,
+  }));
+
+  for (const [name, terminator] of terminators) {
+    const source = `first();${terminator}second();`;
+    const actual = JSON.parse(instrument(source, `${name}.js`).coverageMap);
+    const referenceInstrumenter = createInstrumenter();
+    referenceInstrumenter.instrumentSync(source, `${name}.js`);
+    const expected = referenceInstrumenter.lastFileCoverage();
+    assert.deepEqual(locations(actual), locations(expected), `${name} locations must match Istanbul`);
+  }
+  console.log('  [PASS] ECMAScript line terminators match Istanbul locations');
 }
 
 // Test 2: With options

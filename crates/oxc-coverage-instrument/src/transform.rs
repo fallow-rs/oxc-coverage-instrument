@@ -16,7 +16,10 @@ use oxc_span::{GetSpan, SPAN, Span};
 use oxc_syntax::operator::{LogicalOperator, UpdateOperator};
 use oxc_traverse::{Traverse, TraverseCtx};
 
-use crate::pragma::{IgnoreType, PragmaMap};
+use crate::{
+    pragma::{IgnoreType, PragmaMap},
+    source_text,
+};
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position};
 
 /// State carried through the traverse for coverage instrumentation.
@@ -223,7 +226,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         let cov_fn_name = allocator.alloc_str(cov_fn_name);
         Self {
             source,
-            line_offsets: compute_line_offsets(source),
+            line_offsets: source_text::line_starts(source),
             source_is_ascii: source.is_ascii(),
             fn_map: Vec::new(),
             statement_map: Vec::new(),
@@ -931,14 +934,6 @@ pub fn generate_cov_fn_name(file_path: &str) -> String {
 /// Create a dummy expression for `mem::replace` operations.
 fn dummy_expr<'a>(ctx: &TraverseCtx<'a, CoverageState>) -> Expression<'a> {
     ctx.ast.expression_numeric_literal(SPAN, 0.0, None, oxc_syntax::number::NumberBase::Decimal)
-}
-
-// Pre-compute byte offsets for the start of each line, used for
-// fast position lookups during traversal.
-fn compute_line_offsets(source: &str) -> Vec<u32> {
-    std::iter::once(0)
-        .chain(source.bytes().enumerate().filter(|(_, b)| *b == b'\n').map(|(i, _)| (i + 1) as u32))
-        .collect()
 }
 
 // istanbul-lib-instrument treats these variants as containers, not statements:
