@@ -2,7 +2,7 @@
 
 /// Find the first ECMAScript line terminator and return its byte offset and
 /// byte width. CRLF is one logical terminator spanning two bytes.
-pub(crate) fn find_line_terminator(source: &str) -> Option<(usize, usize)> {
+pub fn find_line_terminator(source: &str) -> Option<(usize, usize)> {
     for (index, ch) in source.char_indices() {
         match ch {
             '\r' => {
@@ -18,7 +18,7 @@ pub(crate) fn find_line_terminator(source: &str) -> Option<(usize, usize)> {
 }
 
 /// Compute the byte offset at which each logical ECMAScript line starts.
-pub(crate) fn line_starts(source: &str) -> Vec<u32> {
+pub fn line_starts(source: &str) -> Vec<u32> {
     let mut starts = vec![0];
     let mut cursor = 0usize;
     while let Some((relative, width)) = find_line_terminator(&source[cursor..]) {
@@ -29,7 +29,7 @@ pub(crate) fn line_starts(source: &str) -> Vec<u32> {
 }
 
 /// Convert a byte offset to a one-based line and zero-based UTF-16 column.
-pub(crate) fn line_column(source: &str, offset: u32) -> (u32, u32) {
+pub fn line_column(source: &str, offset: u32) -> (u32, u32) {
     let starts = line_starts(source);
     let offset = (offset as usize).min(source.len());
     let line = starts.partition_point(|start| *start as usize <= offset).saturating_sub(1);
