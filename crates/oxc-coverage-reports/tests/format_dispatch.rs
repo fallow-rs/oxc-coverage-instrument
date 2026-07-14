@@ -15,11 +15,7 @@ use std::path::Path;
 const EMPTY_MAP: &str =
     r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
 
-fn reject_directory_write(
-    format: Format,
-    map: &oxc_coverage_report::CoverageMap,
-    dir: &Path,
-) {
+fn reject_directory_write(format: Format, map: &oxc_coverage_report::CoverageMap, dir: &Path) {
     #[cfg(feature = "html")]
     let error = format
         .write_to_dir(map, Path::new(""), dir, &HtmlOptions::default())

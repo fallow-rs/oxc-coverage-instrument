@@ -57,9 +57,9 @@ fn is_xml10_char(c: char) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::xml_attr;
     #[cfg(feature = "html")]
     use super::{html_attr, html_text};
-    use super::xml_attr;
 
     #[cfg(feature = "html")]
     #[test]

@@ -87,21 +87,16 @@ fn pct(covered: u32, total: u32) -> f64 {
 
 fn statements_metric(file: &FileCoverage) -> Metric {
     let total = file.statement_map.len() as u32;
-    let covered = file
-        .statement_map
-        .keys()
-        .filter(|id| file.s.get(*id).copied().unwrap_or(0) > 0)
-        .count() as u32;
+    let covered =
+        file.statement_map.keys().filter(|id| file.s.get(*id).copied().unwrap_or(0) > 0).count()
+            as u32;
     Metric::new(total, covered)
 }
 
 fn functions_metric(file: &FileCoverage) -> Metric {
     let total = file.fn_map.len() as u32;
-    let covered = file
-        .fn_map
-        .keys()
-        .filter(|id| file.f.get(*id).copied().unwrap_or(0) > 0)
-        .count() as u32;
+    let covered =
+        file.fn_map.keys().filter(|id| file.f.get(*id).copied().unwrap_or(0) > 0).count() as u32;
     Metric::new(total, covered)
 }
 
@@ -111,8 +106,7 @@ fn branches_metric(file: &FileCoverage) -> Metric {
     for (id, entry) in &file.branch_map {
         total += entry.locations.len() as u32;
         for arm_index in 0..entry.locations.len() {
-            let hits =
-                file.b.get(id).and_then(|arms| arms.get(arm_index)).copied().unwrap_or(0);
+            let hits = file.b.get(id).and_then(|arms| arms.get(arm_index)).copied().unwrap_or(0);
             covered += u32::from(hits > 0);
         }
     }
@@ -206,10 +200,7 @@ mod tests {
         };
 
         assert_eq!(CoverageSummary::from_file(&make("{}")).branches, Metric::new(2, 0));
-        assert_eq!(
-            CoverageSummary::from_file(&make(r#"{"0":[4]}"#)).branches,
-            Metric::new(2, 1),
-        );
+        assert_eq!(CoverageSummary::from_file(&make(r#"{"0":[4]}"#)).branches, Metric::new(2, 1),);
         assert_eq!(
             CoverageSummary::from_file(&make(r#"{"0":[4,0,9]}"#)).branches,
             Metric::new(2, 1),

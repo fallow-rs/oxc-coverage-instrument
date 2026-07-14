@@ -1,14 +1,8 @@
 use oxc_coverage_types::{BranchEntry, FileCoverage};
 
-pub fn aligned_branch_hits(
-    file: &FileCoverage,
-    id: &str,
-    entry: &BranchEntry,
-) -> Vec<u32> {
+pub fn aligned_branch_hits(file: &FileCoverage, id: &str, entry: &BranchEntry) -> Vec<u32> {
     let stored = file.b.get(id).map(Vec::as_slice).unwrap_or_default();
-    (0..entry.locations.len())
-        .map(|index| stored.get(index).copied().unwrap_or(0))
-        .collect()
+    (0..entry.locations.len()).map(|index| stored.get(index).copied().unwrap_or(0)).collect()
 }
 
 pub fn branch_counts(file: &FileCoverage) -> (u32, u32) {
