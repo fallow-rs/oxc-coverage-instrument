@@ -87,22 +87,34 @@ fn pct(covered: u32, total: u32) -> f64 {
 
 fn statements_metric(file: &FileCoverage) -> Metric {
     let total = file.statement_map.len() as u32;
-    let covered = file.s.values().filter(|&&hits| hits > 0).count() as u32;
+    let covered = file
+        .statement_map
+        .keys()
+        .filter(|id| file.s.get(*id).copied().unwrap_or(0) > 0)
+        .count() as u32;
     Metric::new(total, covered)
 }
 
 fn functions_metric(file: &FileCoverage) -> Metric {
     let total = file.fn_map.len() as u32;
-    let covered = file.f.values().filter(|&&hits| hits > 0).count() as u32;
+    let covered = file
+        .fn_map
+        .keys()
+        .filter(|id| file.f.get(*id).copied().unwrap_or(0) > 0)
+        .count() as u32;
     Metric::new(total, covered)
 }
 
 fn branches_metric(file: &FileCoverage) -> Metric {
-    let mut total: u32 = 0;
-    let mut covered: u32 = 0;
-    for arms in file.b.values() {
-        total += arms.len() as u32;
-        covered += arms.iter().filter(|&&hits| hits > 0).count() as u32;
+    let mut total = 0;
+    let mut covered = 0;
+    for (id, entry) in &file.branch_map {
+        total += entry.locations.len() as u32;
+        for arm_index in 0..entry.locations.len() {
+            let hits =
+                file.b.get(id).and_then(|arms| arms.get(arm_index)).copied().unwrap_or(0);
+            covered += u32::from(hits > 0);
+        }
     }
     Metric::new(total, covered)
 }
@@ -167,6 +179,41 @@ mod tests {
         let f = parse_single(json);
         let s = CoverageSummary::from_file(&f);
         assert_eq!(s.branches, Metric { total: 2, covered: 1, skipped: 0, pct: 50.0 });
+    }
+
+    #[test]
+    fn orphan_statement_and_function_hits_are_ignored() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}}},"fnMap":{"0":{"name":"f","decl":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"line":1}},"branchMap":{},"s":{"0":0,"99":7},"f":{"0":0,"99":7},"b":{}}}"#;
+        let summary = CoverageSummary::from_file(&parse_single(json));
+        assert_eq!(summary.statements, Metric::new(1, 0));
+        assert_eq!(summary.functions, Metric::new(1, 0));
+    }
+
+    #[test]
+    fn missing_statement_and_function_counters_are_uncovered() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}}},"fnMap":{"0":{"name":"f","decl":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"line":1}},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+        let summary = CoverageSummary::from_file(&parse_single(json));
+        assert_eq!(summary.statements, Metric::new(1, 0));
+        assert_eq!(summary.functions, Metric::new(1, 0));
+    }
+
+    #[test]
+    fn branch_metadata_controls_missing_short_and_extra_counter_arrays() {
+        let make = |hits: &str| {
+            let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{"0":{"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}},"line":1,"type":"if","locations":[{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},{"start":{"line":1,"column":2},"end":{"line":1,"column":3}}]}},"s":{},"f":{},"b":__HITS__}}"#
+                .replace("__HITS__", hits);
+            parse_single(&json)
+        };
+
+        assert_eq!(CoverageSummary::from_file(&make("{}")).branches, Metric::new(2, 0));
+        assert_eq!(
+            CoverageSummary::from_file(&make(r#"{"0":[4]}"#)).branches,
+            Metric::new(2, 1),
+        );
+        assert_eq!(
+            CoverageSummary::from_file(&make(r#"{"0":[4,0,9]}"#)).branches,
+            Metric::new(2, 1),
+        );
     }
 
     #[test]

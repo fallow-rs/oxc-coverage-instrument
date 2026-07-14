@@ -207,6 +207,16 @@ const SAMPLE_COVERAGE: &str = r#"{
   }
 }"#;
 
+const DAMAGED_COVERAGE: &str = r#"{
+  "a.js": {
+    "path": "a.js",
+    "statementMap": {"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}}},
+    "fnMap": {"0":{"name":"f","decl":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"line":1}},
+    "branchMap": {"0":{"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":3}},"line":1,"type":"if","locations":[{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},{"start":{"line":1,"column":2},"end":{"line":1,"column":3}}]}},
+    "s": {"0":0,"99":7}, "f": {"0":0,"99":7}, "b": {"0":[3]}
+  }
+}"#;
+
 #[test]
 fn report_text_format_writes_table_to_stdout() {
     let cov = write_temp("report_text_cov.json", SAMPLE_COVERAGE);
@@ -238,6 +248,20 @@ fn report_json_summary_format_emits_valid_parseable_json() {
         serde_json::from_str(&stdout).expect("json-summary output must parse");
     assert!(value.get("total").is_some(), "missing total key in:\n{stdout}");
     assert!(value.get("a.js").is_some(), "missing per-file key in:\n{stdout}");
+}
+
+#[test]
+fn report_json_summary_uses_metadata_cardinality() {
+    let cov = write_temp("report_damaged_metadata.json", DAMAGED_COVERAGE);
+    let out = cli().arg("report").arg("-f").arg("json-summary").arg(cov).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(value["total"]["statements"]["total"], 1);
+    assert_eq!(value["total"]["statements"]["covered"], 0);
+    assert_eq!(value["total"]["functions"]["total"], 1);
+    assert_eq!(value["total"]["functions"]["covered"], 0);
+    assert_eq!(value["total"]["branches"]["total"], 2);
+    assert_eq!(value["total"]["branches"]["covered"], 1);
 }
 
 #[test]
