@@ -10,6 +10,7 @@ use srcmap_generator::SourceMapGenerator;
 const SOURCE_PATH: &str = "src/app.ts";
 const GENERATED_PATH: &str = "dist/app.js";
 const CASES: &[(&str, u32)] = &[("medium", 200), ("large", 1_000)];
+const EOL_CASES: &[(&str, u32)] = &[("medium", 200), ("stress", 1_000)];
 
 fn loc(start_line: u32, start_col: u32, end_line: u32, end_col: u32) -> Location {
     Location {
@@ -35,6 +36,25 @@ fn source_map_json(lines: u32, columns_per_line: u32) -> serde_json::Value {
     }
 
     serde_json::from_str(&generator.to_json()).expect("generated source map is valid JSON")
+}
+
+fn eol_source_map_json(lines: u32, include_sources_content: bool) -> serde_json::Value {
+    let mut generator =
+        SourceMapGenerator::with_capacity(Some(GENERATED_PATH.to_string()), lines as usize);
+    generator.set_assume_sorted(true);
+    let source = generator.add_source(SOURCE_PATH);
+    if include_sources_content {
+        generator.set_source_content(
+            source,
+            vec!["const value = 1234567890;"; lines as usize].join("\n"),
+        );
+    }
+
+    for line in 0..lines {
+        generator.add_mapping(line, 0, source, line, 0);
+    }
+
+    serde_json::from_str(&generator.to_json()).expect("generated EOL source map is valid JSON")
 }
 
 fn file_coverage(entry_count: u32, map: serde_json::Value) -> FileCoverage {
@@ -134,5 +154,26 @@ fn bench_remap(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_remap);
+fn bench_eol_fallback(c: &mut Criterion) {
+    let mut group = c.benchmark_group("eol");
+
+    for &(label, entry_count) in EOL_CASES {
+        for &(mode, include_sources_content) in
+            &[("sources_content", true), ("mappings_only", false)]
+        {
+            let map = eol_source_map_json(entry_count, include_sources_content);
+            let coverage = file_coverage(entry_count, map);
+            let remapped = remap_coverage(&coverage).expect("EOL fixture must remap");
+            assert_eq!(remapped.statement_map.len(), coverage.statement_map.len());
+
+            group.bench_with_input(BenchmarkId::new(mode, label), &coverage, |b, coverage| {
+                b.iter(|| remap_coverage(coverage).expect("EOL remap succeeds"));
+            });
+        }
+    }
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_remap, bench_eol_fallback);
 criterion_main!(benches);

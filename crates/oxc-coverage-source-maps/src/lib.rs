@@ -334,6 +334,23 @@ where
 struct RemapCaches {
     mapping_cache: BTreeMap<LocationKey, Option<MappedLocation>>,
     original_line_columns: BTreeMap<OriginalLineKey, Vec<u32>>,
+    // Each cache belongs to one SourceMap, so source indices are stable keys.
+    original_line_ends: BTreeMap<u32, Vec<u32>>,
+}
+
+impl RemapCaches {
+    fn original_line_end_column(
+        &mut self,
+        sm: &srcmap_sourcemap::SourceMap,
+        source_idx: u32,
+        line: u32,
+    ) -> u32 {
+        let line_ends = self
+            .original_line_ends
+            .entry(source_idx)
+            .or_insert_with(|| original_line_ends(sm, source_idx));
+        usize::try_from(line).ok().and_then(|line| line_ends.get(line)).copied().unwrap_or(0)
+    }
 }
 
 #[derive(Clone)]
@@ -1302,21 +1319,36 @@ fn original_end_position_for(
 /// Resolves istanbul's `column: Infinity` to a concrete `u32`: the UTF-16
 /// length of the line from `sourcesContent`, or (when `sourcesContent` is
 /// absent) the rightmost original column mapped on that line.
-fn original_line_end_column(sm: &srcmap_sourcemap::SourceMap, source_idx: u32, line: u32) -> u32 {
-    if let Some(Some(content)) = sm.sources_content.get(source_idx as usize)
-        && let Some(text) = content.split('\n').nth(line as usize)
+fn original_line_ends(sm: &srcmap_sourcemap::SourceMap, source_idx: u32) -> Vec<u32> {
+    if let Some(Some(content)) =
+        usize::try_from(source_idx).ok().and_then(|source_idx| sm.sources_content.get(source_idx))
     {
-        // Strip a trailing CR so a CRLF source measures the same UTF-16 length
-        // istanbul's `\n`-split view of the line would.
-        let text = text.strip_suffix('\r').unwrap_or(text);
-        return u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX);
+        return content
+            .split('\n')
+            .map(|text| {
+                let text = text.strip_suffix('\r').unwrap_or(text);
+                u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
+            })
+            .collect();
     }
-    sm.all_mappings()
-        .iter()
-        .filter(|m| m.source == source_idx && m.original_line == line)
-        .map(|m| m.original_column)
-        .max()
-        .unwrap_or(0)
+
+    let mut line_ends = Vec::new();
+    for mapping in sm.all_mappings().iter().filter(|mapping| mapping.source == source_idx) {
+        let Ok(line) = usize::try_from(mapping.original_line) else {
+            continue;
+        };
+        let Some(required_len) = line.checked_add(1) else {
+            continue;
+        };
+        if required_len > line_ends.len() {
+            if line_ends.try_reserve(required_len - line_ends.len()).is_err() {
+                continue;
+            }
+            line_ends.resize(required_len, 0);
+        }
+        line_ends[line] = line_ends[line].max(mapping.original_column);
+    }
+    line_ends
 }
 
 /// Resolve a `Location` through istanbul `getMapping` semantics. Returns the
@@ -1333,7 +1365,7 @@ fn get_mapping_location(loc: &Location, ctx: &mut RemapContext<'_>) -> Option<Ma
     let (end_source, mut end_line, mut end_col, end_is_eol) = match end {
         EndResult::Mapped { source, line, column } => (source, line, column, false),
         EndResult::EndOfLine { source, line } => {
-            (source, line, original_line_end_column(ctx.sm, source, line), true)
+            (source, line, ctx.caches.original_line_end_column(ctx.sm, source, line), true)
         }
     };
 
