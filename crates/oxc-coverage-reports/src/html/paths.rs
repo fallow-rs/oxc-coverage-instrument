@@ -5,6 +5,12 @@ use std::path::{Path, PathBuf};
 
 const INDEX_FILE: &str = "index.html";
 const ROOT_ASSETS: [&str; 3] = ["base.css", "coverage-tokens.css", "base.js"];
+// Common target filesystems allow 255 bytes or ASCII code units per component.
+// Keep headroom while retaining readable collision suffixes.
+const MAX_COMPONENT_LEN: usize = 240;
+const MAX_ENCODED_PREFIX_LEN: usize = MAX_COMPONENT_LEN + 1;
+const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum NodeType {
@@ -22,6 +28,12 @@ struct NodeKey {
 struct PhysicalNode {
     output_path: PathBuf,
     href_from_parent: String,
+}
+
+#[derive(Clone, Debug)]
+struct PortableLeaf {
+    value: String,
+    unchanged: bool,
 }
 
 pub(super) struct PhysicalPaths {
@@ -78,17 +90,34 @@ fn allocate_children(
     if is_root {
         occupied.extend(ROOT_ASSETS.map(ascii_case_key));
     }
-    let protected_preferred: BTreeSet<String> = children
+    let preferences: BTreeMap<NodeKey, PortableLeaf> = children
         .iter()
-        .map(|child| match &child.kind {
-            NodeKind::Folder { .. } => child.name.clone(),
-            NodeKind::File { .. } => format!("{}.html", child.name),
+        .map(|child| {
+            let (preferred, suffix) = match &child.kind {
+                NodeKind::Folder { .. } => (child.name.clone(), ""),
+                NodeKind::File { .. } => (format!("{}.html", child.name), ".html"),
+            };
+            (NodeKey::from_node(child), portable_leaf(&preferred, suffix))
         })
-        .map(|preferred| ascii_case_key(&preferred))
+        .collect();
+    let protected_preferred: BTreeSet<String> =
+        preferences.values().map(|preferred| ascii_case_key(&preferred.value)).collect();
+    let protected_ordinary: BTreeSet<String> = preferences
+        .values()
+        .filter(|preferred| preferred.unchanged)
+        .map(|preferred| ascii_case_key(&preferred.value))
         .collect();
 
     for child in children.iter().filter(|child| matches!(child.kind, NodeKind::Folder { .. })) {
-        let leaf = allocate_leaf(&mut occupied, &protected_preferred, &child.name, "dir", "");
+        let preferred = &preferences[&NodeKey::from_node(child)];
+        let leaf = allocate_leaf(
+            &mut occupied,
+            &protected_preferred,
+            &protected_ordinary,
+            preferred,
+            "dir",
+            "",
+        );
         let output_dir = parent_output_dir.join(&leaf);
         nodes.insert(
             NodeKey::from_node(child),
@@ -101,8 +130,15 @@ fn allocate_children(
     }
 
     for child in children.iter().filter(|child| matches!(child.kind, NodeKind::File { .. })) {
-        let preferred = format!("{}.html", child.name);
-        let leaf = allocate_leaf(&mut occupied, &protected_preferred, &preferred, "file", ".html");
+        let preferred = &preferences[&NodeKey::from_node(child)];
+        let leaf = allocate_leaf(
+            &mut occupied,
+            &protected_preferred,
+            &protected_ordinary,
+            preferred,
+            "file",
+            ".html",
+        );
         nodes.insert(
             NodeKey::from_node(child),
             PhysicalNode {
@@ -117,17 +153,20 @@ fn allocate_children(
 fn allocate_leaf(
     occupied: &mut BTreeSet<String>,
     protected_preferred: &BTreeSet<String>,
-    preferred: &str,
+    protected_ordinary: &BTreeSet<String>,
+    preferred: &PortableLeaf,
     kind: &str,
     suffix: &str,
 ) -> String {
-    if occupied.insert(ascii_case_key(preferred)) {
-        return preferred.to_owned();
+    let preferred_key = ascii_case_key(&preferred.value);
+    if (preferred.unchanged || !protected_ordinary.contains(&preferred_key))
+        && occupied.insert(preferred_key)
+    {
+        return preferred.value.clone();
     }
 
-    let stem = preferred.strip_suffix(suffix).unwrap_or(preferred);
     for attempt in 1u32.. {
-        let candidate = format!("{stem}.oxc-{kind}-{attempt}{suffix}");
+        let candidate = collision_leaf(&preferred.value, kind, suffix, attempt);
         let key = ascii_case_key(&candidate);
         if protected_preferred.contains(&key) || occupied.contains(&key) {
             continue;
@@ -136,6 +175,92 @@ fn allocate_leaf(
         return candidate;
     }
     unreachable!("u32 collision suffix space is sufficient for a finite report tree")
+}
+
+fn portable_leaf(preferred: &str, suffix: &str) -> PortableLeaf {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+
+    let disarm_device = is_windows_device_name(preferred);
+    let trailing_alias_start = preferred.trim_end_matches(['.', ' ']).len();
+    let mut encoded = String::with_capacity(preferred.len().min(MAX_ENCODED_PREFIX_LEN));
+    let mut encoded_len = 0usize;
+    let mut hash = FNV_OFFSET_BASIS;
+    let mut changed = false;
+    for (index, byte) in preferred.bytes().enumerate() {
+        hash = update_name_hash(hash, byte);
+        let escape = !is_portable_ascii_byte(byte)
+            || index >= trailing_alias_start
+            || (disarm_device && index == 0);
+        if escape {
+            let escaped =
+                [b'_', b'x', HEX[usize::from(byte >> 4)], HEX[usize::from(byte & 0x0f)], b'_'];
+            push_encoded_prefix(&mut encoded, &escaped);
+            encoded_len = encoded_len.saturating_add(escaped.len());
+            changed = true;
+        } else {
+            push_encoded_prefix(&mut encoded, &[byte]);
+            encoded_len = encoded_len.saturating_add(1);
+        }
+    }
+
+    let value = if encoded_len <= MAX_COMPONENT_LEN {
+        encoded
+    } else {
+        bound_component(&encoded, suffix, hash)
+    };
+    PortableLeaf { unchanged: !changed && encoded_len <= MAX_COMPONENT_LEN, value }
+}
+
+fn push_encoded_prefix(encoded: &mut String, bytes: &[u8]) {
+    let remaining = MAX_ENCODED_PREFIX_LEN.saturating_sub(encoded.len());
+    encoded.extend(bytes.iter().take(remaining).map(|byte| char::from(*byte)));
+}
+
+fn collision_leaf(preferred: &str, kind: &str, suffix: &str, attempt: u32) -> String {
+    let stem = preferred.strip_suffix(suffix).unwrap_or(preferred);
+    let discriminator = format!(".oxc-{kind}-{attempt}");
+    let candidate = format!("{stem}{discriminator}{suffix}");
+    if candidate.len() <= MAX_COMPONENT_LEN {
+        return candidate;
+    }
+
+    let hash = stable_name_hash(preferred.as_bytes());
+    let marker = format!("_h{hash:016x}");
+    let prefix_len = MAX_COMPONENT_LEN - marker.len() - discriminator.len() - suffix.len();
+    format!("{}{}{}{}", &stem[..stem.len().min(prefix_len)], marker, discriminator, suffix)
+}
+
+fn bound_component(value: &str, suffix: &str, hash: u64) -> String {
+    if value.len() <= MAX_COMPONENT_LEN {
+        return value.to_owned();
+    }
+
+    let stem = value.strip_suffix(suffix).unwrap_or(value);
+    let marker = format!("_h{hash:016x}");
+    let prefix_len = MAX_COMPONENT_LEN - marker.len() - suffix.len();
+    format!("{}{}{}", &stem[..stem.len().min(prefix_len)], marker, suffix)
+}
+
+fn stable_name_hash(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(FNV_OFFSET_BASIS, |hash, byte| update_name_hash(hash, *byte))
+}
+
+fn update_name_hash(hash: u64, byte: u8) -> u64 {
+    (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME)
+}
+
+fn is_portable_ascii_byte(byte: u8) -> bool {
+    (b' '..=b'~').contains(&byte) && !b"<>:\"/\\|?*".contains(&byte)
+}
+
+fn is_windows_device_name(value: &str) -> bool {
+    let stem = value.split('.').next().unwrap_or(value).trim_end_matches(' ');
+    let stem = stem.to_ascii_lowercase();
+    matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || stem
+            .strip_prefix("com")
+            .or_else(|| stem.strip_prefix("lpt"))
+            .is_some_and(|digit| digit.len() == 1 && matches!(digit.as_bytes()[0], b'1'..=b'9'))
 }
 
 fn validate_unique_outputs(nodes: &BTreeMap<NodeKey, PhysicalNode>) -> io::Result<()> {
@@ -191,9 +316,13 @@ fn percent_encode_segment(segment: &str) -> String {
 
 fn validate_safe_output_path(path: &Path) -> io::Result<()> {
     let safe = path.components().all(|component| match component {
-        std::path::Component::Normal(component) => {
-            component.to_str().is_some_and(super::is_safe_report_path_component)
-        }
+        std::path::Component::Normal(component) => component.to_str().is_some_and(|component| {
+            super::is_safe_report_path_component(component)
+                && component.len() <= MAX_COMPONENT_LEN
+                && component.bytes().all(is_portable_ascii_byte)
+                && !component.ends_with(['.', ' '])
+                && !is_windows_device_name(component)
+        }),
         _ => false,
     });
     if safe {
@@ -211,6 +340,8 @@ mod tests {
     use oxc_coverage_report::{ReportNode, summarize};
     use oxc_coverage_types::parse_coverage_map;
     use std::path::Path;
+
+    const PORTABLE_COMPONENT_LIMIT: usize = 240;
 
     fn tree(json: &str) -> ReportNode {
         let map = parse_coverage_map(json).unwrap();
@@ -233,6 +364,40 @@ mod tests {
         node.children().iter().find_map(|child| find_optional(child, relative_path, node_type))
     }
 
+    fn coverage_entry(path: &str) -> String {
+        format!(
+            r#""{path}":{{"path":"{path}","statementMap":{{}},"fnMap":{{}},"branchMap":{{}},"s":{{}},"f":{{}},"b":{{}}}}"#,
+        )
+    }
+
+    fn assert_portable_outputs(paths: &PhysicalPaths) {
+        for physical in paths.nodes.values() {
+            for component in physical.output_path.components() {
+                let component = component.as_os_str().to_str().unwrap();
+                assert!(component.is_ascii(), "non-ASCII output component: {component:?}");
+                assert!(
+                    component.len() <= PORTABLE_COMPONENT_LIMIT,
+                    "overlong output component: {} bytes",
+                    component.len(),
+                );
+                assert!(
+                    !component.bytes().any(|byte| {
+                        byte < b' ' || byte == 0x7f || b"<>:\"/\\|?*".contains(&byte)
+                    }),
+                    "nonportable output component: {component:?}",
+                );
+                assert!(!component.ends_with(['.', ' ']), "trailing alias: {component:?}");
+
+                let stem = component.split('.').next().unwrap().to_ascii_lowercase();
+                let reserved = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+                    || stem.strip_prefix("com").or_else(|| stem.strip_prefix("lpt")).is_some_and(
+                        |digit| digit.len() == 1 && matches!(digit.as_bytes()[0], b'1'..=b'9'),
+                    );
+                assert!(!reserved, "Windows device output component: {component:?}");
+            }
+        }
+    }
+
     #[test]
     fn maps_root_and_nested_index_files_away_from_folder_indexes() {
         let root = tree(
@@ -247,6 +412,30 @@ mod tests {
         let nested_index_file = find(&root, "src/index", NodeType::File);
         assert_eq!(paths.output_path(root_index_file), Path::new("index.oxc-file-1.html"));
         assert_eq!(paths.output_path(nested_index_file), Path::new("src/index.oxc-file-1.html"));
+    }
+
+    #[test]
+    fn preserves_ordinary_portable_files_and_folders() {
+        let root = tree(
+            r#"{
+              "keep.js":{"path":"keep.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "src/ordinary.js":{"path":"src/ordinary.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}
+            }"#,
+        );
+        let paths = PhysicalPaths::build(&root).unwrap();
+
+        assert_eq!(
+            paths.output_path(find(&root, "keep.js", NodeType::File)),
+            Path::new("keep.js.html"),
+        );
+        assert_eq!(
+            paths.output_path(find(&root, "src", NodeType::Folder)),
+            Path::new("src/index.html"),
+        );
+        assert_eq!(
+            paths.output_path(find(&root, "src/ordinary.js", NodeType::File)),
+            Path::new("src/ordinary.js.html"),
+        );
     }
 
     #[test]
@@ -349,6 +538,216 @@ mod tests {
     }
 
     #[test]
+    fn maps_windows_illegal_and_control_bytes_to_portable_ascii() {
+        let root = tree(
+            r#"{
+              "keep.js":{"path":"keep.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "bad\u0001\u007f<name>:\"pipe|query?star*.js":{"path":"bad\u0001\u007f<name>:\"pipe|query?star*.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "nested?folder/a.js":{"path":"nested?folder/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}
+            }"#,
+        );
+        let paths = PhysicalPaths::build(&root).unwrap();
+
+        assert_portable_outputs(&paths);
+        assert_eq!(
+            paths.output_path(find(&root, "nested?folder", NodeType::Folder)),
+            Path::new("nested_x3F_folder/index.html"),
+        );
+    }
+
+    #[test]
+    fn maps_windows_device_stems_case_insensitively_with_extensions() {
+        let mut devices =
+            vec!["CON".to_owned(), "prn".to_owned(), "AuX".to_owned(), "nul".to_owned()];
+        for prefix in ["COM", "lPt"] {
+            devices.extend((1..=9).map(|digit| format!("{prefix}{digit}")));
+        }
+        let mut entries =
+            vec![coverage_entry("keep.js"), coverage_entry("CoN"), coverage_entry("PrN.txt")];
+        entries.extend(devices.iter().map(|device| coverage_entry(&format!("{device}.txt/a.js"))));
+        let root = tree(&format!("{{{}}}", entries.join(",")));
+        let paths = PhysicalPaths::build(&root).unwrap();
+
+        assert_portable_outputs(&paths);
+        assert_eq!(
+            paths.output_path(find(&root, "CoN", NodeType::File)),
+            Path::new("_x43_oN.html"),
+        );
+        assert_eq!(
+            paths.output_path(find(&root, "PrN.txt", NodeType::File)),
+            Path::new("_x50_rN.txt.html"),
+        );
+        for device in devices {
+            let logical = format!("{device}.txt");
+            let physical = paths.output_path(find(&root, &logical, NodeType::Folder));
+            assert_ne!(physical.parent().unwrap(), Path::new(&logical));
+        }
+    }
+
+    #[test]
+    fn maps_trailing_dot_and_space_aliases_away_from_siblings_and_assets() {
+        let root = tree(
+            r#"{
+              "keep.js":{"path":"keep.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "alias/a.js":{"path":"alias/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "alias./b.js":{"path":"alias./b.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "alias /c.js":{"path":"alias /c.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "base.css./d.js":{"path":"base.css./d.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "base.css /e.js":{"path":"base.css /e.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}
+            }"#,
+        );
+        let paths = PhysicalPaths::build(&root).unwrap();
+
+        assert_portable_outputs(&paths);
+        assert_eq!(
+            paths.output_path(find(&root, "alias", NodeType::Folder)),
+            Path::new("alias/index.html"),
+        );
+        assert_eq!(
+            paths.output_path(find(&root, "alias.", NodeType::Folder)),
+            Path::new("alias_x2E_/index.html"),
+        );
+        assert_eq!(
+            paths.output_path(find(&root, "alias ", NodeType::Folder)),
+            Path::new("alias_x20_/index.html"),
+        );
+    }
+
+    #[test]
+    fn maps_unicode_normalization_and_case_aliases_to_distinct_ascii() {
+        let names = ["é", "e\u{301}", "É"];
+        let mut entries = vec![coverage_entry("keep.js")];
+        entries.extend(names.iter().map(|name| coverage_entry(&format!("{name}/a.js"))));
+        let root = tree(&format!("{{{}}}", entries.join(",")));
+        let paths = PhysicalPaths::build(&root).unwrap();
+        let outputs: BTreeSet<PathBuf> = names
+            .iter()
+            .map(|name| paths.output_path(find(&root, name, NodeType::Folder)).to_owned())
+            .collect();
+
+        assert_portable_outputs(&paths);
+        assert_eq!(outputs.len(), names.len());
+    }
+
+    #[test]
+    fn portable_escape_looking_names_keep_their_leaves_during_collisions() {
+        let root = tree(
+            r#"{
+              "bad?name.js":{"path":"bad?name.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "bad_x3F_name.js":{"path":"bad_x3F_name.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "bad_x3F_name.js.oxc-file-1":{"path":"bad_x3F_name.js.oxc-file-1","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "bad?dir/a.js":{"path":"bad?dir/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "bad_x3F_dir/b.js":{"path":"bad_x3F_dir/b.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+              "bad_x3F_dir.oxc-dir-1/c.js":{"path":"bad_x3F_dir.oxc-dir-1/c.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}
+            }"#,
+        );
+        let first = PhysicalPaths::build(&root).unwrap();
+        let second = PhysicalPaths::build(&root).unwrap();
+
+        assert_eq!(
+            first.output_path(find(&root, "bad_x3F_name.js", NodeType::File)),
+            Path::new("bad_x3F_name.js.html"),
+        );
+        assert_eq!(
+            first.output_path(find(&root, "bad?name.js", NodeType::File)),
+            Path::new("bad_x3F_name.js.oxc-file-2.html"),
+        );
+        assert_eq!(
+            first.output_path(find(&root, "bad_x3F_dir", NodeType::Folder)),
+            Path::new("bad_x3F_dir/index.html"),
+        );
+        assert_eq!(
+            first.output_path(find(&root, "bad?dir", NodeType::Folder)),
+            Path::new("bad_x3F_dir.oxc-dir-2/index.html"),
+        );
+        assert_eq!(first.nodes.keys().collect::<Vec<_>>(), second.nodes.keys().collect::<Vec<_>>());
+        for key in first.nodes.keys() {
+            assert_eq!(first.nodes[key].output_path, second.nodes[key].output_path);
+        }
+    }
+
+    #[test]
+    fn bounds_encoded_preferred_and_collision_components() {
+        let overlong_ascii = "a".repeat(400);
+        let expanded_unicode = "é".repeat(100);
+        let case_alias_lower = "b".repeat(235);
+        let case_alias_upper = "B".repeat(235);
+        let entries = [
+            coverage_entry("keep.js"),
+            coverage_entry(&format!("{overlong_ascii}/a.js")),
+            coverage_entry(&format!("{expanded_unicode}/b.js")),
+            coverage_entry(&format!("{case_alias_lower}/c.js")),
+            coverage_entry(&format!("{case_alias_upper}/d.js")),
+        ];
+        let root = tree(&format!("{{{}}}", entries.join(",")));
+        let paths = PhysicalPaths::build(&root).unwrap();
+
+        assert_portable_outputs(&paths);
+        assert_eq!(
+            paths
+                .output_path(find(&root, &case_alias_lower, NodeType::Folder))
+                .parent()
+                .unwrap()
+                .as_os_str()
+                .len(),
+            PORTABLE_COMPONENT_LIMIT,
+        );
+    }
+
+    #[test]
+    fn resolves_bounded_hash_and_identical_truncation_collisions() {
+        let overlong = "z".repeat(400);
+        let bounded = portable_leaf(&overlong, "");
+        let first_fallback = collision_leaf(&bounded.value, "dir", "", 1);
+        let entries = [
+            coverage_entry("keep.js"),
+            coverage_entry(&format!("{overlong}/a.js")),
+            coverage_entry(&format!("{}/b.js", bounded.value)),
+            coverage_entry(&format!("{first_fallback}/c.js")),
+        ];
+        let root = tree(&format!("{{{}}}", entries.join(",")));
+        let paths = PhysicalPaths::build(&root).unwrap();
+
+        assert_eq!(
+            paths.output_path(find(&root, &bounded.value, NodeType::Folder)),
+            Path::new(&bounded.value).join(INDEX_FILE),
+        );
+        assert_eq!(
+            paths.output_path(find(&root, &first_fallback, NodeType::Folder)),
+            Path::new(&first_fallback).join(INDEX_FILE),
+        );
+        assert_eq!(
+            paths.output_path(find(&root, &overlong, NodeType::Folder)),
+            Path::new(&collision_leaf(&bounded.value, "dir", "", 2)).join(INDEX_FILE),
+        );
+        assert_portable_outputs(&paths);
+
+        let mut occupied = BTreeSet::new();
+        let protected_preferred = BTreeSet::from([ascii_case_key(&bounded.value)]);
+        let protected_ordinary = BTreeSet::new();
+        let first = allocate_leaf(
+            &mut occupied,
+            &protected_preferred,
+            &protected_ordinary,
+            &bounded,
+            "dir",
+            "",
+        );
+        let second = allocate_leaf(
+            &mut occupied,
+            &protected_preferred,
+            &protected_ordinary,
+            &bounded,
+            "dir",
+            "",
+        );
+        assert_eq!(first, bounded.value);
+        assert_eq!(second, collision_leaf(&first, "dir", "", 1));
+        assert_ne!(ascii_case_key(&first), ascii_case_key(&second));
+        assert!(second.len() <= PORTABLE_COMPONENT_LIMIT);
+    }
+
+    #[test]
     fn hrefs_percent_encode_each_physical_path_segment() {
         let root = tree(
             r#"{
@@ -361,13 +760,12 @@ mod tests {
         let folder = find(&root, "folder #?% ü", NodeType::Folder);
         let nested_file = find(&root, "folder #?% ü/nested #?% ü.js", NodeType::File);
 
+        assert_eq!(paths.output_path(root_file), Path::new("root #_x3F_% _xC3__xBC_.js.html"),);
+        assert_eq!(paths.href_from_parent(root_file), "root%20%23_x3F_%25%20_xC3__xBC_.js.html",);
+        assert_eq!(paths.href_from_parent(folder), "folder%20%23_x3F_%25%20_xC3__xBC_/index.html",);
         assert_eq!(
-            paths.output_path(root_file),
-            Path::new("root #?% ü.js.html"),
-            "safe physical leaves must remain unchanged",
+            paths.href_from_parent(nested_file),
+            "nested%20%23_x3F_%25%20_xC3__xBC_.js.html",
         );
-        assert_eq!(paths.href_from_parent(root_file), "root%20%23%3F%25%20%C3%BC.js.html",);
-        assert_eq!(paths.href_from_parent(folder), "folder%20%23%3F%25%20%C3%BC/index.html",);
-        assert_eq!(paths.href_from_parent(nested_file), "nested%20%23%3F%25%20%C3%BC.js.html",);
     }
 }
