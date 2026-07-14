@@ -1149,6 +1149,26 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] v8ToIstanbulWithLoader resolves external map URLs');
 }
 
+{
+  const source = 'const marker = `\n//# sourceMappingURL=ghost.map\n`;\n';
+  const functions = [{
+    functionName: '',
+    ranges: [{ startOffset: 0, endOffset: source.length, count: 1 }],
+    isBlockCoverage: false,
+  }];
+  const map = JSON.stringify({
+    version: 3,
+    sources: ['ghost.ts'],
+    mappings: 'AAAA',
+    names: [],
+  });
+  const coverage = JSON.parse(
+    v8ToIstanbulWithLoader(source, 'app.js', JSON.stringify(functions), { 'ghost.map': map }),
+  );
+  assert(!coverage.inputSourceMap, 'template marker must not load an external source map');
+  console.log('  [PASS] sourceMappingURL requires a final directive line');
+}
+
 // Test 21: v8ToIstanbul resolves if-arm[0] through the collected then-block span
 {
   const source = 'function f(x) {\n  if (x) {\n    a();\n  } else {\n    b();\n  }\n}\n';

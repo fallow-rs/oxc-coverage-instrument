@@ -390,38 +390,53 @@ fn apply_branch_counts(
     }
 }
 
-/// Pull a trailing `//# sourceMappingURL=<url>` comment from the tail of
-/// `source` and return the URL when it is NOT a `data:` URI. Returns `None`
-/// when no trailer is present or when the trailer is an inline data URL (the
-/// inline form is handled by [`extract_inline_source_map`]).
-#[must_use]
-pub fn extract_external_source_mapping_url(source: &str) -> Option<&str> {
-    const NEEDLE: &str = "//# sourceMappingURL=";
-    let idx = source.rfind(NEEDLE)?;
-    let after = &source[idx + NEEDLE.len()..];
-    let url = after.lines().next()?.trim();
-    if url.is_empty() || url.starts_with("data:") {
+const SOURCE_MAPPING_URL_PREFIX: &str = "//# sourceMappingURL=";
+
+fn is_line_terminator(ch: char) -> bool {
+    matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}')
+}
+
+fn source_mapping_url_trailer(source: &str) -> Option<&str> {
+    let source = source.trim_end();
+    let line_start = source
+        .char_indices()
+        .rev()
+        .find_map(|(index, ch)| is_line_terminator(ch).then_some(index + ch.len_utf8()))
+        .unwrap_or(0);
+    let line = source.get(line_start..)?.trim_start();
+    let url = line.strip_prefix(SOURCE_MAPPING_URL_PREFIX)?.trim();
+    if url.is_empty() || url.chars().any(|ch| matches!(ch, '\'' | '"' | '`')) {
         return None;
     }
     Some(url)
 }
 
+/// Pull a trailing `//# sourceMappingURL=<url>` comment from the final
+/// non-whitespace physical line of `source` and return the URL when it is NOT
+/// a `data:` URI. Returns `None` when no trailer is present or when the trailer
+/// is an inline data URL (the inline form is handled by
+/// [`extract_inline_source_map`]).
+#[must_use]
+pub fn extract_external_source_mapping_url(source: &str) -> Option<&str> {
+    let url = source_mapping_url_trailer(source)?;
+    (!url.starts_with("data:")).then_some(url)
+}
+
 /// Pull an inline `//# sourceMappingURL=data:application/json;base64,...`
-/// comment from the tail of `source` and decode the embedded source map.
+/// comment from the final non-whitespace physical line of `source` and decode
+/// the embedded source map.
 ///
 /// Only the data-URL form (the dominant case for ESM bundles emitted by Vite,
 /// esbuild, swc, and tsc) is supported here. External URLs are handled via
 /// [`extract_external_source_mapping_url`] + a caller-supplied loader.
 #[must_use]
 pub fn extract_inline_source_map(source: &str) -> Option<serde_json::Value> {
-    const NEEDLE: &str = "//# sourceMappingURL=data:application/json";
-    let idx = source.rfind(NEEDLE)?;
-    let line = source[idx..].lines().next()?;
-
-    let comma = line.find(',')?;
-    let payload = &line[comma + 1..];
-    let is_base64 = line[..comma].contains(";base64");
-    let json = if is_base64 {
+    let url = source_mapping_url_trailer(source)?;
+    let data = url.strip_prefix("data:application/json")?;
+    let comma = data.find(',')?;
+    let metadata = &data[..comma];
+    let payload = &data[comma + 1..];
+    let json = if metadata.split(';').any(|part| part == "base64") {
         let bytes = decode_base64(payload).ok()?;
         String::from_utf8(bytes).ok()?
     } else {

@@ -616,6 +616,22 @@ fn external_source_mapping_url_invokes_loader() {
 }
 
 #[test]
+fn source_mapping_url_inside_template_does_not_invoke_loader() {
+    let source = "const marker = `\n//# sourceMappingURL=ghost.map\n`;\n";
+    let functions = vec![function("", vec![range(0, source.len() as u32, 1)], false)];
+    let seen = std::cell::RefCell::new(Vec::<String>::new());
+
+    let coverage = v8_to_istanbul_with_loader(source, "app.js", &functions, 0, |url| {
+        seen.borrow_mut().push(url.to_string());
+        Some(r#"{"version":3,"sources":["ghost.ts"],"mappings":"AAAA","names":[]}"#.to_string())
+    })
+    .unwrap();
+
+    assert!(seen.into_inner().is_empty(), "false trailer must not invoke the loader");
+    assert!(coverage.input_source_map.is_none(), "false trailer must not attach a map");
+}
+
+#[test]
 fn external_source_mapping_url_loader_returning_none_leaves_map_unset() {
     // A loader that returns None (disk read failed, no map next to file)
     // must not panic or attach garbage. The result must look like the

@@ -147,6 +147,43 @@ fn external_source_mapping_url_filters_data_urls_and_blanks() {
 }
 
 #[test]
+fn source_mapping_url_requires_a_final_directive_line() {
+    let rejected = [
+        "const value = '//# sourceMappingURL=string.map';",
+        "const value = `\n//# sourceMappingURL=template.map\n`;",
+        "const value = `\n//# sourceMappingURL=template.map`;",
+        "//# sourceMappingURL=early.map\nrun();",
+    ];
+    for source in rejected {
+        assert_eq!(
+            extract_external_source_mapping_url(source),
+            None,
+            "marker is not a final directive line: {source:?}",
+        );
+    }
+
+    assert_eq!(
+        extract_external_source_mapping_url(
+            "const value = 1;\r\n  //# sourceMappingURL=final.map\r\n\t  ",
+        ),
+        Some("final.map"),
+    );
+}
+
+#[test]
+fn inline_source_mapping_url_requires_a_final_directive_line() {
+    let payload = b64_urlsafe(SAMPLE_MAP.as_bytes());
+    let template =
+        format!("const value = `\n//# sourceMappingURL=data:application/json;base64,{payload}\n`;");
+    assert!(extract_inline_source_map(&template).is_none());
+
+    let trailer = format!(
+        "const value = 1;\n//# sourceMappingURL=data:application/json;base64,{payload}\n \t"
+    );
+    assert_eq!(extract_inline_source_map(&trailer).unwrap()["version"], 3);
+}
+
+#[test]
 fn arm_tiebreaker_prefers_tighter_v8_range_at_equal_distance() {
     // Branch arm on line 3, columns 4..6, mapping to byte offsets [26, 28).
     // Two V8 block ranges flank it within the 4-byte tolerance:
