@@ -6,6 +6,8 @@
 
 use std::process::Command;
 
+const FILESYSTEM_COMPONENT_LIMIT: usize = 255;
+
 fn cli() -> Command {
     Command::new(env!("CARGO_BIN_EXE_oxc-coverage-instrument"))
 }
@@ -29,14 +31,15 @@ fn collect_html_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     files
 }
 
-fn local_html_hrefs(page: &str) -> Vec<&str> {
+fn local_hrefs(page: &str) -> Vec<&str> {
     page.split("href=\"")
         .skip(1)
         .filter_map(|rest| rest.split_once('"').map(|(href, _)| href))
         .filter(|href| {
-            std::path::Path::new(href)
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("html"))
+            !href.contains("://")
+                && !href.starts_with("//")
+                && !href.starts_with("data:")
+                && !href.starts_with("mailto:")
         })
         .collect()
 }
@@ -66,6 +69,33 @@ fn hex_value(byte: u8) -> u8 {
         b'a'..=b'f' => byte - b'a' + 10,
         b'A'..=b'F' => byte - b'A' + 10,
         _ => panic!("invalid percent escape"),
+    }
+}
+
+fn resolved_local_href(page: &std::path::Path, href: &str) -> std::path::PathBuf {
+    let path = url_href_path(href);
+    if path.as_os_str().is_empty() { page.to_owned() } else { page.parent().unwrap().join(path) }
+}
+
+fn assert_portable_output_tree(dir: &std::path::Path) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        let component = path.file_name().unwrap().to_str().unwrap();
+        assert!(component.is_ascii(), "non-ASCII output component: {component:?}");
+        assert!(
+            component.len() <= FILESYSTEM_COMPONENT_LIMIT,
+            "overlong output component: {component:?}",
+        );
+        assert!(
+            !component
+                .bytes()
+                .any(|byte| byte < b' ' || byte == 0x7f || b"<>:\"/\\|?*".contains(&byte)),
+            "nonportable output component: {component:?}",
+        );
+        assert!(!component.ends_with(['.', ' ']), "trailing output alias: {component:?}");
+        if path.is_dir() {
+            assert_portable_output_tree(&path);
+        }
     }
 }
 
@@ -549,20 +579,20 @@ fn report_html_collision_safe_complete_tree() {
     }
     assert!(out_dir.join("index.oxc-file-1.html").is_file());
     assert!(out_dir.join("src/index.oxc-file-1.html").is_file());
-    assert!(out_dir.join("reserved #?% ü.js.html").is_file());
-    assert!(out_dir.join("folder #?% ü/nested #?% ü.js.html").is_file());
+    assert!(out_dir.join("reserved #_x3F_% _xC3__xBC_.js.html").is_file());
+    assert!(out_dir.join("folder #_x3F_% _xC3__xBC_/nested #_x3F_% _xC3__xBC_.js.html").is_file(),);
+    assert_portable_output_tree(&out_dir);
 
     let root_index = std::fs::read_to_string(out_dir.join("index.html")).unwrap();
-    assert!(root_index.contains("href=\"reserved%20%23%3F%25%20%C3%BC.js.html\""));
-    assert!(root_index.contains("href=\"folder%20%23%3F%25%20%C3%BC/index.html\""));
+    assert!(root_index.contains("reserved #?% ü.js"), "logical display name changed");
+    assert!(root_index.contains("href=\"reserved%20%23_x3F_%25%20_xC3__xBC_.js.html\""));
+    assert!(root_index.contains("href=\"folder%20%23_x3F_%25%20_xC3__xBC_/index.html\""));
 
     for html in collect_html_files(&out_dir) {
         let page = std::fs::read_to_string(&html).unwrap();
-        for href in local_html_hrefs(&page) {
-            assert!(
-                html.parent().unwrap().join(url_href_path(href)).is_file(),
-                "broken link from {html:?}",
-            );
+        for href in local_hrefs(&page) {
+            let target = resolved_local_href(&html, href);
+            assert!(target.is_file(), "broken link {href:?} from {html:?} resolved to {target:?}");
         }
     }
 }
