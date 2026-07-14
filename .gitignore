@@ -43,7 +43,12 @@ crates/oxc-coverage-instrument-napi/node_modules/
 
 # CLI crash handover files
 HANDOVER-CRASH-*.md
+
+# local-only planning and agent scratch
 /.plans/
+/plans/
+/.superpowers/
+/docs/superpowers/
 
 # Playwright MCP session artifacts (console logs, traces)
 /.playwright-mcp/
