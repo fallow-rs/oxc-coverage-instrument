@@ -4,6 +4,7 @@
 //! output, but they bypass `Format` and call the per-module `write` directly;
 //! these tests own the dispatcher contract instead.
 
+#[cfg(feature = "html")]
 use oxc_coverage_report::summarize;
 use oxc_coverage_reports::Format;
 #[cfg(feature = "html")]
@@ -13,6 +14,24 @@ use std::path::Path;
 
 const EMPTY_MAP: &str =
     r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+
+fn reject_directory_write(
+    format: Format,
+    map: &oxc_coverage_report::CoverageMap,
+    dir: &Path,
+) {
+    #[cfg(feature = "html")]
+    let error = format
+        .write_to_dir(map, Path::new(""), dir, &HtmlOptions::default())
+        .expect_err("single-file formats must reject write_to_dir");
+
+    #[cfg(not(feature = "html"))]
+    let error = format
+        .write_to_dir(map, Path::new(""), dir)
+        .expect_err("single-file formats must reject write_to_dir");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+}
 
 #[test]
 fn parse_recognises_every_format_name() {
@@ -62,14 +81,7 @@ fn write_to_dir_rejects_single_file_formats() {
     for fmt in
         [Format::Text, Format::TextSummary, Format::JsonSummary, Format::Lcov, Format::Cobertura]
     {
-        let err = fmt
-            .write_to_dir(&map, Path::new(""), dir.path(), &HtmlOptions::default())
-            .expect_err("single-file formats must reject write_to_dir");
-        assert_eq!(
-            err.kind(),
-            std::io::ErrorKind::InvalidInput,
-            "{fmt:?} should signal misuse, not bubble an arbitrary error",
-        );
+        reject_directory_write(fmt, &map, dir.path());
     }
 }
 

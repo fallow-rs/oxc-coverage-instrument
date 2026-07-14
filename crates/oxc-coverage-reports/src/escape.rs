@@ -1,7 +1,9 @@
+#[cfg(feature = "html")]
 pub fn html_text(s: &str) -> String {
     escape(s, EscapeMode::HtmlText)
 }
 
+#[cfg(feature = "html")]
 pub fn html_attr(s: &str) -> String {
     escape(s, EscapeMode::HtmlAttr)
 }
@@ -12,7 +14,9 @@ pub fn xml_attr(s: &str) -> String {
 
 #[derive(Clone, Copy)]
 enum EscapeMode {
+    #[cfg(feature = "html")]
     HtmlText,
+    #[cfg(feature = "html")]
     HtmlAttr,
     XmlAttr,
 }
@@ -24,7 +28,10 @@ fn escape(s: &str, mode: EscapeMode) -> String {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
-            '"' if !matches!(mode, EscapeMode::HtmlText) => out.push_str("&quot;"),
+            '"' if matches!(mode, EscapeMode::XmlAttr) => out.push_str("&quot;"),
+            #[cfg(feature = "html")]
+            '"' if matches!(mode, EscapeMode::HtmlAttr) => out.push_str("&quot;"),
+            #[cfg(feature = "html")]
             '\'' if matches!(mode, EscapeMode::HtmlAttr) => out.push_str("&#39;"),
             '\'' if matches!(mode, EscapeMode::XmlAttr) => out.push_str("&apos;"),
             // XML 1.0 forbids most control characters; strict parsers
@@ -50,13 +57,17 @@ fn is_xml10_char(c: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{html_attr, html_text, xml_attr};
+    #[cfg(feature = "html")]
+    use super::{html_attr, html_text};
+    use super::xml_attr;
 
+    #[cfg(feature = "html")]
     #[test]
     fn html_text_escapes_text_nodes() {
         assert_eq!(html_text("<a & b>"), "&lt;a &amp; b&gt;");
     }
 
+    #[cfg(feature = "html")]
     #[test]
     fn html_attr_escapes_quotes_with_html_entity() {
         assert_eq!(html_attr(r#"'a" & <b>"#), "&#39;a&quot; &amp; &lt;b&gt;");

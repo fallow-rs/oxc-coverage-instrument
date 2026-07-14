@@ -49,6 +49,14 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Test reports without default features
+        if: runner.os == 'Linux'
+        run: cargo test -p oxc_coverage_reports --no-default-features --all-targets
+
+      - name: Clippy reports without default features
+        if: runner.os == 'Linux'
+        run: cargo clippy -p oxc_coverage_reports --no-default-features --all-targets -- -D warnings
+
       - name: Format
         run: cargo fmt --all --check
 
@@ -95,6 +103,11 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
         run: ./scripts/check.sh rust-doc
+
+      - name: Check reports documentation without default features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc -p oxc_coverage_reports --no-default-features --no-deps --document-private-items
 
   typos:
     name: Typos

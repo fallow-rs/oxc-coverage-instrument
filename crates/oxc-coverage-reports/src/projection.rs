@@ -1,6 +1,6 @@
 use oxc_coverage_types::{BranchEntry, FileCoverage};
 
-pub(crate) fn aligned_branch_hits(
+pub fn aligned_branch_hits(
     file: &FileCoverage,
     id: &str,
     entry: &BranchEntry,
@@ -11,7 +11,7 @@ pub(crate) fn aligned_branch_hits(
         .collect()
 }
 
-pub(crate) fn branch_counts(file: &FileCoverage) -> (u32, u32) {
+pub fn branch_counts(file: &FileCoverage) -> (u32, u32) {
     file.branch_map.iter().fold((0, 0), |(total, covered), (id, entry)| {
         let hits = aligned_branch_hits(file, id, entry);
         (

@@ -16,15 +16,11 @@
 //!   widget, and the `lcov`/`genhtml` toolchain.
 //! - [`cobertura`]: Cobertura XML consumed by GitLab MR widget, Jenkins,
 //!   Azure DevOps, and Codecov.
-//! - [`html`]: self-contained directory of HTML pages with per-file source
-//!   gutter. Multi-file output (uses [`Format::write_to_dir`]). Ships
+//! - `html`: self-contained directory of HTML pages with per-file source
+//!   gutter. This format is available with the `html` Cargo feature. It ships
 //!   sortable index tables, an auto/light/dark theme toggle, server-side
-//!   syntax highlighting via [`syntect`], and a strict
-//!   Content-Security-Policy so the report performs zero outbound network
-//!   requests. Gated behind the `html` Cargo feature (enabled by default)
-//!   so consumers that only need text / lcov / cobertura / json-summary
-//!   can drop the syntect grammar + theme payload via
-//!   `default-features = false`.
+//!   syntax highlighting via [syntect], and a strict Content-Security-Policy
+//!   so the report performs zero outbound network requests.
 //!
 //! [syntect]: https://docs.rs/syntect
 //!
@@ -117,7 +113,7 @@ impl Format {
     /// (currently [`Format::Lcov`] and [`Format::Cobertura`]); other formats
     /// ignore it. Pass `Path::new("")` if path relativization is not needed.
     ///
-    /// Multi-file formats ([`Format::Html`]) return an `InvalidInput` error
+    /// Multi-file formats such as `Format::Html` return an `InvalidInput` error
     /// since they cannot stream into a single `Write`. Use
     /// [`Format::write_to_dir`] for those.
     pub fn write<W: std::io::Write>(
