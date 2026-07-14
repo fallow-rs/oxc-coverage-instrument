@@ -49,6 +49,7 @@ HANDOVER-CRASH-*.md
 /plans/
 /.superpowers/
 /docs/superpowers/
+/.worktrees/
 
 # Playwright MCP session artifacts (console logs, traces)
 /.playwright-mcp/
