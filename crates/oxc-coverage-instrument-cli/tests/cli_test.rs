@@ -41,6 +41,34 @@ fn local_html_hrefs(page: &str) -> Vec<&str> {
         .collect()
 }
 
+fn url_href_path(href: &str) -> std::path::PathBuf {
+    let path = href.split(['#', '?']).next().unwrap();
+    let bytes = path.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let high = hex_value(*bytes.get(index + 1).expect("percent escape has two digits"));
+            let low = hex_value(*bytes.get(index + 2).expect("percent escape has two digits"));
+            decoded.push((high << 4) | low);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    std::path::PathBuf::from(String::from_utf8(decoded).expect("href path is UTF-8"))
+}
+
+fn hex_value(byte: u8) -> u8 {
+    match byte {
+        b'0'..=b'9' => byte - b'0',
+        b'a'..=b'f' => byte - b'a' + 10,
+        b'A'..=b'F' => byte - b'A' + 10,
+        _ => panic!("invalid percent escape"),
+    }
+}
+
 #[test]
 fn help_flag_prints_usage_and_exits_success() {
     for arg in ["--help", "-h"] {
@@ -287,6 +315,12 @@ fn report_json_summary_uses_metadata_cardinality() {
     assert_eq!(value["total"]["functions"]["covered"], 0);
     assert_eq!(value["total"]["branches"]["total"], 2);
     assert_eq!(value["total"]["branches"]["covered"], 1);
+    assert_eq!(value["a.js"]["statements"]["total"], 1);
+    assert_eq!(value["a.js"]["statements"]["covered"], 0);
+    assert_eq!(value["a.js"]["functions"]["total"], 1);
+    assert_eq!(value["a.js"]["functions"]["covered"], 0);
+    assert_eq!(value["a.js"]["branches"]["total"], 2);
+    assert_eq!(value["a.js"]["branches"]["covered"], 1);
 }
 
 #[test]
@@ -490,7 +524,9 @@ fn report_html_collision_safe_complete_tree() {
       "src/index":{"path":"src/index","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
       "base.css/a.js":{"path":"base.css/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
       "base.js/a.js":{"path":"base.js/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
-      "coverage-tokens.css/a.js":{"path":"coverage-tokens.css/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}
+      "coverage-tokens.css/a.js":{"path":"coverage-tokens.css/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "reserved #?% ü.js":{"path":"reserved #?% ü.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},
+      "folder #?% ü/nested #?% ü.js":{"path":"folder #?% ü/nested #?% ü.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}
     }"#;
     let cov = write_temp("report_html_collisions.json", coverage);
     let out_dir =
@@ -513,11 +549,20 @@ fn report_html_collision_safe_complete_tree() {
     }
     assert!(out_dir.join("index.oxc-file-1.html").is_file());
     assert!(out_dir.join("src/index.oxc-file-1.html").is_file());
+    assert!(out_dir.join("reserved #?% ü.js.html").is_file());
+    assert!(out_dir.join("folder #?% ü/nested #?% ü.js.html").is_file());
+
+    let root_index = std::fs::read_to_string(out_dir.join("index.html")).unwrap();
+    assert!(root_index.contains("href=\"reserved%20%23%3F%25%20%C3%BC.js.html\""));
+    assert!(root_index.contains("href=\"folder%20%23%3F%25%20%C3%BC/index.html\""));
 
     for html in collect_html_files(&out_dir) {
         let page = std::fs::read_to_string(&html).unwrap();
         for href in local_html_hrefs(&page) {
-            assert!(html.parent().unwrap().join(href).is_file(), "broken link from {html:?}");
+            assert!(
+                html.parent().unwrap().join(url_href_path(href)).is_file(),
+                "broken link from {html:?}",
+            );
         }
     }
 }

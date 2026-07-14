@@ -1,11 +1,19 @@
 use oxc_coverage_types::{BranchEntry, FileCoverage};
 
-pub fn aligned_branch_hits(file: &FileCoverage, id: &str, entry: &BranchEntry) -> Vec<u32> {
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "the projection helpers intentionally expose only a crate-internal reporter boundary"
+)]
+pub(crate) fn aligned_branch_hits(file: &FileCoverage, id: &str, entry: &BranchEntry) -> Vec<u32> {
     let stored = file.b.get(id).map(Vec::as_slice).unwrap_or_default();
     (0..entry.locations.len()).map(|index| stored.get(index).copied().unwrap_or(0)).collect()
 }
 
-pub fn branch_counts(file: &FileCoverage) -> (u32, u32) {
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "the projection helpers intentionally expose only a crate-internal reporter boundary"
+)]
+pub(crate) fn branch_counts(file: &FileCoverage) -> (u32, u32) {
     file.branch_map.iter().fold((0, 0), |(total, covered), (id, entry)| {
         let hits = aligned_branch_hits(file, id, entry);
         (
