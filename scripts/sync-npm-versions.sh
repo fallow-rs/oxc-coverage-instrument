@@ -47,6 +47,15 @@ update_lockfile() {
         }
       }
     }
+    for (const [key, pkg] of Object.entries(lock.packages)) {
+      const prefix = 'node_modules/@oxc-coverage-instrument/';
+      if (!key.startsWith(prefix)) continue;
+      const name = key.slice('node_modules/'.length);
+      const basename = name.slice(name.indexOf('/') + 1);
+      pkg.version = '$VERSION';
+      pkg.resolved = 'https://registry.npmjs.org/' + name + '/-/' + basename + '-$VERSION.tgz';
+      delete pkg.integrity;
+    }
     fs.writeFileSync(path, JSON.stringify(lock, null, 2) + '\n');
   "
 }

@@ -105,7 +105,8 @@ def check_public_npm_versions():
 
     lockfile = load_json(napi_dir / "package-lock.json")
     expect_version("lockfile top-level version", lockfile.get("version"), public_version)
-    lock_root = lockfile.get("packages", {}).get("", {})
+    lock_packages = lockfile.get("packages", {})
+    lock_root = lock_packages.get("", {})
     expect_version("lockfile root package version", lock_root.get("version"), public_version)
     lock_optional = {
         name: version
@@ -116,6 +117,12 @@ def check_public_npm_versions():
         expect_version(
             f"lockfile optional dependency {name}",
             lock_optional.get(name),
+            public_version,
+        )
+        package = lock_packages.get(f"node_modules/{name}", {})
+        expect_version(
+            f"lockfile package {name} version",
+            package.get("version"),
             public_version,
         )
     for name in sorted(set(lock_optional) - set(manifest_optional)):

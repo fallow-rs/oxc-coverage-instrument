@@ -17,6 +17,7 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const scratch = mkdtempSync(resolve(tmpdir(), 'oxc-version-sync-'));
 const publicVersion = '0.10.1';
 const optionalName = '@oxc-coverage-instrument/binding-darwin-arm64';
+const optionalPackagePath = `node_modules/${optionalName}`;
 
 const writeJson = (path, value) => {
   mkdirSync(dirname(path), { recursive: true });
@@ -68,6 +69,15 @@ const makeFixture = (version = publicVersion) => {
         name: 'oxc-coverage-instrument',
         version,
         optionalDependencies,
+      },
+      [optionalPackagePath]: {
+        version,
+        resolved:
+          `https://registry.npmjs.org/${optionalName}/-/${optionalName.split('/')[1]}-${version}.tgz`,
+        integrity: 'sha512-published-version-integrity',
+        cpu: ['arm64'],
+        optional: true,
+        os: ['darwin'],
       },
     },
   });
@@ -158,6 +168,12 @@ try {
     },
     /lockfile optional dependency.*linux-x64-gnu.*absent from package\.json/,
   );
+  expectDriftFailure(
+    'lockfile installed optional package version drift',
+    'crates/oxc-coverage-instrument-napi/package-lock.json',
+    (lockfile) => { lockfile.packages[optionalPackagePath].version = '0.10.0'; },
+    /lockfile package.*darwin-arm64.*version/,
+  );
   const syncRoot = makeFixture();
   const syncResult = spawnSync(
     resolve(syncRoot, 'scripts/sync-npm-versions.sh'),
@@ -167,6 +183,12 @@ try {
   assert.equal(syncResult.status, 0, `${syncResult.stdout}\n${syncResult.stderr}`);
   const syncedCheck = runCheck(syncRoot, '0.10.2');
   assert.equal(syncedCheck.status, 0, `${syncedCheck.stdout}\n${syncedCheck.stderr}`);
+  const syncedLock = readJson(
+    resolve(syncRoot, 'crates/oxc-coverage-instrument-napi/package-lock.json'),
+  );
+  assert.equal(syncedLock.packages[optionalPackagePath].version, '0.10.2');
+  assert.match(syncedLock.packages[optionalPackagePath].resolved, /0\.10\.2\.tgz$/);
+  assert.equal('integrity' in syncedLock.packages[optionalPackagePath], false);
   console.log('version sync fixture tests: PASS');
 } finally {
   rmSync(scratch, { recursive: true, force: true });
