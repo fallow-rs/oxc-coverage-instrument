@@ -335,7 +335,7 @@ struct RemapCaches {
     mapping_cache: BTreeMap<LocationKey, Option<MappedLocation>>,
     original_line_columns: BTreeMap<OriginalLineKey, Vec<u32>>,
     // Each cache belongs to one SourceMap, so source indices are stable keys.
-    original_line_ends: BTreeMap<u32, Vec<u32>>,
+    original_line_ends: BTreeMap<u32, OriginalLineEndCache>,
 }
 
 impl RemapCaches {
@@ -345,12 +345,123 @@ impl RemapCaches {
         source_idx: u32,
         line: u32,
     ) -> u32 {
-        let line_ends = self
-            .original_line_ends
-            .entry(source_idx)
-            .or_insert_with(|| original_line_ends(sm, source_idx));
-        usize::try_from(line).ok().and_then(|line| line_ends.get(line)).copied().unwrap_or(0)
+        let content = usize::try_from(source_idx)
+            .ok()
+            .and_then(|source_idx| sm.sources_content.get(source_idx))
+            .and_then(Option::as_deref);
+        let cache = self.original_line_ends.entry(source_idx).or_default();
+        if let Some(content) = content
+            && let Some(column) = cache.content.line_end(content, line)
+        {
+            return column;
+        }
+        cache.mapped_line_end(sm, source_idx, line)
     }
+}
+
+#[derive(Default)]
+struct OriginalLineEndCache {
+    content: ContentLineEnds,
+    mapped: Option<MappedLineEnds>,
+}
+
+impl OriginalLineEndCache {
+    fn mapped_line_end(
+        &mut self,
+        sm: &srcmap_sourcemap::SourceMap,
+        source_idx: u32,
+        line: u32,
+    ) -> u32 {
+        self.mapped.get_or_insert_with(|| MappedLineEnds::from_source_map(sm, source_idx)).get(line)
+    }
+}
+
+// Bound dense storage so an untrusted original line cannot force a large allocation.
+const MAX_DENSE_LINE_ENDS: usize = 65_536;
+// Dense storage is worthwhile only when line indices are close to the mapping count.
+const MAX_DENSE_SPARSITY: usize = 4;
+
+enum MappedLineEnds {
+    Dense(Vec<u32>),
+    Sparse(BTreeMap<u32, u32>),
+}
+
+impl MappedLineEnds {
+    fn from_source_map(sm: &srcmap_sourcemap::SourceMap, source_idx: u32) -> Self {
+        let mappings: Vec<(u32, u32)> = sm
+            .all_mappings()
+            .iter()
+            .filter(|mapping| mapping.source == source_idx)
+            .map(|mapping| (mapping.original_line, mapping.original_column))
+            .collect();
+        let dense_len = mappings
+            .iter()
+            .map(|(line, _)| *line)
+            .max()
+            .and_then(|line| usize::try_from(line).ok())
+            .and_then(|line| line.checked_add(1));
+        let use_dense = dense_len.is_some_and(|len| {
+            len <= MAX_DENSE_LINE_ENDS && len <= mappings.len().saturating_mul(MAX_DENSE_SPARSITY)
+        });
+
+        if use_dense {
+            let mut line_ends = vec![0; dense_len.unwrap_or(0)];
+            for (line, column) in mappings {
+                if let Ok(line) = usize::try_from(line) {
+                    line_ends[line] = line_ends[line].max(column);
+                }
+            }
+            Self::Dense(line_ends)
+        } else {
+            let mut line_ends: BTreeMap<u32, u32> = BTreeMap::new();
+            for (line, column) in mappings {
+                line_ends.entry(line).and_modify(|end| *end = (*end).max(column)).or_insert(column);
+            }
+            Self::Sparse(line_ends)
+        }
+    }
+
+    fn get(&self, line: u32) -> u32 {
+        match self {
+            Self::Dense(line_ends) => usize::try_from(line)
+                .ok()
+                .and_then(|line| line_ends.get(line))
+                .copied()
+                .unwrap_or(0),
+            Self::Sparse(line_ends) => line_ends.get(&line).copied().unwrap_or(0),
+        }
+    }
+}
+
+#[derive(Default)]
+struct ContentLineEnds {
+    // Columns are populated only through the highest requested content line.
+    columns: Vec<u32>,
+    next_byte: usize,
+    complete: bool,
+}
+
+impl ContentLineEnds {
+    fn line_end(&mut self, content: &str, line: u32) -> Option<u32> {
+        let line = usize::try_from(line).ok()?;
+        while self.columns.len() <= line && !self.complete {
+            let remaining = &content[self.next_byte..];
+            if let Some(newline) = remaining.find('\n') {
+                self.columns.push(utf16_line_len(&remaining[..newline]));
+                self.next_byte += newline + 1;
+            } else {
+                self.columns.push(utf16_line_len(remaining));
+                self.next_byte = content.len();
+                self.complete = true;
+            }
+        }
+        self.columns.get(line).copied()
+    }
+}
+
+fn utf16_line_len(text: &str) -> u32 {
+    let text = text.strip_suffix('\r').unwrap_or(text);
+    u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
 }
 
 #[derive(Clone)]
@@ -1313,42 +1424,6 @@ fn original_end_position_for(
     }
     // Nothing follows on this original line: extend to end of line.
     Some(EndResult::EndOfLine { source: before.source, line: before.line })
-}
-
-/// The exclusive end column of original line `line` (0-based) in `source`.
-/// Resolves istanbul's `column: Infinity` to a concrete `u32`: the UTF-16
-/// length of the line from `sourcesContent`, or (when `sourcesContent` is
-/// absent) the rightmost original column mapped on that line.
-fn original_line_ends(sm: &srcmap_sourcemap::SourceMap, source_idx: u32) -> Vec<u32> {
-    if let Some(Some(content)) =
-        usize::try_from(source_idx).ok().and_then(|source_idx| sm.sources_content.get(source_idx))
-    {
-        return content
-            .split('\n')
-            .map(|text| {
-                let text = text.strip_suffix('\r').unwrap_or(text);
-                u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
-            })
-            .collect();
-    }
-
-    let mut line_ends = Vec::new();
-    for mapping in sm.all_mappings().iter().filter(|mapping| mapping.source == source_idx) {
-        let Ok(line) = usize::try_from(mapping.original_line) else {
-            continue;
-        };
-        let Some(required_len) = line.checked_add(1) else {
-            continue;
-        };
-        if required_len > line_ends.len() {
-            if line_ends.try_reserve(required_len - line_ends.len()).is_err() {
-                continue;
-            }
-            line_ends.resize(required_len, 0);
-        }
-        line_ends[line] = line_ends[line].max(mapping.original_column);
-    }
-    line_ends
 }
 
 /// Resolve a `Location` through istanbul `getMapping` semantics. Returns the

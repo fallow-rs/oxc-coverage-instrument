@@ -1235,6 +1235,36 @@ fn get_mapping_end_of_line_without_content_falls_back_to_last_segment() {
 }
 
 #[test]
+fn get_mapping_mappings_only_handles_sparse_huge_original_line() {
+    let mut generator = SourceMapGenerator::new(Some("intermediate.js".to_string()));
+    let source = generator.add_source(SRC_PATH);
+    generator.add_mapping(0, 0, source, u32::MAX - 1, 17);
+    let map = serde_json::from_str(&generator.to_json()).expect("generated source map is valid");
+    let fc = single_statement_coverage(map, 1, 0, 1, 2);
+
+    let remapped = remap_coverage(&fc).expect("remap succeeds");
+    let loc = &remapped.statement_map["0"];
+    assert_eq!(loc.end.column, 17, "sparse mappings retain their greatest original column");
+}
+
+#[test]
+fn get_mapping_short_sources_content_falls_back_to_last_segment() {
+    let mut generator = SourceMapGenerator::new(Some("intermediate.js".to_string()));
+    let source = generator.add_source(SRC_PATH);
+    generator.set_source_content(source, "only the first line".to_string());
+    generator.add_mapping(0, 0, source, 1, 23);
+    let map = serde_json::from_str(&generator.to_json()).expect("generated source map is valid");
+    let fc = single_statement_coverage(map, 1, 0, 1, 2);
+
+    let remapped = remap_coverage(&fc).expect("remap succeeds");
+    let loc = &remapped.statement_map["0"];
+    assert_eq!(
+        loc.end.column, 23,
+        "a missing content line falls back to its greatest mapped original column"
+    );
+}
+
+#[test]
 fn get_mapping_degenerate_span_recomputes_end() {
     // A map whose generated line maps gen(0,0)->orig(0,0) and gen(0,2)->orig(0,5).
     // A backwards generated span (start col 2, end col 1) resolves to start

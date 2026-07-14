@@ -11,6 +11,8 @@ const SOURCE_PATH: &str = "src/app.ts";
 const GENERATED_PATH: &str = "dist/app.js";
 const CASES: &[(&str, u32)] = &[("medium", 200), ("large", 1_000)];
 const EOL_CASES: &[(&str, u32)] = &[("medium", 200), ("stress", 1_000)];
+const SPARSE_EOL_LINES: u32 = 10_000;
+const EOL_CONTENT_COLUMN: u32 = 25;
 
 fn loc(start_line: u32, start_col: u32, end_line: u32, end_col: u32) -> Location {
     Location {
@@ -165,6 +167,11 @@ fn bench_eol_fallback(c: &mut Criterion) {
             let coverage = file_coverage(entry_count, map);
             let remapped = remap_coverage(&coverage).expect("EOL fixture must remap");
             assert_eq!(remapped.statement_map.len(), coverage.statement_map.len());
+            let expected_end = if include_sources_content { EOL_CONTENT_COLUMN } else { 0 };
+            let first = &remapped.statement_map["0"];
+            let last = &remapped.statement_map[&(entry_count - 1).to_string()];
+            assert_eq!((first.end.line, first.end.column), (1, expected_end));
+            assert_eq!((last.end.line, last.end.column), (entry_count, expected_end));
 
             group.bench_with_input(BenchmarkId::new(mode, label), &coverage, |b, coverage| {
                 b.iter(|| remap_coverage(coverage).expect("EOL remap succeeds"));
@@ -175,5 +182,27 @@ fn bench_eol_fallback(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_remap, bench_eol_fallback);
+fn bench_sparse_eol_fallback(c: &mut Criterion) {
+    let map = eol_source_map_json(SPARSE_EOL_LINES, true);
+    let mut store = SourceMapStore::new();
+    store.add_map(GENERATED_PATH, &map);
+    let mut coverage = file_coverage(1, map);
+    coverage.input_source_map = None;
+
+    let remapped = store.transform_coverage(&coverage).expect("sparse EOL fixture must remap");
+    let first = &remapped.statement_map["0"];
+    assert_eq!((first.end.line, first.end.column), (1, EOL_CONTENT_COLUMN));
+
+    let mut group = c.benchmark_group("eol_sparse");
+    group.bench_with_input(
+        BenchmarkId::new("sources_content", "first_of_10000"),
+        &coverage,
+        |b, coverage| {
+            b.iter(|| store.transform_coverage(coverage).expect("sparse EOL remap succeeds"));
+        },
+    );
+    group.finish();
+}
+
+criterion_group!(benches, bench_remap, bench_eol_fallback, bench_sparse_eol_fallback);
 criterion_main!(benches);
