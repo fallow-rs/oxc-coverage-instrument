@@ -139,6 +139,28 @@ workflow_version_sync_has_node_and_profile() {
   ' "$workflow"
 }
 
+workflow_job_has_need() {
+  local workflow="$1"
+  local job="$2"
+  local dependency="$3"
+
+  awk -v job="$job" -v dependency="$dependency" '
+    $0 == "  " job ":" {
+      in_job = 1
+      next
+    }
+    in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
+    in_job && $0 == "    needs: " dependency { found = 1 }
+    in_job && $0 == "    needs:" {
+      in_needs = 1
+      next
+    }
+    in_needs && $0 ~ /^    [^ ]/ { in_needs = 0 }
+    in_needs && $0 == "      - " dependency { found = 1 }
+    END { exit(found ? 0 : 1) }
+  ' "$workflow"
+}
+
 release_workflow_uses_strict_pack_check() {
   local workflow="$1"
 
@@ -449,6 +471,12 @@ if ! workflow_version_sync_has_node_and_profile "$workflow"; then
   fail "CI version-sync job is missing Node.js 22 or the metadata validation profile"
 fi
 release_workflow="$ROOT/.github/workflows/release-npm.yml"
+if ! workflow_job_has_need "$release_workflow" publish-crate build; then
+  fail "release publish-crate job must depend on build"
+fi
+if ! workflow_job_has_need "$release_workflow" publish publish-crate; then
+  fail "release publish job must depend on publish-crate"
+fi
 if ! release_workflow_uses_strict_pack_check "$release_workflow"; then
   fail "npm release is missing strict platform artifact validation"
 fi
@@ -527,6 +555,31 @@ printf '%s\n' \
   >"$invalid_release_workflow"
 if release_workflow_uses_strict_pack_check "$invalid_release_workflow"; then
   fail "npm release validator accepted strict mode from another step"
+fi
+
+invalid_crate_order="$TMP/invalid-crate-order.yml"
+printf '%s\n' \
+  'jobs:' \
+  '  publish-crate:' \
+  '    runs-on: ubuntu-latest' \
+  '  publish:' \
+  '    needs: build' \
+  >"$invalid_crate_order"
+if workflow_job_has_need "$invalid_crate_order" publish-crate build; then
+  fail "release ordering validator accepted build dependency from publish"
+fi
+
+invalid_npm_order="$TMP/invalid-npm-order.yml"
+printf '%s\n' \
+  'jobs:' \
+  '  publish-crate:' \
+  '    metadata:' \
+  '      needs: publish-crate' \
+  '  publish:' \
+  '    runs-on: ubuntu-latest' \
+  >"$invalid_npm_order"
+if workflow_job_has_need "$invalid_npm_order" publish publish-crate; then
+  fail "release ordering validator accepted dependency from another job"
 fi
 
 while read -r documented_profile; do
