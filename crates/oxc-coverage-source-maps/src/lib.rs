@@ -1299,7 +1299,7 @@ enum EndResult {
     Mapped { source: u32, line: u32, column: u32 },
     /// No segment follows on the same original line: the span extends to the
     /// end of the line (istanbul's `Infinity`). Clamped to the line's UTF-16
-    /// length at use via [`original_line_end_column`].
+    /// length at use via [`RemapCaches::original_line_end_column`].
     EndOfLine { source: u32, line: u32 },
 }
 
