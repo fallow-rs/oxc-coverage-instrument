@@ -4,7 +4,7 @@
 set -euo pipefail
 
 VERSION="${2:-$1}"
-ROOT="$(git rev-parse --show-toplevel)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 update_version() {
   node -e "
@@ -31,10 +31,31 @@ update_optional_deps() {
   "
 }
 
+update_lockfile() {
+  node -e "
+    const fs = require('fs');
+    const path = '$1';
+    const lock = JSON.parse(fs.readFileSync(path, 'utf8'));
+    const root = lock.packages?.[''];
+    if (!root) throw new Error(path + ': missing packages[\"\"]');
+    lock.version = '$VERSION';
+    root.version = '$VERSION';
+    if (root.optionalDependencies) {
+      for (const key of Object.keys(root.optionalDependencies)) {
+        if (key.startsWith('@oxc-coverage-instrument/')) {
+          root.optionalDependencies[key] = '$VERSION';
+        }
+      }
+    }
+    fs.writeFileSync(path, JSON.stringify(lock, null, 2) + '\n');
+  "
+}
+
 echo "Syncing npm versions to $VERSION..."
 
 # Main package (with optionalDependencies)
 update_optional_deps "$ROOT/crates/oxc-coverage-instrument-napi/package.json"
+update_lockfile "$ROOT/crates/oxc-coverage-instrument-napi/package-lock.json"
 
 # Platform packages
 for dir in "$ROOT/crates/oxc-coverage-instrument-napi/npm"/*/; do

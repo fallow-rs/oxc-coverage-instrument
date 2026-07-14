@@ -25,7 +25,7 @@ const writeJson = (path, value) => {
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
-const makeFixture = () => {
+const makeFixture = (version = publicVersion) => {
   const root = mkdtempSync(resolve(scratch, 'fixture-'));
   mkdirSync(resolve(root, 'scripts'), { recursive: true });
   copyFileSync(resolve(repo, 'scripts/check-version-sync.sh'), resolve(root, 'scripts/check-version-sync.sh'));
@@ -36,7 +36,7 @@ const makeFixture = () => {
   mkdirSync(resolve(root, 'crates/oxc-coverage-instrument'), { recursive: true });
   writeFileSync(
     resolve(root, 'crates/oxc-coverage-instrument/Cargo.toml'),
-    `[package]\nname = "oxc_coverage_instrument"\nversion = "${publicVersion}"\n`,
+    `[package]\nname = "oxc_coverage_instrument"\nversion = "${version}"\n`,
   );
   mkdirSync(resolve(root, 'crates/oxc-coverage-instrument-napi'), { recursive: true });
   writeFileSync(
@@ -49,24 +49,24 @@ const makeFixture = () => {
     'jobs:\n  publish-crate:\n    steps:\n      - run: cargo publish -p oxc_coverage_instrument\n',
   );
 
-  const optionalDependencies = { [optionalName]: publicVersion };
+  const optionalDependencies = { [optionalName]: version };
   writeJson(resolve(root, 'crates/oxc-coverage-instrument-napi/package.json'), {
     name: 'oxc-coverage-instrument',
-    version: publicVersion,
+    version,
     optionalDependencies,
   });
   writeJson(resolve(root, 'crates/oxc-coverage-instrument-napi/npm/darwin-arm64/package.json'), {
     name: optionalName,
-    version: publicVersion,
+    version,
   });
   writeJson(resolve(root, 'crates/oxc-coverage-instrument-napi/package-lock.json'), {
     name: 'oxc-coverage-instrument',
-    version: publicVersion,
+    version,
     lockfileVersion: 3,
     packages: {
       '': {
         name: 'oxc-coverage-instrument',
-        version: publicVersion,
+        version,
         optionalDependencies,
       },
     },
@@ -76,11 +76,18 @@ const makeFixture = () => {
   return root;
 };
 
-const runCheck = (root) =>
-  spawnSync(resolve(root, 'scripts/check-version-sync.sh'), ['--mode=pins'], {
+const runCheck = (root, expectedVersion = null) => {
+  if (expectedVersion !== null) {
+    writeFileSync(
+      resolve(root, 'crates/oxc-coverage-instrument/Cargo.toml'),
+      `[package]\nname = "oxc_coverage_instrument"\nversion = "${expectedVersion}"\n`,
+    );
+  }
+  return spawnSync(resolve(root, 'scripts/check-version-sync.sh'), ['--mode=pins'], {
     cwd: root,
     encoding: 'utf8',
   });
+};
 
 const mutateJson = (root, relativePath, mutate) => {
   const path = resolve(root, relativePath);
@@ -141,6 +148,15 @@ try {
     (lockfile) => { delete lockfile.packages[''].optionalDependencies[optionalName]; },
     /lockfile optional dependency.*darwin-arm64/,
   );
+  const syncRoot = makeFixture();
+  const syncResult = spawnSync(
+    resolve(syncRoot, 'scripts/sync-npm-versions.sh'),
+    [publicVersion, '0.10.2'],
+    { cwd: syncRoot, encoding: 'utf8' },
+  );
+  assert.equal(syncResult.status, 0, `${syncResult.stdout}\n${syncResult.stderr}`);
+  const syncedCheck = runCheck(syncRoot, '0.10.2');
+  assert.equal(syncedCheck.status, 0, `${syncedCheck.stdout}\n${syncedCheck.stderr}`);
   console.log('version sync fixture tests: PASS');
 } finally {
   rmSync(scratch, { recursive: true, force: true });
