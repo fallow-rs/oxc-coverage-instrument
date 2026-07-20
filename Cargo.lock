@@ -955,17 +955,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxc-coverage-instrument-cli"
-version = "0.2.0"
-dependencies = [
- "oxc_coverage_instrument",
- "oxc_coverage_report",
- "oxc_coverage_reports",
- "oxc_coverage_types",
- "serde_json",
-]
-
-[[package]]
 name = "oxc-miette"
 version = "3.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1085,6 +1074,7 @@ dependencies = [
 name = "oxc_coverage_instrument"
 version = "0.10.3"
 dependencies = [
+ "cow-utils",
  "criterion2",
  "insta",
  "oxc_allocator",
@@ -1100,11 +1090,23 @@ dependencies = [
  "oxc_syntax",
  "oxc_transformer",
  "oxc_traverse",
+ "rustc-hash",
  "serde",
  "serde_json",
  "sha2",
  "srcmap-remapping",
  "srcmap-sourcemap",
+]
+
+[[package]]
+name = "oxc_coverage_instrument_cli"
+version = "0.2.0"
+dependencies = [
+ "oxc_coverage_instrument",
+ "oxc_coverage_report",
+ "oxc_coverage_reports",
+ "oxc_coverage_types",
+ "serde_json",
 ]
 
 [[package]]
@@ -1133,6 +1135,7 @@ version = "0.3.3"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
+ "cow-utils",
  "criterion2",
  "insta",
  "lcov",

@@ -1,0 +1,246 @@
+# Oxc Coverage Instrument
+
+Istanbul-compatible JavaScript and TypeScript coverage instrumentation using the
+Oxc AST.
+
+## Overview
+
+`instrument` parses a source file with `oxc_parser`, identifies every statement,
+function, and branch, injects the counter expressions Istanbul reporters expect,
+and returns the instrumented code together with the coverage map. The map
+serializes to Istanbul's `coverage-final.json` shape, so Jest, Vitest, c8, nyc,
+and Codecov consume it without a translation layer.
+
+`swc-plugin-coverage-instrument` fills this role for SWC. Without an Oxc
+equivalent, a tool built on `oxc_parser` that needs coverage instrumentation has
+to pull in SWC or Babel.
+
+## Key Features
+
+| Dimension | Constructs |
+|:----------|:-----------|
+| Statements | Every executable statement |
+| Functions | Declarations, expressions, arrows, class methods |
+| Branches | `if`/`else`, ternary, `switch`, `&&`/`\|\|`/`??`, `??=`/`\|\|=`/`&&=`, default arguments, optional-chain links |
+| Pragmas | `istanbul`, `v8`, and `c8` `ignore next/if/else/file/start/stop` |
+
+On top of instrumentation, the crate re-exports the rest of the suite:
+`remap_coverage` and friends from `oxc_coverage_source_maps`, `v8_to_istanbul`
+from the V8 converter, and `FileCoverage`, `Location`, `Position`, and
+`parse_coverage_map` from `oxc_coverage_types`. A consumer on the default path
+therefore needs one dependency.
+
+## Architecture
+
+Instrumentation is a single `oxc_traverse` pass over the parsed AST, run after
+`SemanticBuilder` has produced the scope tree. The visitor assigns ids, records
+each `Location` in the coverage map, and injects the counter expression; codegen
+then emits the rewritten AST and a source map from the instrumented output back
+to the input. When an `inputSourceMap` is supplied it is composed with the
+codegen map, so downstream remappers resolve positions to the original source.
+The suite-level picture is in
+[ARCHITECTURE.md](https://github.com/fallow-rs/oxc-coverage-instrument/blob/main/ARCHITECTURE.md).
+
+## Usage
+
+```rust
+use oxc_coverage_instrument::{instrument, InstrumentOptions};
+
+let source = "function add(a, b) { return a + b; }";
+let result = instrument(source, "add.js", &InstrumentOptions::default()).unwrap();
+
+assert_eq!(result.coverage_map.fn_map["0"].name, "add");
+println!("{}", result.code);
+```
+
+Existing coverage data parses back into the same model:
+
+```rust
+use oxc_coverage_instrument::parse_coverage_map;
+
+let json = std::fs::read_to_string("coverage-final.json").unwrap();
+let map = parse_coverage_map(&json).unwrap();
+
+for (path, coverage) in &map {
+    println!("{}: {} statements, {} functions, {} branches",
+        path, coverage.s.len(), coverage.f.len(), coverage.b.len());
+}
+```
+
+### Composing the input source map eagerly
+
+The default flow is lazy: `instrument()` embeds the `inputSourceMap` and a
+downstream remap walks every entry back at report time. Collectors that dump
+`window.__coverage__` directly pay that round trip once per collected file. Set
+`compose_input_source_map: true` alongside `input_source_map` to fold the map in
+during instrumentation instead. The resulting coverage map is keyed by the
+original source path, carries original-source positions, and has no
+`inputSourceMap`. The runtime `__coverage__` baked into the emitted code is keyed
+the same way, so a later remap is a no-op.
+
+An entry drops exactly when the lazy path with `RemapOptions { drop_unmapped:
+true }` would drop it: both resolve each span through the same `getMapping`
+lookup, so a statement whose generated column sits just before its line's first
+mapping is kept by both. Dropping is unconditional here, because the eager path
+bakes positions into the runtime `__coverage__` literal with no later remap
+opportunity, and an unmapped entry would otherwise be stranded at a generated
+coordinate past the end of the original file.
+
+The composed result therefore keeps the same surviving entries at the same
+original-source positions as instrument-without-compose followed by
+`remap_coverage_with_options(.., RemapOptions { drop_unmapped: true })`, and the
+two are byte-identical when nothing drops. When entries do drop, eager
+composition and the map-level remap APIs renumber the surviving ids contiguously,
+while the single-file `remap_coverage_with_options` preserves original ids
+including gaps. Istanbul treats the two shapes as equivalent, because it merges
+entries by location.
+
+When the input map is unusable (no declared source, or it fails to parse),
+composition backs off and the `inputSourceMap` stays embedded so the lazy path
+still works. The flag has no effect when `input_source_map` is unset.
+
+### Function identity overlay
+
+Set `function_identity_overlay: true` to attach an `x_fallow_functionMap` to the
+coverage map. The overlay carries a `fallow:fn:<8 hex>` identity per function,
+keyed by the same ids as `fnMap`, computed as
+`SHA-256(path + name + decl.start.line + "function")` truncated to the first 4
+bytes. That is bit-equal to `fallow_cov_protocol::function_identity_id`, so
+consumers can join the overlay against V8 dumps, Istanbul ingesters, and
+source-mapped findings without recomputing.
+
+Renaming a function or moving it to another line changes the id; column-level
+edits on the same line do not. Columns survive on the overlay's `decl` and `loc`
+fields for display and same-line disambiguation, but are excluded from the hash
+so producers observing the same function at different positional fidelity agree
+on the id.
+
+This is not part of Istanbul. Standard consumers ignore `x_`-prefixed fields, so
+with the option off the output stays byte-identical to what nyc, Vitest, Jest,
+and Codecov expect. When an `inputSourceMap` is consumed the overlay still
+references pre-remap positions, so a consumer that remaps downstream must
+recompute identity against the post-remap positions. The remap pipeline does not
+rewrite the overlay.
+
+The path enters the hash verbatim from the `filename` argument. `./app.js`,
+`app.js`, and `/abs/repo/app.js` all hash differently, so callers that need
+stable ids across tools must normalize paths before instrumentation. Pick one
+canonical form per project, typically a workspace-root-relative POSIX path.
+
+## Istanbul conformance
+
+Output is checked against `istanbul-lib-instrument` on a shared fixture corpus
+covering every branch type, function form, Unicode columns, pragma boundaries,
+and edge cases. The corpus lives in `tests/conformance/`. The suite asserts that
+statement, function, and branch counts match exactly, that branch types and
+per-branch location counts match, that the JSON field set matches, and that the
+instrumented output re-parses as valid JavaScript.
+
+CI also runs a blocking byte-for-byte diff over the same corpus after filtering
+the divergences documented below. That catches span-level and counter-shape drift
+which count-only tests miss.
+
+All `start.column` and `end.column` values in `statementMap`, `fnMap`,
+`branchMap`, and `unhandledPragmas` are UTF-16 code units (JavaScript string
+indices), matching Babel and `istanbul-lib-instrument`. Sources containing
+non-ASCII characters (`π`, accented identifiers, emoji) produce the same column
+numbers as the reference tool, pinned by the `26-non-ascii-identifiers.js`
+fixture.
+
+## Differences from istanbul-lib-instrument
+
+### 1. Logical-assignment operators are instrumented as branches
+
+`x ??= y`, `x ||= y`, and `x &&= y` each contain a short-circuit conditional:
+the right-hand side is evaluated, and the assignment happens, only when the left
+operand matches the operator's polarity. This instrumenter emits one
+`binary-expr` branch entry per logical assignment with two locations, left
+always reached and right conditional. `istanbul-lib-instrument` has no
+`AssignmentExpression` visitor entry and emits no branches for these operators.
+
+Pinned by `conformance_test.rs::logical_assignment_is_intentional_branch_superset`.
+
+A codebase that uses `??=`, `||=`, or `&&=` heavily will see a higher branch
+denominator, and so a slightly lower branch percentage, after switching from
+`@vitest/coverage-istanbul`. To rebaseline CI thresholds:
+
+```bash
+vitest run --coverage --coverage.reporter=json-summary
+jq '.total.branches.pct' coverage/coverage-summary.json
+```
+
+### 2. Inferred function names over `(anonymous_N)`
+
+For an anonymous function expression assigned to a binding or declared as a
+class method, this instrumenter uses the name the JavaScript runtime assigns to
+`Function.prototype.name`:
+
+| Source | `fnMap[].name` here | istanbul |
+|---|---|---|
+| `const f = function() {}` | `f` | `(anonymous_0)` |
+| `const g = () => 1` | `g` | `(anonymous_0)` |
+| `class C { bar() {} }` | `bar` | `(anonymous_0)` |
+| `(function() {})()` | `(anonymous_0)` | `(anonymous_0)` |
+
+Pinned by `conformance_test.rs::fn_name_inference_is_intentional_superset`.
+
+### 3. Full method-key spans in `fnMap[*].decl`
+
+For class and object methods, the whole method key is the declaration span.
+`istanbul-lib-instrument` truncates a method declaration to the key's first
+character, so `class C { bar() {} }` gives `bar` here and `b` there. The
+byte-diff check still pins the method declaration start, the line, the body
+`loc`, and every non-method declaration span.
+
+### 4. Real coordinates for synthetic `else` arms
+
+For an `if` with no `else`, `istanbul-lib-instrument` records the synthetic
+alternate slot as `{ start: {}, end: {} }`. This instrumenter anchors it as a
+real zero-width `Location` at the consequent's end. Reporters that read
+`loc.start.line` on every arm crash on the empty form; real coordinates make the
+slot safe to walk without special-casing. The same applies to the surviving arm
+when `/* istanbul ignore if */` drops the consequent of a no-else `if`.
+
+### 5. Optional-chain short-circuits tracked as branches
+
+Each `?.` link appears in `branchMap` as an `optional-chain` entry with two
+arms: arm 0 when the observed value is `null` or `undefined` and the link
+short-circuits, arm 1 when it continues. `istanbul-lib-instrument` does not
+track these. Reporters that walk `branchMap` by shape pick the entries up
+automatically; reporters that hard-code the Istanbul type names need to learn
+the label.
+
+Set `track_optional_chain: false` to opt out. Optional chains are then left
+native, with no `_oc` helper and no `optional-chain` branches, which matches
+`istanbul-lib-instrument` byte for byte on `?.` and removes the per-operand
+helper call in optional-chain-dense code. Statement, function, and other branch
+coverage are unaffected. Defaults to `true`.
+
+### 6. Callback-argument names from the callee (off by default)
+
+Section 2 recovers names from a binding. A function passed directly as a call or
+`new` argument has no binding, so both instrumenters fall back to
+`(anonymous_N)`. In callback-heavy code (route handlers, `.map`, `.filter`,
+promise `.then`, `describe`, `it`, `new Promise`) that fallback dominates the
+`fnMap`.
+
+Set `name_callback_arguments: true` to name these from the callee:
+
+| Source | with the option | default |
+|---|---|---|
+| `arr.map((x) => x)` | `map` | `(anonymous_0)` |
+| `el.addEventListener("click", () => {})` | `addEventListener` | `(anonymous_0)` |
+| `new Promise((resolve) => {})` | `Promise` | `(anonymous_0)` |
+| `(function () {})()` | `(anonymous_0)` | `(anonymous_0)` |
+
+Only the callee is used, never a sibling string argument such as a route path or
+a test description: the traversal ancestor for an argument position exposes the
+callee but not the other arguments. A binding name and an explicit named
+function expression both take precedence; this only replaces the
+`(anonymous_N)` fallback. Because the name comes from the callee rather than a
+running counter, it is stable across rebuilds, where the `(anonymous_N)` index
+renumbers whenever an unrelated function is added. Defaults to `false`, so
+default output stays byte-identical to what Istanbul consumers expect.
+
+This crate is the entry point of the oxc-coverage suite; the source-map,
+V8, and reporting layers live in sibling crates.

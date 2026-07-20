@@ -1,97 +1,217 @@
 [workspace]
 members = [
-    "crates/oxc-coverage-instrument",
-    "crates/oxc-coverage-instrument-cli",
-    "crates/oxc-coverage-instrument-napi",
-    "crates/oxc-coverage-report",
-    "crates/oxc-coverage-reports",
-    "crates/oxc-coverage-source-maps",
-    "crates/oxc-coverage-types",
-    "crates/oxc-coverage-v8",
+    "crates/oxc_coverage_instrument",
+    "crates/oxc_coverage_instrument_cli",
+    "crates/oxc_coverage_instrument_napi",
+    "crates/oxc_coverage_report",
+    "crates/oxc_coverage_reports",
+    "crates/oxc_coverage_source_maps",
+    "crates/oxc_coverage_types",
+    "crates/oxc_coverage_v8",
 ]
 resolver = "3"
 
 [workspace.package]
 authors = ["Bart Waardenburg <bart@fallow.tools>"]
+# The category every member shares. Crates that also fit a narrower one list
+# both literally, since inheritance cannot extend the workspace value.
+categories = ["development-tools::testing"]
 edition = "2024"
 homepage = "https://github.com/fallow-rs/oxc-coverage-instrument"
 keywords = ["oxc", "istanbul", "coverage", "javascript", "typescript"]
 license = "MIT"
 repository = "https://github.com/fallow-rs/oxc-coverage-instrument"
-rust-version = "1.95"
+rust-version = "1.95.0"
 
+[workspace.dependencies]
+# Suite crates. Path for workspace builds, version so that a `cargo publish`d
+# crate resolves its siblings from crates.io.
+oxc_coverage_instrument = { version = "0.10.3", path = "crates/oxc_coverage_instrument" }
+oxc_coverage_report = { version = "0.2.1", path = "crates/oxc_coverage_report" }
+oxc_coverage_reports = { version = "0.3.3", path = "crates/oxc_coverage_reports" }
+oxc_coverage_source_maps = { version = "0.6.0", path = "crates/oxc_coverage_source_maps" }
+oxc_coverage_types = { version = "0.2.2", path = "crates/oxc_coverage_types" }
+oxc_coverage_v8 = { version = "0.3.0", path = "crates/oxc_coverage_v8" }
+
+# Sandboxed directory handles for the html reporter, which writes a file tree
+# below a caller-supplied output directory.
+cap-fs-ext = "4.0.2"
+cap-std = "4.0.2"
+# `cow_*` string helpers borrow instead of allocating when a case conversion or
+# replacement changes nothing, which is the usual outcome for the per-file
+# separator normalization the reporters run on every path they emit.
+# `.clippy.toml` bans the allocating std equivalents.
+cow-utils = "0.1.3"
+# Harness for the `[[bench]]` targets, gated behind each crate's `codspeed` feature.
+criterion2 = { version = "3.0.2", default-features = false }
+# Snapshot assertions over instrumenter and reporter output.
+insta = { version = "1", features = ["json"] }
+# Independent lcov reader, used to check that the lcov reporter's output parses back.
+lcov = "0.8"
+# Node.js FFI for the napi binding crate.
+napi = { version = "3", features = ["serde-json"] }
+napi-build = "2"
+napi-derive = "3"
+# Upstream oxc: the parser, AST, semantic and codegen halves of the
+# instrumenter. Oxc gives no stability guarantee between minors, so all nine
+# move together on a bump.
+oxc_allocator = "0.140"
+oxc_ast = "0.140"
+oxc_codegen = "0.140"
+oxc_parser = "0.140"
+oxc_semantic = "0.140"
+oxc_span = "0.140"
+oxc_syntax = "0.140"
+oxc_transformer = "0.140"
+oxc_traverse = "0.140"
+# Independent source map decoder, used in tests to read back the maps the
+# instrumenter emits without going through the srcmap crates under test.
+oxc_sourcemap = "8.0"
+# Data parallelism for per-file detail-page rendering. Syntect tokenization
+# is CPU-bound; running it across cores keeps emit time linear in
+# wall-clock terms even on large monorepos.
+rayon = "1.12"
+# `FxHashSet` in the instrumenter's integration tests. The std hashers trade
+# throughput for HashDoS resistance, which buys nothing in a build-time tool
+# that only ever hashes its own generated keys, so `.clippy.toml` points the
+# whole workspace at this crate.
+rustc-hash = "2"
+# Derived (de)serialization for the Istanbul-shaped coverage types.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# SHA-256 for the x_fallow_functionMap stable_id formula. Bit-equal to
+# fallow-cov-protocol::function_identity_id so the overlay can serve as a
+# cross-surface join key in the fallow ecosystem. Pinned to the same major
+# the protocol uses (it ships with sha2 = "0.11" as of protocol v0.7.1).
+sha2 = "0.11"
+# Companion source map crates (fallow-rs/srcmap). Exact-pinned because srcmap is
+# pre-1.0 and only the parse + composition APIs are stable; bump these explicitly.
+srcmap-generator = "=0.3.9"
+srcmap-remapping = "=0.3.9"
+srcmap-sourcemap = "=0.3.9"
+# Server-side syntax highlighter for the html reporter. `default-fancy`
+# selects the pure-Rust `fancy-regex` backend (no Oniguruma C dep), keeping
+# cross-compilation simple on Windows. Bundled grammars and themes are
+# embedded into the binary via the same feature set.
+syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+# Scratch output directories for the reporter tests.
+tempfile = "3"
+# Extra syntect grammars (TypeScript / TSX / JSX / and many others) that
+# the bundled `default-fancy` set leaves out. Used together with syntect
+# behind the same pure-Rust `fancy-regex` backend.
+two-face = { version = "0.5", default-features = false, features = ["syntect-fancy"] }
+
+# <https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html>
 [workspace.lints.rust]
-unsafe_code = "warn"                    # No unsafe in this workspace today; lint preserves that
+absolute_paths_not_starting_with_crate = "warn"
+non_ascii_idents = "warn"
+unit-bindings = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)', 'cfg(coverage_nightly)'] }
+tail_expr_drop_order = "warn"
 unsafe_op_in_unsafe_fn = "warn"
 unused_unsafe = "warn"
-non_ascii_idents = "warn"
-unit_bindings = "warn"
-tail_expr_drop_order = "warn"
+# Every crate here is a pure AST or data transform; the only FFI boundary is
+# generated by `napi-derive`. Nothing hand-written needs `unsafe`.
+unsafe_code = "warn"
 
 [workspace.lints.clippy]
-# Lint groups (priority -1 so individual overrides take precedence)
 all = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
-nursery = { level = "warn", priority = -1 }
-cargo = { level = "warn", priority = -1 }
-
-# Restriction lints, matching Oxc's standard
+# restriction
 dbg_macro = "warn"
 todo = "warn"
-print_stdout = "warn"
-print_stderr = "warn"
+unimplemented = "warn"
+print_stdout = "warn" # Must be opt-in
+print_stderr = "warn" # Must be opt-in
+# `#[expect]` over `#[allow]`: the compiler retires the suppression once the
+# code stops triggering the lint, so stale ones cannot accumulate silently.
+allow_attributes = "warn"
+# A suppression whose cause was never written down cannot be re-evaluated by
+# the next reader deciding whether it still applies.
+allow_attributes_without_reason = "warn"
+# `Rc::clone(&x)` reads as a refcount bump; `x.clone()` on the same value reads
+# as a deep copy of the pointee.
 clone_on_ref_ptr = "warn"
+# Mutually exclusive with `mod_module_files`. `mod.rs` keeps module entries
+# reachable by fuzzy path search on the directory name.
+self_named_module_files = "warn"
+empty_drop = "warn"
+empty_structs_with_brackets = "warn"
+empty_enum_variants_with_brackets = "warn"
 exit = "warn"
+# Avoids the intermediate `String` allocation in `s.push_str(&format!(..))`.
+format_push_string = "warn"
+# Casting a function item or pointer to a number is nearly always a missing call.
+fn_to_numeric_cast_any = "warn"
+unnecessary_self_imports = "warn"
+# `return Err(x)?` obscures a plain `return Err(x.into())`.
+try_err = "warn"
+# A type named `Error` that also implements `std::error::Error` is ambiguous at
+# every use site that imports both.
+error_impl_error = "warn"
+# `FileType::is_file()` is false for a symlink pointing at a file, which is
+# rarely what a caller walking a coverage tree means.
+filetype_is_file = "warn"
 get_unwrap = "warn"
 rc_buffer = "warn"
 rc_mutex = "warn"
-undocumented_unsafe_blocks = "warn"
-unnecessary_safety_comment = "warn"
-unused_result_ok = "warn"
-allow_attributes_without_reason = "warn"
-unimplemented = "warn"
-excessive_nesting = "warn"
-self_named_module_files = "warn"
 rest_pat_in_fully_bound_structs = "warn"
-
-# Extra restriction lints, ported from fallow
-empty_drop = "warn"                     # Catch no-op Drop impls
-empty_structs_with_brackets = "warn"    # Use `struct Foo;` not `struct Foo {}`
-infinite_loop = "warn"                  # Catch infinite loops without break
-pathbuf_init_then_push = "warn"         # Use PathBuf::from() directly
-pub_underscore_fields = "warn"          # Catch accidentally public _-prefixed fields
-non_zero_suggestions = "warn"           # Suggest NonZero types for naturally non-zero values
-precedence_bits = "warn"                # Catch bitwise operator precedence mistakes
-map_with_unused_argument_over_ranges = "warn" # Use `repeat`/`repeat_with` instead
-filetype_is_file = "warn"               # FileType::is_file() misses symlinks; use !is_dir()
-
-# Allow pedantic lints that are too noisy
-module_name_repetitions = "allow"
-must_use_candidate = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-cast_possible_truncation = "allow"
-cast_sign_loss = "allow"
-cast_precision_loss = "allow"
-cast_possible_wrap = "allow"
-too_many_lines = "allow"
-items_after_statements = "allow"
-single_match_else = "allow"
-if_not_else = "allow"
-redundant_closure_for_method_calls = "allow"
-similar_names = "allow"
-wildcard_imports = "allow"
-unnested_or_patterns = "allow"
-doc_markdown = "allow"
-too_long_first_doc_paragraph = "allow"
+unnecessary_safety_comment = "warn"
+undocumented_unsafe_blocks = "warn"
+infinite_loop = "warn"
+map_with_unused_argument_over_ranges = "warn"
+unused_result_ok = "warn"
+pathbuf_init_then_push = "warn"
+pub_underscore_fields = "warn"
+non_zero_suggestions = "warn"
+precedence_bits = "warn"
+# The visitors branch on node kind, coverage kind and pragma state at once;
+# past a few levels the applicable conditions stop fitting on screen. Depth
+# ceiling lives in `.clippy.toml`.
+excessive_nesting = "warn"
+# pedantic
+pedantic = { level = "warn", priority = -1 }
+# Allowed rules
+# pedantic
 struct_excessive_bools = "allow"
+too_many_lines = "allow"
+# `#[must_use]` on every accessor is noise: it nags rather than catching a real
+# class of bug, and it crowds out the signatures themselves.
+must_use_candidate = "allow"
+wildcard_imports = "allow"
+doc_markdown = "allow"
+similar_names = "allow"
 fn_params_excessive_bools = "allow"
-option_if_let_else = "allow"
+complexity = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
+non_std_lazy_statics = "allow"
+result_large_err = "allow"
+# nursery
+nursery = { level = "warn", priority = -1 }
+# These crates are not a `const` library; blanket `const fn` would freeze
+# implementation details into the API surface for no caller benefit.
 missing_const_for_fn = "allow"
+option_if_let_else = "allow"
+or_fun_call = "allow"
+cognitive_complexity = "allow"
+non_send_fields_in_send_ty = "allow"
 use_self = "allow"
-
-# Cargo group: allow transitive version conflicts we cannot resolve
-multiple_crate_versions = "allow"       # indexmap pulls hashbrown 0.16 vs 0.17 transitively
+significant_drop_tightening = "allow"
+branches_sharing_code = "allow"
+fallible_impl_from = "allow"
+useless_let_if_seq = "allow"
+impl_trait_in_params = "allow"
+significant_drop_in_scrutinee = "warn"
+iter_on_single_items = "warn"
+unused_peekable = "warn"
+too_long_first_doc_paragraph = "warn"
+suspicious_operation_groupings = "warn"
+redundant_clone = "warn"
+byte_char_slices = "allow"
+question_mark = "allow"
+# cargo
+cargo = { level = "warn", priority = -1 }
+# indexmap pulls hashbrown 0.16 and 0.17 transitively; neither is ours to bump.
+multiple_crate_versions = "allow"
 
 [profile.dev]
 debug = false

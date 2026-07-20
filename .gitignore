@@ -1,13 +1,5 @@
 /target
-.claude/
-.internal/
 node_modules/
-
-# comparison instrumenters (created ad-hoc for analysis)
-/comparison/
-
-# local-only quality reports (SIG audit etc.)
-/quality/
 
 # benchmark temp files (downloaded JS libraries, npm installs)
 /.bench-tmp/
@@ -28,28 +20,28 @@ examples/*/package-lock.json
 # napi build artifacts
 *.node
 *.wasm
-crates/oxc-coverage-instrument-napi/index.js
-crates/oxc-coverage-instrument-napi/index.d.ts
-crates/oxc-coverage-instrument-napi/browser.js
-crates/oxc-coverage-instrument-napi/coverage-instrument.wasi.cjs
-crates/oxc-coverage-instrument-napi/coverage-instrument.wasi-browser.js
-crates/oxc-coverage-instrument-napi/wasi-worker.mjs
-crates/oxc-coverage-instrument-napi/wasi-worker-browser.mjs
-crates/oxc-coverage-instrument-napi/npm/*/coverage-instrument.wasi.cjs
-crates/oxc-coverage-instrument-napi/npm/*/coverage-instrument.wasi-browser.js
-crates/oxc-coverage-instrument-napi/npm/*/wasi-worker.mjs
-crates/oxc-coverage-instrument-napi/npm/*/wasi-worker-browser.mjs
-crates/oxc-coverage-instrument-napi/node_modules/
+crates/oxc_coverage_instrument_napi/index.js
+crates/oxc_coverage_instrument_napi/index.d.ts
+crates/oxc_coverage_instrument_napi/browser.js
+crates/oxc_coverage_instrument_napi/coverage-instrument.wasi.cjs
+crates/oxc_coverage_instrument_napi/coverage-instrument.wasi-browser.js
+crates/oxc_coverage_instrument_napi/wasi-worker.mjs
+crates/oxc_coverage_instrument_napi/wasi-worker-browser.mjs
+crates/oxc_coverage_instrument_napi/npm/*/coverage-instrument.wasi.cjs
+crates/oxc_coverage_instrument_napi/npm/*/coverage-instrument.wasi-browser.js
+crates/oxc_coverage_instrument_napi/npm/*/wasi-worker.mjs
+crates/oxc_coverage_instrument_napi/npm/*/wasi-worker-browser.mjs
+crates/oxc_coverage_instrument_napi/node_modules/
 
-# CLI crash handover files
-HANDOVER-CRASH-*.md
-
-# local-only planning and agent scratch
+# local scratch
+.claude/
+.internal/
 /.plans/
-/plans/
-/.superpowers/
-/docs/superpowers/
-/.worktrees/
-
-# Playwright MCP session artifacts (console logs, traces)
 /.playwright-mcp/
+/.superpowers/
+/.worktrees/
+/comparison/
+/docs/superpowers/
+/plans/
+/quality/
+HANDOVER-CRASH-*.md

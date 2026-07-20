@@ -1,0 +1,98 @@
+{
+  "name": "oxc-coverage-instrument",
+  "version": "0.10.3",
+  "description": "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST. 8-48x faster than istanbul-lib-instrument.",
+  "main": "index.js",
+  "browser": "browser.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "browser": "./browser.js",
+      "default": "./index.js"
+    },
+    "./vitest": {
+      "types": "./vitest.d.ts",
+      "default": "./vitest.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "browser.js",
+    "coverage-instrument.wasi.cjs",
+    "coverage-instrument.wasi-browser.js",
+    "wasi-worker.mjs",
+    "wasi-worker-browser.mjs",
+    "vitest.js",
+    "vitest.d.ts"
+  ],
+  "keywords": [
+    "oxc",
+    "istanbul",
+    "coverage",
+    "javascript",
+    "typescript",
+    "instrumentation",
+    "code-coverage"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fallow-rs/oxc-coverage-instrument.git",
+    "directory": "crates/oxc_coverage_instrument_napi"
+  },
+  "homepage": "https://github.com/fallow-rs/oxc-coverage-instrument",
+  "bugs": "https://github.com/fallow-rs/oxc-coverage-instrument/issues",
+  "napi": {
+    "binaryName": "coverage-instrument",
+    "packageName": "@oxc-coverage-instrument/binding",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc",
+      "wasm32-wasip1",
+      "wasm32-wasip1-threads"
+    ]
+  },
+  "dependencies": {
+    "@napi-rs/wasm-runtime": "^1.1.4"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.0 || ^8.0.0",
+    "@jridgewell/gen-mapping": "^0.3.13",
+    "@napi-rs/cli": "3.7.3",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-instrument": "^6.0.3",
+    "istanbul-lib-source-maps": "^5.0.6"
+  },
+  "scripts": {
+    "build": "napi build --release --platform && npm run patch-shim",
+    "build:debug": "napi build --platform && npm run patch-shim",
+    "patch-shim": "node scripts/patch-wasi-browser-shim.mjs && node scripts/patch-browser-loader.mjs",
+    "prepublishOnly": "napi prepublish -t npm",
+    "artifacts": "napi artifacts",
+    "test": "node test.mjs && node scripts/patch-wasi-browser-shim.test.mjs",
+    "test:browser-loader": "node scripts/browser-loader.test.mjs"
+  },
+  "overrides": {
+    "emnapi": "1.11.2",
+    "@emnapi/core": "1.11.2",
+    "@emnapi/runtime": "1.11.2"
+  },
+  "optionalDependencies": {
+    "@oxc-coverage-instrument/binding-darwin-arm64": "0.10.3",
+    "@oxc-coverage-instrument/binding-darwin-x64": "0.10.3",
+    "@oxc-coverage-instrument/binding-linux-arm64-gnu": "0.10.3",
+    "@oxc-coverage-instrument/binding-linux-x64-gnu": "0.10.3",
+    "@oxc-coverage-instrument/binding-linux-x64-musl": "0.10.3",
+    "@oxc-coverage-instrument/binding-win32-arm64-msvc": "0.10.3",
+    "@oxc-coverage-instrument/binding-win32-x64-msvc": "0.10.3",
+    "@oxc-coverage-instrument/binding-wasm32-wasi": "0.10.3",
+    "@oxc-coverage-instrument/binding-wasm32-wasi-singlethreaded": "0.10.3"
+  }
+}

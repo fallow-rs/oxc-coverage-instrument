@@ -22,7 +22,7 @@ updates:
     open-pull-requests-limit: 5
 
   - package-ecosystem: npm
-    directory: /crates/oxc-coverage-instrument-napi
+    directory: /crates/oxc_coverage_instrument_napi
     schedule:
       interval: weekly
     cooldown:

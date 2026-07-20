@@ -38,7 +38,7 @@ const publishCrate = textOf(findBlock(jobs, 'publish-crate', 2));
 const publish = textOf(findBlock(jobs, 'publish', 2));
 const versionSyncCommand = '        run: ./scripts/check.sh version-sync';
 const packageNpmCiCommand = [
-  '        working-directory: crates/oxc-coverage-instrument-napi',
+  '        working-directory: crates/oxc_coverage_instrument_napi',
   '        run: npm ci',
 ].join('\n');
 
@@ -79,7 +79,7 @@ assert.match(prepublish, /^\s{8}run: npm install -g npm@11\.12\.1$/m);
 assert.match(prepublish, /^\s{8}run: \.\/scripts\/check\.sh version-sync$/m);
 assert.match(
   prepublish,
-  /working-directory: crates\/oxc-coverage-instrument-napi\n\s+run: npm ci/,
+  /working-directory: crates\/oxc_coverage_instrument_napi\n\s+run: npm ci/,
 );
 assertPrepublishOrder(prepublish);
 assert.throws(

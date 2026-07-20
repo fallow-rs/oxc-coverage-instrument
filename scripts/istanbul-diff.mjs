@@ -8,8 +8,8 @@
 //   - branchMap (excluding intentional logical-assignment superset)
 //   - counter arrays s, f, b
 //
-// Exits non-zero on any diff. Meant to run in CI on every PR so micro-regressions
-// (like the v0.3.4 fnMap.decl column off-by-N) fail fast.
+// Exits non-zero on any diff. Runs in CI on every PR so span-level regressions
+// that count-only tests miss fail fast.
 //
 // Usage: node scripts/istanbul-diff.mjs
 
@@ -17,10 +17,10 @@ import { createInstrumenter } from 'istanbul-lib-instrument';
 import { readdirSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createOxcInstrumenter } from '../crates/oxc-coverage-instrument-napi/vitest.js';
+import { createOxcInstrumenter } from '../crates/oxc_coverage_instrument_napi/vitest.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const fixturesDir = join(__dirname, '..', 'crates', 'oxc-coverage-instrument', 'tests', 'conformance', 'fixtures');
+const fixturesDir = join(__dirname, '..', 'crates', 'oxc_coverage_instrument', 'tests', 'conformance', 'fixtures');
 
 const istanbul = createInstrumenter({ esModules: true, produceSourceMap: false });
 const oxc = createOxcInstrumenter({ coverageVariable: '__coverage__' });
@@ -32,7 +32,7 @@ const oxc = createOxcInstrumenter({ coverageVariable: '__coverage__' });
 const isLogicalAssignmentBranch = (branch, source) => {
   if (branch.type !== 'binary-expr') return false;
   // A logical-assignment's loc starts at the assignment target and ends after
-  // the right-hand side — match the source slice literally for any of the
+  // the right-hand side, so match the source slice literally for any of the
   // three operators.
   const startOffset = lineColToOffset(source, branch.loc.start.line, branch.loc.start.column);
   const endOffset = lineColToOffset(source, branch.loc.end.line, branch.loc.end.column);
@@ -63,13 +63,13 @@ const dropLogicalAssignment = (cov, source) => {
   return { ...cov, branchMap, b };
 };
 
-// Intentional divergences filtered from the diff (oxc more accurate than
-// istanbul here, and filtering prevents the diff from drowning in noise):
+// Intentional divergences filtered from the diff, so the remaining shape can be
+// asserted byte-for-byte. Each is documented in the README under "Differences
+// from istanbul-lib-instrument":
 //
 //   - fn-name inference: oxc uses the JS-runtime inferred name (`f` for
 //     `const f = function() {}`, `bar` for `class C { bar() {} }`);
 //     istanbul emits `(anonymous_N)`. Filtered by dropping `name` below.
-//     See issue #8.
 //
 //   - method decl end span: oxc uses the full method key span (`bar`),
 //     while istanbul truncates method decls to the first character (`b`).
@@ -139,7 +139,7 @@ const normalize = (cov, source) => ({
   fnMap: Object.fromEntries(
     Object.entries(cov.fnMap).map(([id, f]) => [
       id,
-      // Skip `name` — tracked as intentional divergence (issue #8).
+      // `name` is dropped: inferred names are a documented divergence.
       normalizeFn(f, source),
     ])
   ),
@@ -185,7 +185,7 @@ for (const file of fixtures) {
   }
   fixturesWithDiffs++;
   totalDiffs += diffs.length;
-  console.log(`[DIFF] ${file} — ${diffs.length} leaf diff(s):`);
+  console.log(`[DIFF] ${file}: ${diffs.length} leaf diff(s):`);
   for (const d of diffs.slice(0, 5)) {
     console.log(`  ${d.path}: istanbul=${JSON.stringify(d.istanbul)} oxc=${JSON.stringify(d.oxc)}`);
   }

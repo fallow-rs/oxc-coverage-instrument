@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
-const napiDir = join(repoRoot, 'crates', 'oxc-coverage-instrument-napi');
+const napiDir = join(repoRoot, 'crates', 'oxc_coverage_instrument_napi');
 
 const packageNames = [
   '@oxc-coverage-instrument/binding-wasm32-wasi',
@@ -14,7 +14,7 @@ const packageNames = [
 ];
 
 const installRoots = [
-  join(repoRoot, 'crates', 'oxc-coverage-instrument-napi'),
+  join(repoRoot, 'crates', 'oxc_coverage_instrument_napi'),
   join(repoRoot, 'examples', 'wasm-node'),
   join(repoRoot, 'examples', 'cloudflare-workers'),
 ];

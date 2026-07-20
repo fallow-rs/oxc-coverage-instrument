@@ -1,0 +1,207 @@
+# Oxc Coverage Instrument for Node.js
+
+Istanbul-compatible JavaScript and TypeScript coverage instrumentation, built on
+the [Oxc](https://oxc.rs) parser and exposed to Node.js through napi-rs.
+
+## Overview
+
+The `oxc-coverage-instrument` npm package wraps the native instrumenter. It
+exposes instrumentation, coverage remapping, and V8-to-Istanbul conversion, plus
+a ready-made adapter for Vitest's Istanbul provider and for
+`vite-plugin-istanbul`.
+
+```bash
+npm install oxc-coverage-instrument
+```
+
+```javascript
+import { instrument } from 'oxc-coverage-instrument';
+
+const result = instrument(source, 'file.js', {
+  coverageVariable: '__coverage__',
+  sourceMap: true,
+});
+
+result.code;                                         // instrumented source
+const coverageMap = JSON.parse(result.coverageMap);  // Istanbul format
+result.sourceMap;                                    // source map JSON, when enabled
+```
+
+## Key Features
+
+### Vitest
+
+Requires `vitest` and `@vitest/coverage-istanbul` 4.1.5 or newer, which is where
+the `coverage.instrumenter` option was added.
+
+```typescript
+import { defineConfig } from 'vitest/config'
+import { createOxcInstrumenter } from 'oxc-coverage-instrument/vitest'
+
+export default defineConfig({
+  test: {
+    coverage: {
+      provider: 'istanbul',
+      instrumenter: (options) => createOxcInstrumenter(options),
+    }
+  }
+})
+```
+
+The factory forwards `coverageVariable` and `ignoreClassMethods` to the native
+instrumenter. Collection, merging, and reporting in the Istanbul provider are
+untouched.
+
+The adapter auto-detects raw TypeScript: when the filename ends in `.ts`,
+`.tsx`, `.mts`, or `.cts` and no `inputSourceMap` was supplied, it runs an
+in-process TypeScript-strip pass, so the output is executable JavaScript and the
+coverage map points at the original `.ts` source. No `@babel/preset-typescript`
+or upstream `tsc` step is needed.
+
+Set `stripTypescript: false` when running under a toolchain that pre-transforms
+TypeScript without emitting an `inputSourceMap`
+(`@vitejs/plugin-react-swc` in some configurations, Bun's TypeScript runner,
+Node 23 and newer with `--experimental-strip-types`). Set `stripTypescript: true`
+to force the strip pass regardless of filename or `inputSourceMap`.
+
+See `examples/vitest-typescript/` in the repository for a working project.
+
+### Legacy decorators
+
+By default, decorator syntax (Stage 3 and legacy `experimentalDecorators` alike)
+flows through the strip pass verbatim. Counters land on the surrounding class
+bodies and methods, and a downstream tool (Babel, `tsc`, SWC, or native Node
+decorators) lowers them at runtime.
+
+Set `experimentalDecorators: true` on the instrument call, or on
+`createOxcInstrumenter`, to lower legacy decorators in-process into
+`_decorate(...)` calls. Add `emitDecoratorMetadata: true` to also emit
+`_decorateMetadata("design:type", ...)`,
+`_decorateMetadata("design:paramtypes", ...)`, and
+`_decorateMetadata("design:returntype", ...)`. NestJS dependency injection,
+TypeORM column type inference, and class-validator all read that metadata.
+
+`createOxcInstrumenter` promotes `emitDecoratorMetadata: true` to also enable
+`experimentalDecorators`, matching `tsconfig.json` semantics. The bare
+`instrument()` binding rejects that combination with an `Error` instead, so the
+underlying Rust `DecoratorMode` keeps invalid states unrepresentable.
+
+With `emitDecoratorMetadata` on, `strictNullChecks` decides how a nullable union
+is written into `design:type`, mirroring the `tsconfig.json` flag of the same
+name. It defaults to `true`, matching `tsc` under `strict`, so `foo: string |
+null` emits `Object`. Set it to `false` if your sources are compiled without
+`strictNullChecks`: `null` and `undefined` are then elided from the union first
+and the same property emits `String`. A mismatch is silent. The instrumented code
+runs either way, but the metadata consumers above resolve a different type than
+`tsc` produced.
+
+Lowered output imports helpers from
+[`@oxc-project/runtime`](https://www.npmjs.com/package/@oxc-project/runtime):
+
+```bash
+npm install @oxc-project/runtime
+```
+
+`Cannot find module '@oxc-project/runtime/helpers/decorate'` at test time means
+the package is missing from the consumer. Install it as a regular dependency,
+not a dev dependency, so it is present wherever the instrumented code runs. The
+relationship mirrors `babel-plugin-transform-typescript-metadata` and
+`@babel/runtime` in a Babel pipeline.
+
+### vite-plugin-istanbul
+
+Requires `vite-plugin-istanbul` 9.0.0 or newer, which is where the
+`instrumenter` option was added.
+
+```typescript
+import { defineConfig } from 'vite'
+import istanbul from 'vite-plugin-istanbul'
+import { createOxcInstrumenter } from 'oxc-coverage-instrument/vitest'
+
+export default defineConfig({
+  plugins: [
+    istanbul({
+      instrumenter: createOxcInstrumenter(),
+      include: ['src/**/*.{js,ts,jsx,tsx}'],
+      exclude: ['node_modules', 'test/'],
+    }),
+  ],
+})
+```
+
+### Custom Vite or Rollup plugin
+
+```javascript
+import { instrument } from 'oxc-coverage-instrument';
+
+export function coveragePlugin() {
+  return {
+    name: 'coverage-instrument',
+    transform(code, id) {
+      if (process.env.COVERAGE && /\.[jt]sx?$/.test(id) && !id.includes('node_modules')) {
+        const result = instrument(code, id, { sourceMap: true });
+        return { code: result.code, map: result.sourceMap ? JSON.parse(result.sourceMap) : undefined };
+      }
+    },
+  };
+}
+```
+
+### Remapping coverage
+
+`remapCoverageMap` walks a coverage map through its embedded `inputSourceMap`.
+Pass `{ dropUnmapped: true }` to drop statement, function, and branch entries that
+fail to remap along with their `s`, `f`, `b`, and `bT` slots:
+
+```js
+import { remapCoverageMap } from 'oxc-coverage-instrument';
+
+const remapped = JSON.parse(
+    remapCoverageMap(JSON.stringify(coverageMap), { dropUnmapped: true }),
+);
+```
+
+Set `composeInputSourceMap: true` alongside `inputSourceMap` on the `instrument`
+call to fold the input map in eagerly instead. The coverage map is then keyed by
+the original source path, carries original-source positions, and has no
+`inputSourceMap`, so a later `remapCoverageMap` is a no-op.
+
+## Architecture
+
+The package is a napi-rs binding over `oxc_coverage_instrument`; all
+instrumentation, remapping, and conversion logic lives in Rust, and the
+JavaScript layer only marshals options and JSON. Coverage maps cross the boundary
+as JSON strings rather than as object graphs, which keeps one serialization
+format between the native and WebAssembly bindings.
+
+### Runtime matrix
+
+The npm package ships prebuilt native bindings for seven platforms plus two
+WebAssembly fallbacks: `@oxc-coverage-instrument/binding-wasm32-wasi` for
+runtimes with `SharedArrayBuffer`, and a single-threaded `wasm32-wasip1` variant
+for runtimes without it. The WASM binding is selected when no matching native
+binary is available, or explicitly through `NAPI_RS_FORCE_WASI`.
+
+| Runtime | Binding | Notes |
+|:--------|:--------|:------|
+| Node 18+ (darwin/linux/win32, x64/arm64) | native | Preferred when a matching `.node` is installed. |
+| Node 22 LTS (other architectures) | wasm | Loads via `node:wasi` and emits an experimental-feature warning. |
+| Deno 2.x | wasm | Uses Deno's `node:wasi` polyfill. Live deploy smoke tracked in [#88](https://github.com/fallow-rs/oxc-coverage-instrument/issues/88). |
+| Browser with COOP/COEP | threaded wasm | Imports the `browser` export and uses the `wasm32-wasip1-threads` binding when `SharedArrayBuffer` is available. Requires `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`, and an ESM bundler with top-level await. webpack 4 and Parcel 1 are not supported. |
+| Browser without COOP/COEP | single-threaded wasm | Falls back to the `wasm32-wasip1` binding. |
+| Bun (supported targets) | native | Bun's `node:wasi` is incomplete ([oven-sh/bun#16156](https://github.com/oven-sh/bun/issues/16156)), so the native binding is used. |
+| Cloudflare Workers | single-threaded wasm | Workers has no `SharedArrayBuffer`; the `browser` export selects `wasm32-wasip1`. |
+| StackBlitz / WebContainer | partial | Newer WebContainer images load the wasm binding; older ones may fall through. Live smoke tracked in [#88](https://github.com/fallow-rs/oxc-coverage-instrument/issues/88). |
+
+`examples/wasm-node/` is an end-to-end Node smoke exercising native and WASM.
+`examples/cloudflare-workers/` compares Worker `FileCoverage` with native output
+byte for byte, without credentials.
+
+`NAPI_RS_FORCE_WASI` opts out of the native binding even when one is available.
+Set it to `1` to prefer WASM and fall back to native if the WASM binding cannot
+load, or to `error` to fail loudly instead of falling back. The variable is read
+by the napi-rs 3 loader, not by this package.
+
+Instrumentation semantics, the option reference, and the documented divergences
+from `istanbul-lib-instrument` are shared with the Rust crate and live in
+[its README](https://github.com/fallow-rs/oxc-coverage-instrument/blob/main/crates/oxc_coverage_instrument/README.md).

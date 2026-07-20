@@ -1,0 +1,58 @@
+[package]
+name = "oxc_coverage_reports"
+version = "0.3.3"
+authors.workspace = true
+edition.workspace = true
+description = "Coverage reporters (text, text-summary, json-summary, lcov, cobertura) for the oxc-coverage suite (port of istanbul-reports)"
+homepage.workspace = true
+include = ["/README.md", "/src"]
+keywords.workspace = true
+license.workspace = true
+publish = true
+repository.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# `html` pulls in the multi-file HTML reporter and its embedded syntect-based
+# server-side syntax highlighter (~500 KB of grammar / theme data in the
+# resulting binary). Downstream consumers that only need text / lcov /
+# cobertura / json-summary can opt out with `default-features = false`.
+default = ["html"]
+html = ["dep:cap-fs-ext", "dep:cap-std", "dep:syntect", "dep:two-face", "dep:rayon"]
+codspeed = ["criterion2/codspeed"]
+
+[dependencies]
+oxc_coverage_report = { workspace = true }
+oxc_coverage_source_maps = { workspace = true }
+oxc_coverage_types = { workspace = true }
+
+cap-fs-ext = { workspace = true, optional = true }
+cap-std = { workspace = true, optional = true }
+cow-utils = { workspace = true }
+rayon = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+syntect = { workspace = true, optional = true }
+two-face = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion2 = { workspace = true }
+insta = { workspace = true }
+lcov = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "html"
+harness = false
+test = false
+required-features = ["codspeed", "html"]
+
+[[bench]]
+name = "formats"
+harness = false
+test = false
+required-features = ["codspeed"]

@@ -5,7 +5,7 @@
 //
 // Any statement or function count divergence fails the run. Branch counts
 // are allowed to exceed istanbul's (documented `??=`/`||=`/`&&=` superset)
-// but never fall below — that would be a regression.
+// but never fall below; that would be a regression.
 //
 // Usage:
 //   # populate .bench-tmp/files first, e.g. via ./scripts/benchmark-comparison.sh
@@ -15,7 +15,7 @@ import { createInstrumenter } from 'istanbul-lib-instrument';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createOxcInstrumenter } from '../crates/oxc-coverage-instrument-napi/vitest.js';
+import { createOxcInstrumenter } from '../crates/oxc_coverage_instrument_napi/vitest.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dir = join(__dirname, '..', '.bench-tmp', 'files');

@@ -1,30 +1,149 @@
-@~/.Codex/rules/release-companion-repos.md
+# Repository guidelines
 
-# Repository guidance
+Istanbul-compatible coverage tooling for the Oxc ecosystem: instrumentation, the
+Istanbul data model, source-map remapping, V8-to-Istanbul conversion, and report
+emitters, as one Cargo workspace with a Node binding on top.
 
-Keep changes scoped, preserve unrelated worktree edits, and use checked-in policy as the source of truth. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, detailed commands, code conventions, and submission requirements.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, commit rules, version policy,
+and how to submit a change.
 
-## Repository layout and ownership
+## Workspace layout
 
-- `Cargo.toml` and crate-local manifests under `crates/` define the Rust workspace, crate versions, publication status, and dependency pins. Rust source and tests live with their owning crates.
-- `crates/oxc-coverage-instrument-napi/` owns the published Node package and N-API adapter. Its `package.json` is the public npm manifest; the root `package.json` is private development tooling.
-- `crates/oxc-coverage-instrument-napi/npm/` contains the platform package manifests. Keep these synchronized with the public npm manifest whenever their shared package contract changes.
-- `scripts/` contains conformance, real-world, release synchronization, and package-surface checks. `.github/workflows/release-npm.yml` is authoritative for release topology and publication behavior.
+| Crate | Published | Owns |
+|:------|:----------|:-----|
+| `crates/oxc_coverage_instrument` | crates.io | Parse, transform, codegen. The instrumenter itself. |
+| `crates/oxc_coverage_types` | crates.io | `FileCoverage`, `FnEntry`, `BranchEntry`, `Location`. |
+| `crates/oxc_coverage_source_maps` | crates.io | Remapping `FileCoverage` back through a source map. |
+| `crates/oxc_coverage_v8` | crates.io | V8 inspector range coverage to Istanbul. |
+| `crates/oxc_coverage_report` | crates.io | Summary metrics, report tree, visitor protocol. |
+| `crates/oxc_coverage_reports` | crates.io | `text`, `text-summary`, `json-summary`, `lcov`, `cobertura`, `html`. |
+| `crates/oxc_coverage_instrument_cli` | no | The `oxc-coverage-instrument` binary. |
+| `crates/oxc_coverage_instrument_napi` | npm | N-API binding and the published npm package. |
+
+Rust source and tests live with their owning crate: unit tests in `src/`,
+integration tests in `tests/`, benchmarks in `benches/`. The conformance corpus
+and its Istanbul reference output are in
+`crates/oxc_coverage_instrument/tests/conformance/`.
+
+`crates/oxc_coverage_instrument_napi/package.json` is the published npm
+manifest. The root `package.json` is a private helper manifest for the scripts
+in `scripts/`. Platform manifests under
+`crates/oxc_coverage_instrument_napi/npm/` must stay consistent with the
+published manifest.
 
 ## Generated artifacts
 
-At the `crates/oxc-coverage-instrument-napi/` package root, `index.js`, `index.d.ts`, `browser.js`, native binaries, WebAssembly files, and WASI loaders and workers are build outputs owned by the N-API tooling and repository patch scripts. Do not treat generated files as primary sources. Update the owning input or patch script, regenerate the artifacts, and verify that no unexpected drift remains.
+In `crates/oxc_coverage_instrument_napi/`, the files `index.js`, `index.d.ts`,
+`browser.js`, the native binaries, the WebAssembly binaries, and the WASI
+loaders and workers are build outputs. They are produced by `napi build` and the
+patch scripts under `crates/oxc_coverage_instrument_napi/scripts/`. Change the
+input or the patch script, regenerate, then confirm no unexpected drift remains.
 
-## Version synchronization
+## Commands
 
-Follow the [version policy](CONTRIBUTING.md#version-policy). The public Rust instrumenter and published npm package move together, while companion Rust crates follow their own manifest versions. Use the checked-in synchronization and version-check scripts, and keep the public npm manifest, platform manifests, optional dependency pins, and relevant Rust dependency pins consistent.
+`./scripts/check.sh` is the entry point for every check that can run on a
+developer machine. `./scripts/check.sh --list` prints all profiles. The ones
+used most often:
 
-## Verification
+```bash
+./scripts/check.sh rust-check      # cargo check --workspace
+./scripts/check.sh rust-test       # cargo test --workspace --all-targets
+./scripts/check.sh doc-test        # cargo test --workspace --doc
+./scripts/check.sh clippy          # all + pedantic + nursery, warnings denied
+./scripts/check.sh fmt             # cargo fmt --all --check
+./scripts/check.sh rust-doc        # cargo doc with RUSTDOCFLAGS=-D warnings
+./scripts/check.sh typos           # requires typos-cli
+./scripts/check.sh version-sync    # internal version pins and release topology
+./scripts/check.sh pre-push        # what the pre-push hook runs
+./scripts/check.sh all-local       # every host-reproducible profile
+```
 
-Select the relevant verification categories from [CONTRIBUTING.md](CONTRIBUTING.md): Rust formatting, linting, tests, and docs; N-API build and tests; conformance and real-world checks; dependency policy; and workflow security. The pre-push hook is only a fast subset, so it does not replace the full checks required for the affected surfaces.
+Each profile fails with the exact prerequisite command when a tool or artifact
+is missing. It never installs a Rust target or an npm dependency on your behalf.
 
-A bug fix is complete only after a minimal reproduction test passes, the fix is validated against at least one real user project, and the full relevant suite passes. Never copy private project names, source, output, secrets, or credentials into public fixtures, reports, documentation, commit messages, or release notes. Use generic examples instead.
+`all-local` needs Node.js 22, npm dependencies installed at the repository root,
+in the N-API crate, and in the Vitest example, plus `typos`, `cargo-audit`,
+`cargo-shear`, `actionlint`, and `uv`. Build the native N-API artifact and both
+generated WASI package surfaces first:
 
-## Git hygiene
+```bash
+npm install
+npm --prefix crates/oxc_coverage_instrument_napi install
+npm --prefix crates/oxc_coverage_instrument_napi run build:debug
+npm --prefix examples/vitest-typescript install
+./scripts/check.sh prepare-package-surface
+./scripts/check.sh all-local
+```
 
-Use signed commits with Conventional Commit subjects. Inspect the final diff and staged scope before committing, and leave unrelated changes untouched.
+## Node binding
+
+```bash
+cd crates/oxc_coverage_instrument_napi
+npm install
+npx napi build --platform
+cd ../..
+./scripts/check.sh napi-test
+./scripts/check.sh wasi-shim-test
+```
+
+`crates/oxc_coverage_instrument_napi/test.mjs` uses `node:assert` and is run
+directly by `node`, not through a test runner.
+
+## Conformance
+
+The conformance tests compare output against `istanbul-lib-instrument` on a
+shared fixture corpus. To regenerate the reference data after adding a fixture:
+
+```bash
+npm install
+node crates/oxc_coverage_instrument/tests/conformance/generate-reference.mjs
+```
+
+`./scripts/check.sh istanbul-diff` runs the byte-for-byte diff over the same
+corpus, filtering the divergences documented in the README.
+
+## Scripts
+
+| Script | Purpose |
+|:-------|:--------|
+| `scripts/check.sh` | Dispatcher for every local verification profile. |
+| `scripts/istanbul-diff.mjs` | Byte-for-byte conformance diff against `istanbul-lib-instrument`. |
+| `scripts/istanbul-upstream-specs.mjs` | Runtime cases taken from upstream Istanbul specs. |
+| `scripts/real-world-output.mjs` | Runtime behaviour and counter placement on production-like sources. |
+| `scripts/real-world-parity.mjs` | Count-level parity over the benchmark corpus. |
+| `scripts/v8-inspector-smoke.mjs` | Conversion of real Node inspector coverage. |
+| `scripts/native-vs-wasm-parity.mjs` | Native binding output against the WASM binding, fixture by fixture. |
+| `scripts/benchmark-comparison.sh` | Timing comparison against the Istanbul, Babel, and SWC instrumenters. |
+| `scripts/compare-istanbul.mjs` | Reference-output dumper for investigating shape differences. |
+| `scripts/check-version-sync.sh` | Internal version pins and release-workflow coverage. |
+| `scripts/sync-npm-versions.sh` | Version sync across the npm and platform manifests. |
+| `scripts/prepare-package-surface.sh` | Builds both generated WASI packages for `package-surface`. |
+
+## What only runs in CI
+
+CI owns the operating-system and target matrices, MSRV toolchain selection, the
+clean-worktree postcondition, WASM builds and tests, native-versus-WASM parity,
+the platform examples, coverage generation and upload, artifact handling, and
+release publication. The Typos and Cargo Deny jobs are action-owned; their
+setup, matrices, and artifact inputs are not reproduced by `all-local`, which
+prints that remainder rather than claiming it passed.
+
+`.github/workflows/release-npm.yml` is authoritative for release topology and
+publication behaviour.
+
+## Code conventions
+
+- Rust 2024 edition, MSRV 1.95.
+- Strict clippy: all, pedantic, nursery, plus the workspace restriction lints.
+- `cargo fmt` with `style_edition = "2024"` and `use_small_heuristics = "Max"`.
+- `#[expect(..., reason = "...")]` rather than `#[allow]`.
+- Doc comments on public types and functions.
+- A new statement, branch, or function construct needs a test that pins its
+  shape against Istanbul.
+- Signed commits with Conventional Commit subjects. Inspect the staged scope
+  before committing and leave unrelated worktree changes alone.
+
+A fix is finished when a minimal reproduction test passes, the fix has been run
+against at least one real project, and the suites for the affected surfaces
+pass. Never copy private project names, sources, output, or credentials into
+fixtures, documentation, commit messages, or release notes.

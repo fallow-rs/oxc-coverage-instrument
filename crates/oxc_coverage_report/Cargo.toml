@@ -1,0 +1,20 @@
+[package]
+name = "oxc_coverage_report"
+version = "0.2.1"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include = ["/README.md", "/src"]
+keywords.workspace = true
+license.workspace = true
+publish = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Coverage summarization and tree-visitor base for the oxc-coverage suite (port of istanbul-lib-report)"
+
+[lints]
+workspace = true
+
+[dependencies]
+oxc_coverage_types = { workspace = true }

@@ -7,217 +7,116 @@ Thanks for your interest in contributing.
 ```bash
 git clone https://github.com/fallow-rs/oxc-coverage-instrument
 cd oxc-coverage-instrument
-git config core.hooksPath .githooks   # enable pre-push checks (see below)
+git config core.hooksPath .githooks
 cargo build
 cargo test --workspace
-cargo run --example instrument
+cargo run -p oxc_coverage_instrument --example instrument
 ```
+
+[AGENTS.md](AGENTS.md) describes the workspace layout, the check profiles, the
+helper scripts, and which checks only run in CI.
 
 ## Git hooks
 
-Versioned hooks under `.githooks/` mirror the CI jobs that block PR merges, so catching a failure locally saves a round-trip:
+The hooks under `.githooks/` mirror the CI jobs that block a merge.
 
-- **`pre-push`** delegates the fast checks to `./scripts/check.sh pre-push` before every push.
-- **`commit-msg`** lints the commit message against the Conventional Commits rules (the CI "Commit messages" job). It skips itself when commitlint is not installed, so a pure-Rust contributor is never blocked.
+- `pre-push` runs `./scripts/check.sh pre-push`.
+- `commit-msg` lints the message against the Conventional Commits rules. It
+  skips itself when commitlint is not installed, so a Rust-only contributor is
+  never blocked on a Node toolchain.
 
-**Enable once per clone:**
+Enable them once per clone:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-**Install `typos` (optional but recommended):**
+`typos` is optional but recommended, since the pre-push aggregate skips it when
+absent and says so:
 
 ```bash
 cargo install typos-cli
 ```
 
-**Enable `commit-msg` linting (optional):** install the commitlint toolchain at the repo root.
+Two environment variables change what `pre-push` does:
 
 ```bash
-npm ci   # installs @commitlint/cli from package.json
+RUN_TESTS=1 git push      # also run cargo test --workspace
+SKIP_PRE_PUSH=1 git push  # skip the hook entirely
 ```
 
-**Opt-in extras:**
+## Dependency and supply-chain gates
+
+CI runs `cargo audit`, `cargo deny`, and `cargo shear` on every push. Reproduce
+them before touching a `Cargo.toml`:
 
 ```bash
-RUN_TESTS=1 git push   # also run `cargo test --workspace` (~5-10s)
+cargo install cargo-audit && ./scripts/check.sh audit
+cargo install cargo-deny && cargo deny check
+cargo install cargo-shear && ./scripts/check.sh shear
 ```
 
-**Bypass (use sparingly, prefer fixing the root cause):**
+## Workflow files
 
-```bash
-SKIP_PRE_PUSH=1 git push
-```
-
-## Development workflow
-
-List the canonical repository checks and run focused profiles as needed:
-
-```bash
-# Check it compiles
-./scripts/check.sh rust-check
-
-# Run tests (including doc tests)
-./scripts/check.sh rust-test
-./scripts/check.sh doc-test
-
-# Run clippy (strict: all + pedantic + nursery)
-./scripts/check.sh clippy
-
-# Format
-./scripts/check.sh fmt
-
-# Typos
-./scripts/check.sh typos
-
-# Docs
-./scripts/check.sh rust-doc
-
-# Show every check and preparation profile
-./scripts/check.sh --list
-```
-
-The full local profile requires Rust, Node.js 22, npm dependencies at the
-repository root, N-API package, and Vitest example, plus `typos`, `cargo-audit`,
-`cargo-shear`, `actionlint`, and `zizmor`. Build the native N-API artifact and
-prepare both generated WASI package surfaces before running it. The preparation
-profile uses the repository's release build, patch, and validation helpers. It
-never installs missing Rust targets or npm dependencies, and reports the exact
-prerequisite command when one is missing.
-
-```bash
-npm install
-npm --prefix crates/oxc-coverage-instrument-napi install
-npm --prefix crates/oxc-coverage-instrument-napi run build:debug
-npm --prefix examples/vitest-typescript install
-./scripts/check.sh prepare-package-surface
-./scripts/check.sh all-local
-```
-
-Direct profiles fail with an installation or artifact hint when a prerequisite
-is missing. Only the pre-push aggregate may skip `typos`, and it reports the
-skip.
-
-### Dependency and supply-chain gates
-
-The CI runs `cargo audit`, `cargo deny`, and `cargo shear` on every push. Reproduce locally before touching `Cargo.toml`:
-
-```bash
-# Security advisories (RustSec)
-cargo install cargo-audit
-./scripts/check.sh audit
-
-# License / dependency policy (see deny.toml)
-cargo install cargo-deny
-cargo deny check
-
-# Unused / misplaced dependencies
-cargo install cargo-shear
-./scripts/check.sh shear
-```
-
-### Workflow files (`.github/`)
-
-When editing anything under `.github/workflows/` or `.github/actions/`, the CI runs `actionlint` and `zizmor` against the result. Reproduce locally:
+CI runs `actionlint` and `zizmor` against anything under `.github/workflows/`
+and `.github/actions/`:
 
 ```bash
 brew install actionlint
-brew install uv                                # resolves the CI-pinned zizmor
+brew install uv
 ./scripts/check.sh actionlint
 ./scripts/check.sh zizmor
 ```
 
-Install `uv` rather than `zizmor` itself. CI pins an exact zizmor version (see
-the `zizmor` job in `ci.yml`) because a new release can add an audit that
-reddens a workflow which passed review. `./scripts/check.sh zizmor` reads that
-pin back out of the workflow and runs the identical build through `uvx`. With a
-system-installed zizmor it falls back to whatever version you happen to have and
-warns that a local pass no longer implies CI will pass. To move the pin, edit
-the version in `ci.yml`; the local target follows automatically.
+Install `uv` rather than `zizmor` itself. CI pins an exact zizmor version in the
+`zizmor` job of `ci.yml`, because a new release can add an audit that reddens a
+workflow which passed review. `./scripts/check.sh zizmor` reads that pin back
+out of the workflow and runs the identical build through `uvx`. With a
+system-installed zizmor it falls back to whatever version happens to be present
+and warns that a local pass no longer implies CI will pass. To move the pin,
+edit the version in `ci.yml`; the local target follows.
 
-Every external action must be SHA-pinned with a version comment (`uses: owner/action@<40-hex> # vX.Y.Z`). Floating `@v6` / `@main` tags are rejected by zizmor's policy.
+Every external action is SHA-pinned with a version comment
+(`uses: owner/action@<40-hex> # vX.Y.Z`). Floating `@v6` and `@main` tags are
+rejected by zizmor's policy.
 
-### Commit messages
+## Commit messages
 
-CI enforces conventional commits via commitlint. To reproduce locally before pushing:
-
-```bash
-npm ci --ignore-scripts                                  # installs @commitlint/cli
-./scripts/check.sh commitlint                             # lint your branch's commits
-```
-
-Config lives in `commitlint.config.mjs`. Allowed types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`.
-
-## Napi bindings (Node.js)
+CI enforces Conventional Commits via commitlint. Config lives in
+`commitlint.config.mjs`. Allowed types: `build`, `chore`, `ci`, `docs`, `feat`,
+`fix`, `perf`, `refactor`, `revert`, `style`, `test`.
 
 ```bash
-cd crates/oxc-coverage-instrument-napi
-npm install
-npx napi build --platform
-cd ../..
-./scripts/check.sh napi-test
-./scripts/check.sh wasi-shim-test
+npm ci --ignore-scripts
+./scripts/check.sh commitlint
 ```
-
-### Checks that stay in CI
-
-CI continues to own the OS and target matrices, MSRV toolchain selection,
-clean-worktree postcondition, WASM builds and tests, native versus WASM parity,
-platform examples, coverage generation and upload, artifact handling, and
-release publication. The Typos and Cargo Deny jobs stay action-owned. Their
-setup, environment, matrices, and artifact inputs are not reproduced by
-`all-local`; the profile prints this remainder instead of describing it as
-passed.
-
-## Conformance test suite
-
-The conformance tests compare our output against `istanbul-lib-instrument`. To regenerate reference data:
-
-```bash
-npm install  # in repo root (installs istanbul-lib-instrument for scripts/)
-node crates/oxc-coverage-instrument/tests/conformance/generate-reference.mjs
-```
-
-## Helper scripts
-
-- `scripts/istanbul-diff.mjs`: byte-for-byte conformance diff against `istanbul-lib-instrument` on the shared fixture corpus.
-- `scripts/istanbul-upstream-specs.mjs`: runtime compatibility checks copied from upstream Istanbul specs.
-- `scripts/real-world-output.mjs`: runtime behavior and counter-placement checks for production-like JavaScript and stripped TypeScript.
-- `scripts/v8-inspector-smoke.mjs`: real Node inspector coverage conversion and stable Istanbul behavior checks.
-- `scripts/benchmark-comparison.sh`: performance comparison against Istanbul, Babel, and SWC coverage instrumenters.
-- `scripts/real-world-parity.mjs`: count-level parity check over the benchmark corpus populated by `benchmark-comparison.sh`.
-- `scripts/compare-istanbul.mjs`: ad hoc reference-output dumper used when investigating Istanbul shape differences.
-- `scripts/prepare-package-surface.sh`: builds and prepares both generated WASI packages required by `package-surface`.
-- `scripts/sync-npm-versions.sh`: syncs the N-API package and platform package versions during release prep.
-
-## Code conventions
-
-- Rust 2024 edition, MSRV 1.95
-- Strict clippy (all + pedantic + nursery + Oxc-level restriction lints)
-- `cargo fmt` with `style_edition = "2024"`, `use_small_heuristics = "Max"`
-- Doc comments on all public types and functions
-- Tests for new coverage constructs (statement types, branch types, function types)
-- `#[expect(..., reason = "...")]` instead of `#[allow]`
 
 ## Version policy
 
-- `oxc_coverage_instrument` and the published npm package move together and currently share the public package version.
-- Companion Rust crates (`oxc_coverage_types`, `oxc_coverage_source_maps`, `oxc_coverage_v8`, `oxc_coverage_report`, `oxc_coverage_reports`) may stay on lower 0.x versions until their APIs mature.
-- Internal adapter crates with `publish = false` (`oxc-coverage-instrument-cli`, `oxc_coverage_instrument_napi`) are implementation packages; their Cargo versions do not define the public release version.
-- The root `package.json` is a private helper manifest for repository scripts. The published npm manifest is `crates/oxc-coverage-instrument-napi/package.json`.
+- `oxc_coverage_instrument` and the published npm package move together and
+  share the public package version.
+- The companion crates (`oxc_coverage_types`, `oxc_coverage_source_maps`,
+  `oxc_coverage_v8`, `oxc_coverage_report`, `oxc_coverage_reports`) carry their
+  own versions and may stay on lower 0.x numbers while their APIs settle.
+- The unpublished crates (`oxc_coverage_instrument_cli`,
+  `oxc_coverage_instrument_napi`) do not define the public release version.
+- `./scripts/check.sh version-sync` checks that every internal path dependency
+  pins the version its target crate actually declares, and that every
+  publishable crate appears in the release workflow.
 
 ## Submitting changes
 
-1. Fork the repo
-2. Create a branch from `main`
-3. Make your changes
-4. Run the full quality check:
-   ```bash
-   ./scripts/check.sh all-local
-   ```
-5. Open a PR with a clear description of what changed and why. The PR body must contain a `Closes #N` (or `Fixes #N` / `Resolves #N`) keyword for any issue it closes, or the literal string `N/A` if it does not close an issue. A workflow rejects PRs that omit both; the check is skipped for `[bot]` authors.
+1. Fork the repository and branch from `main`.
+2. Make the change, with tests.
+3. Run `./scripts/check.sh all-local`.
+4. Open a pull request describing what changed and why.
+
+The pull request body must contain a `Closes #N`, `Fixes #N`, or `Resolves #N`
+keyword for any issue it closes, or the literal `N/A` if it closes none. A
+workflow rejects bodies that contain neither; the check is skipped for `[bot]`
+authors.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the
+MIT License.

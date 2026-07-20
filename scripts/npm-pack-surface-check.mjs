@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const rootDir = fileURLToPath(new URL('..', import.meta.url));
-const napiDir = 'crates/oxc-coverage-instrument-napi';
+const napiDir = 'crates/oxc_coverage_instrument_napi';
 const platformDir = `${napiDir}/npm`;
 
 const targetPackageEntries = [
@@ -237,7 +237,7 @@ if (metadataOnly) {
 
 const specs = [
   {
-    dir: 'crates/oxc-coverage-instrument-napi',
+    dir: 'crates/oxc_coverage_instrument_napi',
     files: [
       'package/browser.js',
       'package/index.js',

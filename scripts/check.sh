@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
-NAPI_DIR="$ROOT/crates/oxc-coverage-instrument-napi"
+NAPI_DIR="$ROOT/crates/oxc_coverage_instrument_napi"
 VITEST_DIR="$ROOT/examples/vitest-typescript"
 
 usage() {
@@ -18,36 +18,36 @@ USAGE
 
 list_profiles() {
   cat <<'PROFILES'
-fmt                 primitive  Rust formatting
-clippy              primitive  Strict workspace linting
-rust-check          primitive  Workspace compilation
-rust-test-fast      primitive  Workspace default tests
-rust-test           primitive  Full workspace targets
-doc-test            primitive  Workspace documentation tests
-rust-doc            primitive  Documentation warnings
-typos               primitive  Repository spelling
-version-sync        primitive  Internal version pins
-napi-test           primitive  Native Node binding tests
-wasi-shim-test      primitive  Generated WASI shim patch behavior
-browser-loader-test primitive  Browser loader package selection
-istanbul-diff        primitive  Istanbul byte-for-byte comparison
+fmt                     primitive    Rust formatting
+clippy                  primitive    Strict workspace linting
+rust-check              primitive    Workspace compilation
+rust-test-fast          primitive    Workspace default tests
+rust-test               primitive    Full workspace targets
+doc-test                primitive    Workspace documentation tests
+rust-doc                primitive    Documentation warnings
+typos                   primitive    Repository spelling
+version-sync            primitive    Internal version pins
+napi-test               primitive    Native Node binding tests
+wasi-shim-test          primitive    Generated WASI shim patch behavior
+browser-loader-test     primitive    Browser loader package selection
+istanbul-diff           primitive    Istanbul byte-for-byte comparison
 prepare-package-surface preparation  Build generated WASI package artifacts
-package-surface     primitive  npm package file surfaces
-audit               primitive  RustSec advisory audit
-shear               primitive  Unused Rust dependencies
-inspector-smoke     primitive  Real Node inspector conversion
-real-world-output   primitive  Production-like emitted behavior
-istanbul-upstream   primitive  Upstream Istanbul runtime cases
-vitest-typecheck    primitive  Strict Vitest consumer types
-vitest-coverage     primitive  Vitest TypeScript coverage run
-vitest-verify       primitive  Vitest TypeScript coverage assertions
-actionlint          primitive  GitHub Actions syntax
-zizmor              primitive  GitHub Actions security
-commitlint          primitive  Conventional branch commits
-self-test           primitive  Verification runner regression tests
-rust                aggregate  Rust format, lint, tests, and docs
-pre-push            aggregate  Fast hook checks with optional typos and tests
-all-local           aggregate  Every host-reproducible verification profile
+package-surface         primitive    npm package file surfaces
+audit                   primitive    RustSec advisory audit
+shear                   primitive    Unused Rust dependencies
+inspector-smoke         primitive    Real Node inspector conversion
+real-world-output       primitive    Production-like emitted behavior
+istanbul-upstream       primitive    Upstream Istanbul runtime cases
+vitest-typecheck        primitive    Strict Vitest consumer types
+vitest-coverage         primitive    Vitest TypeScript coverage run
+vitest-verify           primitive    Vitest TypeScript coverage assertions
+actionlint              primitive    GitHub Actions syntax
+zizmor                  primitive    GitHub Actions security
+commitlint              primitive    Conventional branch commits
+self-test               primitive    Verification runner regression tests
+rust                    aggregate    Rust format, lint, tests, and docs
+pre-push                aggregate    Fast hook checks with optional typos and tests
+all-local               aggregate    Every host-reproducible verification profile
 PROFILES
 }
 
@@ -109,7 +109,7 @@ require_napi_artifact() {
       return
     fi
   done
-  die "A native N-API artifact is missing. Run 'npm --prefix crates/oxc-coverage-instrument-napi run build:debug'."
+  die "A native N-API artifact is missing. Run 'npm --prefix crates/oxc_coverage_instrument_napi run build:debug'."
 }
 
 run_fmt() {
@@ -194,21 +194,21 @@ require_native_napi() {
 
 run_napi_test() {
   require_native_napi
-  echo "[check:napi-test] node crates/oxc-coverage-instrument-napi/test.mjs"
-  node crates/oxc-coverage-instrument-napi/test.mjs
+  echo "[check:napi-test] node crates/oxc_coverage_instrument_napi/test.mjs"
+  node crates/oxc_coverage_instrument_napi/test.mjs
 }
 
 run_wasi_shim_test() {
   require_tool node "Install Node.js 22."
-  echo "[check:wasi-shim-test] (cd crates/oxc-coverage-instrument-napi && node scripts/patch-wasi-browser-shim.test.mjs)"
+  echo "[check:wasi-shim-test] (cd crates/oxc_coverage_instrument_napi && node scripts/patch-wasi-browser-shim.test.mjs)"
   (cd "$NAPI_DIR" && node scripts/patch-wasi-browser-shim.test.mjs)
 }
 
 run_browser_loader_test() {
   require_tool npm "Install npm with Node.js."
-  require_dir "$NAPI_DIR/node_modules" "Run 'npm --prefix crates/oxc-coverage-instrument-napi install'."
+  require_dir "$NAPI_DIR/node_modules" "Run 'npm --prefix crates/oxc_coverage_instrument_napi install'."
   require_file "$NAPI_DIR/browser.js" "Build and patch the N-API package first."
-  echo "[check:browser-loader-test] (cd crates/oxc-coverage-instrument-napi && npm run test:browser-loader)"
+  echo "[check:browser-loader-test] (cd crates/oxc_coverage_instrument_napi && npm run test:browser-loader)"
   (cd "$NAPI_DIR" && npm run test:browser-loader)
 }
 

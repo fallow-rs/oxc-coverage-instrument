@@ -55,7 +55,7 @@ body:
         - Rust crate (oxc_coverage_instrument)
         - npm package (oxc-coverage-instrument)
         - Vitest adapter (createOxcInstrumenter)
-        - CLI (oxc-coverage-instrument-cli)
+        - CLI (oxc-coverage-instrument)
     validations:
       required: true
 

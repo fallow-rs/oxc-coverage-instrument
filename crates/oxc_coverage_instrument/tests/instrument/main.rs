@@ -1,0 +1,20 @@
+//! Behaviour tests for the `oxc_coverage_instrument` public API: the coverage
+//! map and instrumented code emitted for every construct that carries a
+//! counter, coverage pragmas, raw TypeScript input, source-map composition,
+//! V8-to-Istanbul conversion, and the fixture and conformance corpora.
+
+mod callback_argument_names;
+mod common;
+mod conformance;
+mod conformance_suite;
+mod error_display;
+mod fixture_validation;
+mod function_identity_overlay;
+mod integration;
+mod pragma;
+mod real_world;
+mod snapshot;
+mod source_maps;
+mod typescript_direct;
+mod typescript_equivalence;
+mod v8_to_istanbul;

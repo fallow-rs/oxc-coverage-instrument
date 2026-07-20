@@ -2,10 +2,9 @@
 // Byte-for-byte parity check between the native and currently-built WASM napi
 // binding.
 //
-// v0.7.1 shipped a one-off local check that the two bindings produce identical
-// coverage maps. This script reproduces that check on every PR so any future
-// drift between the two backends (e.g. an `cfg(target_arch = "wasm32")` branch
-// that silently changes output shape) fails CI immediately.
+// Runs on every PR so drift between the two backends (e.g. a
+// `cfg(target_arch = "wasm32")` branch that silently changes output shape)
+// fails CI immediately.
 //
 // Modes:
 //   --dump        : instrument every conformance fixture, print a single JSON
@@ -27,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
-const fixturesDir = join(repoRoot, 'crates', 'oxc-coverage-instrument', 'tests', 'conformance', 'fixtures');
+const fixturesDir = join(repoRoot, 'crates', 'oxc_coverage_instrument', 'tests', 'conformance', 'fixtures');
 
 const isDumpMode = process.argv.includes('--dump');
 const wasmVariant = process.env.OXC_COVERAGE_WASM_VARIANT || 'wasm';
@@ -39,7 +38,7 @@ const listFixtures = () =>
 
 const dump = async () => {
   const { createOxcInstrumenter } = await import(
-    '../crates/oxc-coverage-instrument-napi/vitest.js'
+    '../crates/oxc_coverage_instrument_napi/vitest.js'
   );
   const instrumenter = createOxcInstrumenter({ coverageVariable: '__coverage__' });
   const out = {};

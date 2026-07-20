@@ -1,6 +1,6 @@
 [toolchain]
-# Pinned so local builds use the same toolchain as CI. The MSRV (declared in
-# workspace `Cargo.toml`) now sits at the same 1.95, raised by oxc 0.140, and is
-# enforced by the dedicated MSRV CI job; this file pins the lint / formatter floor.
+# Pinned so local builds use the same toolchain as CI. The MSRV is declared in
+# the workspace `Cargo.toml` and enforced by the dedicated MSRV job; this file
+# pins the lint and formatter floor.
 channel = "1.95"
 components = ["clippy", "rustfmt"]

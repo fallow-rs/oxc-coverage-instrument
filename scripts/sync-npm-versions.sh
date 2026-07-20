@@ -63,11 +63,11 @@ update_lockfile() {
 echo "Syncing npm versions to $VERSION..."
 
 # Main package (with optionalDependencies)
-update_optional_deps "$ROOT/crates/oxc-coverage-instrument-napi/package.json"
-update_lockfile "$ROOT/crates/oxc-coverage-instrument-napi/package-lock.json"
+update_optional_deps "$ROOT/crates/oxc_coverage_instrument_napi/package.json"
+update_lockfile "$ROOT/crates/oxc_coverage_instrument_napi/package-lock.json"
 
 # Platform packages
-for dir in "$ROOT/crates/oxc-coverage-instrument-napi/npm"/*/; do
+for dir in "$ROOT/crates/oxc_coverage_instrument_napi/npm"/*/; do
   if [ -f "$dir/package.json" ]; then
     update_version "$dir/package.json"
   fi

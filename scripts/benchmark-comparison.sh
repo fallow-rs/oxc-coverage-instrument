@@ -19,8 +19,8 @@
 #                       Node.js tools (same process, no startup cost)
 #   - "babel-plugin" = babel-plugin-istanbul via @babel/core
 #   - "swc (wasm)"   = swc-plugin-coverage-instrument, Rust compiled to WASM
-#                       running inside SWC's WASM sandbox — not a native Rust
-#                       comparison (includes WASM + serialisation overhead)
+#                       running inside SWC's WASM sandbox, so not a native Rust
+#                       comparison (includes WASM and serialisation overhead)
 #   - "istanbul-lib" = istanbul-lib-instrument standalone (parse + instrument)
 
 set -euo pipefail
@@ -30,8 +30,8 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BENCH_DIR="${ROOT_DIR}/.bench-tmp"
 FILES_DIR="${BENCH_DIR}/files"
 OXC="${ROOT_DIR}/target/release/oxc-coverage-instrument"
-NAPI_DIR="${ROOT_DIR}/crates/oxc-coverage-instrument-napi"
-LIB_DIR="${ROOT_DIR}/crates/oxc-coverage-instrument"
+NAPI_DIR="${ROOT_DIR}/crates/oxc_coverage_instrument_napi"
+LIB_DIR="${ROOT_DIR}/crates/oxc_coverage_instrument"
 RUNS=5
 QUICK=false
 
@@ -80,7 +80,7 @@ setup_npm() {
 build_oxc() {
   if [[ ! -f "$OXC" ]] || [[ "$LIB_DIR/src/transform.rs" -nt "$OXC" ]]; then
     echo "  building oxc-coverage-instrument CLI (release)..." >&2
-    cargo build --release -p oxc-coverage-instrument-cli --manifest-path "$ROOT_DIR/Cargo.toml" 2>&1 | tail -1
+    cargo build --release -p oxc_coverage_instrument_cli --manifest-path "$ROOT_DIR/Cargo.toml" 2>&1 | tail -1
   fi
 }
 

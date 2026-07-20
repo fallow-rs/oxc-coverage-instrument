@@ -39,8 +39,8 @@ jobs:
         run: |
           mkdir -p coverage
           # Workspace-wide coverage. The napi crate is excluded: it builds as a
-          # cdylib and its tests run through Node (napi/test.mjs), not `cargo
-          # test`, so cargo-llvm-cov cannot instrument them.
+          # cdylib and its tests run through Node (its own `test.mjs`), not
+          # `cargo test`, so cargo-llvm-cov cannot instrument them.
           cargo llvm-cov --workspace \
             --exclude oxc_coverage_instrument_napi \
             --lcov --output-path coverage/lcov.info

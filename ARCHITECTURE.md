@@ -1,0 +1,164 @@
+# Architecture
+
+This document describes the high-level structure of the oxc-coverage suite: how
+source flows through the crates, what each crate owns, and which concerns cut
+across all of them. For usage, see the README of the crate you need.
+
+## Bird's Eye View
+
+Instrumentation happens at the AST level. Nothing is rewritten as text, and no
+regular expression ever sees the source.
+
+```
+source code (JS/TS)
+    |
+    v
+oxc_parser          parse to AST
+    |
+    v
+SemanticBuilder     build scope tree
+    |
+    v
+CoverageTransform   traverse AST, inject ++cov().s[N] counters
+    |
+    v
+oxc_codegen         emit instrumented code and source map
+    |
+    v
+instrumented code + coverage map
+```
+
+`CoverageTransform` is an `oxc_traverse` visitor. It assigns each statement,
+function, and branch an id, records its `Location` in the coverage map, and
+injects the counter expression that increments the matching slot at runtime.
+Codegen then emits the rewritten AST along with a source map from instrumented
+output back to the input.
+
+When an `inputSourceMap` is supplied, the instrumenter composes the codegen
+output map with the input map, so downstream remappers (Vitest, nyc, monocart)
+resolve coverage positions back to the original source. Composition is delegated
+to [`srcmap-remapping`](https://crates.io/crates/srcmap-remapping), which mirrors
+`@ampproject/remapping` semantics, the primitive `istanbul-lib-source-maps` and
+the major bundlers rely on.
+
+## Code Map
+
+The workspace carries a Rust port of the whole Istanbul stack, one crate per
+upstream package.
+
+| Crate | Replaces |
+|:------|:---------|
+| [`oxc_coverage_instrument`](crates/oxc_coverage_instrument/README.md) | `istanbul-lib-instrument` |
+| [`oxc_coverage_types`](crates/oxc_coverage_types/README.md) | `istanbul-lib-coverage` (data model) |
+| [`oxc_coverage_source_maps`](crates/oxc_coverage_source_maps/README.md) | `istanbul-lib-source-maps` |
+| [`oxc_coverage_v8`](crates/oxc_coverage_v8/README.md) | `v8-to-istanbul` |
+| [`oxc_coverage_report`](crates/oxc_coverage_report/README.md) | `istanbul-lib-report` |
+| [`oxc_coverage_reports`](crates/oxc_coverage_reports/README.md) | `istanbul-reports` (partial) |
+
+Two more crates are workspace-local rather than published to crates.io:
+[`oxc_coverage_instrument_cli`](crates/oxc_coverage_instrument_cli/README.md)
+ships the `oxc-coverage-instrument` binary, and
+[`oxc_coverage_instrument_napi`](crates/oxc_coverage_instrument_napi/README.md)
+ships the `oxc-coverage-instrument` npm package.
+
+At runtime the crates compose into one pipeline, from source on disk to a
+rendered report.
+
+```
+   source code (JS/TS)
+        |
+        v
+   +-----------------------------+
+   | oxc_coverage_instrument     |  parse, transform, codegen
+   +-----------------------------+
+        |
+        |  instrumented code + composed source map
+        v
+   +-----------------------------+
+   | runtime collection          |  browser / Node / V8
+   | (writes __coverage__)       |
+   +-----------------------------+
+        |
+        |  raw FileCoverage objects
+        v
+   +-----------------------------+
+   | oxc_coverage_source_maps    |  remap to original source paths
+   +-----------------------------+
+        |
+        |  remapped FileCoverage
+        v
+   +-----------------------------+
+   | oxc_coverage_report         |  tree, summary, visitor
+   | oxc_coverage_reports        |  text, text-summary, json-summary,
+   |                             |  lcov, cobertura, html
+   +-----------------------------+
+```
+
+`oxc_coverage_types` sits underneath every box in that diagram. It defines
+`FileCoverage`, `FnEntry`, `BranchEntry`, `Location`, and `Position`, and it owns
+the serde representation that has to round-trip `coverage-final.json` unchanged.
+Every other crate consumes those types rather than defining its own.
+
+`oxc_coverage_v8` is a second entry point into the same model: instead of
+instrumenting source, it fills the hit-count vectors of a `FileCoverage` from V8
+inspector ranges, so V8-collected data joins the pipeline at the same place
+runtime-collected `__coverage__` does.
+
+`oxc_coverage_instrument` re-exports the remap, V8, and data-model surfaces, so a
+consumer that only needs the default path can depend on that one crate.
+
+## Cross-Cutting Concerns
+
+### Istanbul conformance
+
+Output is checked against `istanbul-lib-instrument` on a shared fixture corpus
+covering every branch type, function form, Unicode columns, pragma boundaries,
+and edge cases. The corpus lives in
+`crates/oxc_coverage_instrument/tests/conformance/`. The suite asserts that
+statement, function, and branch counts match exactly, that branch types and
+per-branch location counts match, that the JSON field set matches, and that the
+instrumented output re-parses as valid JavaScript.
+
+CI also runs a blocking byte-for-byte diff over the same corpus after filtering
+the documented divergences. That catches span-level and counter-shape drift which
+count-only tests miss. The divergences are enumerated in
+[the instrumenter's README](crates/oxc_coverage_instrument/README.md#differences-from-istanbul-lib-instrument),
+and `scripts/istanbul-diff.mjs` is the tool that enforces the filter.
+
+### Position semantics
+
+Istanbul's `Position` is a 1-based line plus a 0-based UTF-16 column. Every
+public `Location` in this workspace uses that convention, so `statementMap`,
+`fnMap`, `branchMap`, and `unhandledPragmas` columns match Babel and
+`istanbul-lib-instrument` on non-ASCII sources.
+
+The internal representations disagree, and each boundary converts explicitly:
+
+- Oxc spans are UTF-8 byte offsets.
+- V8 inspector ranges are absolute UTF-16 code-unit offsets.
+- `srcmap-sourcemap`'s `original_position_for` is 0-based on both axes.
+
+Conversion happens at the lookup boundary in each crate rather than being pushed
+into the shared types, which keeps `oxc_coverage_types` free of any encoding
+assumption.
+
+### Benchmarks
+
+`./scripts/benchmark-comparison.sh` times this instrumenter against
+`istanbul-lib-instrument`, `babel-plugin-istanbul`, and
+`swc-plugin-coverage-instrument` on five pinned library builds (React, lodash,
+Vue, D3, three.js), reporting the median of several runs per file. The Node.js
+table runs every tool in one process, so the numbers are comparable; a second
+table times the native CLI, which pays process startup on top.
+
+The script downloads the pinned library builds but installs the current release
+of each competing instrumenter, so results are only meaningful alongside the
+resolved versions and the machine they were produced on. Run it locally rather
+than quoting a number from elsewhere.
+
+`swc-plugin-coverage-instrument` is written in Rust but runs as a WASM module
+inside SWC's plugin sandbox, so its numbers include WASM and serialization
+overhead at every AST boundary rather than measuring native Rust.
+
+CodSpeed runs the Rust benchmarks under `crates/*/benches/` on every push to
+`main` and every pull request that touches `crates/` or a workspace manifest.

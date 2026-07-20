@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { instrument } from '../crates/oxc-coverage-instrument-napi/index.js';
+import { instrument } from '../crates/oxc_coverage_instrument_napi/index.js';
 
 const normalize = (value) => JSON.parse(JSON.stringify(value));
 

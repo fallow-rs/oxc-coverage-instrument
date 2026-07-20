@@ -12,7 +12,7 @@
 //      program logic still produces the right value.
 //
 // Run: node scripts/compose-eager-smoke.mjs   (exit 0 = all pass)
-import { instrument, remapCoverageMap } from '../crates/oxc-coverage-instrument-napi/index.js';
+import { instrument, remapCoverageMap } from '../crates/oxc_coverage_instrument_napi/index.js';
 
 let failures = 0;
 const check = (name, cond, detail = '') => {
