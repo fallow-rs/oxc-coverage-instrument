@@ -122,10 +122,19 @@ cargo install cargo-shear
 When editing anything under `.github/workflows/` or `.github/actions/`, the CI runs `actionlint` and `zizmor` against the result. Reproduce locally:
 
 ```bash
-brew install actionlint zizmor                 # or `cargo install` / `pip install`
+brew install actionlint
+brew install uv                                # resolves the CI-pinned zizmor
 ./scripts/check.sh actionlint
 ./scripts/check.sh zizmor
 ```
+
+Install `uv` rather than `zizmor` itself. CI pins an exact zizmor version (see
+the `zizmor` job in `ci.yml`) because a new release can add an audit that
+reddens a workflow which passed review. `./scripts/check.sh zizmor` reads that
+pin back out of the workflow and runs the identical build through `uvx`. With a
+system-installed zizmor it falls back to whatever version you happen to have and
+warns that a local pass no longer implies CI will pass. To move the pin, edit
+the version in `ci.yml`; the local target follows automatically.
 
 Every external action must be SHA-pinned with a version comment (`uses: owner/action@<40-hex> # vX.Y.Z`). Floating `@v6` / `@main` tags are rejected by zizmor's policy.
 

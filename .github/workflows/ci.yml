@@ -187,7 +187,13 @@ jobs:
       # Pinned rather than floating: an unpinned `uvx zizmor` silently adopts
       # each new release, so a new audit turns main red on a commit that was
       # green locally and in review. scripts/check.sh reads this version back so
-      # local runs resolve the same build. Bump deliberately.
+      # local runs resolve the same build.
+      #
+      # Dependabot cannot see this pin (it scans `uses:` and package manifests,
+      # not versions inside `run:`), so it will not go stale on its own and will
+      # not be bumped for you. Check and move it deliberately:
+      #   uv tool run zizmor@latest --version
+      # then update the version here; the local check target follows.
       - run: uvx zizmor@1.27.0 --config .github/zizmor.yml --min-confidence medium --format plain .github/
 
   napi:
