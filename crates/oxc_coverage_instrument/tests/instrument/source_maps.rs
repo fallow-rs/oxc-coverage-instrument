@@ -559,6 +559,35 @@ fn compose_input_source_map_keeps_entries_deferred_drop_keeps() {
     );
 }
 
+#[test]
+fn compose_input_source_map_uses_a_later_resolved_source_for_the_drop_gate() {
+    let intermediate = "f();\ng();\n";
+    let input_sm = r#"{"version":3,"sources":["","src/app.ts"],"sourcesContent":[null,"f();\n"],"mappings":"ACAA","names":[]}"#;
+
+    let eager = instrument(
+        intermediate,
+        "intermediate.js",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm.to_string()),
+            compose_input_source_map: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .expect("eager instrumentation succeeds");
+    let deferred = remap_coverage_with_options(
+        &plain_with_map(intermediate, input_sm),
+        RemapOptions { drop_unmapped: true },
+    )
+    .expect("deferred remap accepts the later source");
+
+    assert_eq!(eager.coverage_map.statement_map.len(), 1, "unmapped line 2 is dropped eagerly");
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map).unwrap(),
+        serde_json::to_value(&deferred).unwrap(),
+        "eager and deferred admission agree when sources[0] is empty",
+    );
+}
+
 /// Instrument `intermediate` with `input_sm` embedded but without eager compose,
 /// returning the `FileCoverage` that still carries its `inputSourceMap` so the
 /// lazy remap helpers can be exercised against it.

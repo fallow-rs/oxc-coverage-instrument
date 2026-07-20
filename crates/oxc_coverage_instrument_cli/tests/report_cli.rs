@@ -236,10 +236,10 @@ fn report_nonexistent_coverage_file_reports_read_error() {
 }
 
 #[test]
-fn report_empty_coverage_map_exits_two_and_writes_nothing() {
+fn report_empty_coverage_map_has_distinct_exit_code_and_writes_nothing() {
     let cov = write_temp("report_empty_cov.json", "{}");
     let out = cli().arg("report").arg("--format").arg("text").arg(&cov).output().unwrap();
-    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(out.status.code(), Some(3));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("contains no files"), "got:\n{stderr}");
     assert!(

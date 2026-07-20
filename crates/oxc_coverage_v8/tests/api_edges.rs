@@ -218,6 +218,32 @@ fn statement_counts_resolve_across_every_ecmascript_line_terminator() {
 }
 
 #[test]
+fn wrapper_length_uses_utf16_code_units_for_non_ascii_wrappers() {
+    let wrapper = "/* 🦀 */";
+    let wrapper_length_utf16 = utf16_len(wrapper);
+    assert_ne!(wrapper_length_utf16, byte_len(wrapper), "fixture distinguishes UTF-16 from bytes");
+
+    let source = "x();";
+    let mut coverage = single_statement_coverage(Location {
+        start: Position { line: 1, column: 0 },
+        end: Position { line: 1, column: 4 },
+    });
+    let functions = [V8FunctionCoverage {
+        function_name: String::new(),
+        ranges: vec![V8CoverageRange {
+            start_offset: wrapper_length_utf16,
+            end_offset: wrapper_length_utf16 + utf16_len(source),
+            count: 7,
+        }],
+        is_block_coverage: true,
+    }];
+
+    apply_v8_coverage(&mut coverage, source, &functions, wrapper_length_utf16, &BTreeMap::new());
+
+    assert_eq!(coverage.s["0"], 7, "the wrapper offset is measured in UTF-16 code units");
+}
+
+#[test]
 fn arm_tiebreaker_prefers_tighter_v8_range_at_equal_distance() {
     // Branch arm on line 3, columns 4..6, mapping to byte offsets [26, 28).
     // Two V8 block ranges flank it within the 4-byte tolerance:

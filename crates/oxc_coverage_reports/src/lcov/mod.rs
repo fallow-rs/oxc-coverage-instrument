@@ -30,7 +30,7 @@
 //!
 //! [be]: oxc_coverage_types::BranchEntry
 
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::io;
 use std::path::Path;
 
@@ -140,20 +140,7 @@ fn sanitize_fn_name(name: &str) -> String {
     reason = "istanbul counters are u32 on the wire, so a line count that does not fit is already outside the format"
 )]
 fn write_lines<W: io::Write>(out: &mut W, file: &FileCoverage) -> io::Result<()> {
-    // A line counts as covered when any statement starting on it ran, so the
-    // per-line rollup takes the maximum rather than the sum.
-    let mut by_line: BTreeMap<u32, u32> = BTreeMap::new();
-    for (id, loc) in &file.statement_map {
-        let line = loc.start.line;
-        if line == 0 {
-            continue;
-        }
-        let hits = file.s.get(id).copied().unwrap_or(0);
-        by_line
-            .entry(line)
-            .and_modify(|existing| *existing = (*existing).max(hits))
-            .or_insert(hits);
-    }
+    let by_line = crate::projection::line_hits(file);
 
     let total = by_line.len() as u32;
     let hit = by_line.values().filter(|&&v| v > 0).count() as u32;
@@ -175,10 +162,18 @@ fn write_branches<W: io::Write>(out: &mut W, file: &FileCoverage) -> io::Result<
     // The `block` field of `BRDA:` must be a stable per-file discriminator so
     // Codecov does not merge unrelated branches on the same line. Istanbul
     // ids are numeric strings, which keeps the diff against istanbul-reports
-    // small; the iteration index covers non-numeric ids from other emitters so
-    // a hand-crafted map cannot collapse every branch into block=0.
+    // small. If any id is non-numeric or two strings parse to the same number,
+    // use iteration indexes for the whole file so blocks cannot collide.
+    let numeric_blocks: Option<Vec<u32>> =
+        file.branch_map.keys().map(|id| id.parse::<u32>().ok()).collect();
+    let numeric_blocks = numeric_blocks
+        .filter(|blocks| blocks.iter().copied().collect::<BTreeSet<_>>().len() == blocks.len());
     for (block_idx, (id, entry)) in file.branch_map.iter().enumerate() {
-        let block: u32 = id.parse().unwrap_or(block_idx as u32);
+        let block = numeric_blocks
+            .as_ref()
+            .and_then(|blocks| blocks.get(block_idx))
+            .copied()
+            .unwrap_or(block_idx as u32);
         let arms = crate::projection::aligned_branch_hits(file, id, entry);
         let block_entered = arms.iter().any(|&c| c > 0);
         for (idx, count) in arms.iter().enumerate() {

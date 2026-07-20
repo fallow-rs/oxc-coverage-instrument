@@ -132,9 +132,10 @@ fn original_end_position_for(
     // afterEndMappings = allGeneratedPositionsFor(LUB) one column to the right;
     // map each back (GLB) and take the first that lands on the same original
     // line. That segment's start is the exclusive end of the span.
+    let next_column = before.column.checked_add(1)?;
     let after = all_generated_positions_for_lub(
         ctx,
-        OriginalLookup { source, line: before.line, column: before.column + 1 },
+        OriginalLookup { source, line: before.line, column: next_column },
     );
     for gen_pos in &after {
         if let Some(orig) = ctx.sm.original_position_for_with_bias(

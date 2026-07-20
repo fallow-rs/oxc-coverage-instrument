@@ -411,7 +411,7 @@ fn parse_v8_functions(
 /// outer container.
 fn invalid_coverage_json_error<E: fmt::Display>(coverage_json: &str, err: E) -> napi::Error {
     let hint = if looks_like_single_file_coverage(coverage_json) {
-        " (hint: input parses as a single FileCoverage; remapCoverageMap \
+        " (hint: input parses as a single FileCoverage; the remap API \
          expects an Istanbul CoverageMap shape `{[path]: FileCoverage}`. \
          Wrap with `{ [fc.path]: fc }` before calling.)"
     } else {
@@ -602,6 +602,16 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("input parses as a single FileCoverage"));
         assert!(message.contains("Wrap with `{ [fc.path]: fc }` before calling"));
+    }
+
+    #[test]
+    fn loader_remap_reports_a_function_neutral_single_file_hint() {
+        let err = remap_coverage_map_with_loader(SINGLE_FC.to_string(), HashMap::new(), None)
+            .expect_err("single FileCoverage is not a CoverageMap");
+        let message = err.to_string();
+
+        assert!(message.contains("the remap API expects an Istanbul CoverageMap shape"));
+        assert!(!message.contains("remapCoverageMap expects"));
     }
 
     #[test]

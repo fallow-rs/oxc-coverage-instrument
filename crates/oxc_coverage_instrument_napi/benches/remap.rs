@@ -11,6 +11,9 @@ use oxc_coverage_instrument_napi::remap_coverage_map_with_loader;
 use srcmap_generator::SourceMapGenerator;
 
 const SOURCE_PATH: &str = "src/app.ts";
+const SOURCE_LINE_COLUMNS: u32 = 80;
+const MAPPING_STRIDE: u32 = 2;
+const MAPPINGS_PER_LINE: u32 = SOURCE_LINE_COLUMNS / MAPPING_STRIDE;
 const CASES: &[(&str, usize, u32)] = &[("small", 4, 80), ("large", 20, 200)];
 
 fn loc(line: u32, start_col: u32, end_col: u32) -> Location {
@@ -21,14 +24,20 @@ fn loc(line: u32, start_col: u32, end_col: u32) -> Location {
 }
 
 fn source_map_json(generated_path: &str, lines: u32) -> String {
-    let mut generator =
-        SourceMapGenerator::with_capacity(Some(generated_path.to_string()), lines as usize * 16);
+    let mut generator = SourceMapGenerator::with_capacity(
+        Some(generated_path.to_string()),
+        lines as usize * MAPPINGS_PER_LINE as usize,
+    );
     generator.set_assume_sorted(true);
     let source = generator.add_source(SOURCE_PATH);
-    generator.set_source_content(source, vec!["x".repeat(80); lines as usize].join("\n"));
+    generator.set_source_content(
+        source,
+        vec!["x".repeat(SOURCE_LINE_COLUMNS as usize); lines as usize].join("\n"),
+    );
     for line in 0..lines {
-        for column in 0..16 {
-            generator.add_mapping(line, column * 2, source, line, column * 2);
+        for mapping in 0..MAPPINGS_PER_LINE {
+            let column = mapping * MAPPING_STRIDE;
+            generator.add_mapping(line, column, source, line, column);
         }
     }
     generator.to_json()

@@ -377,7 +377,7 @@ pub fn instrument(
     let mut parsed = parse_program(&allocator, source, filename)?;
 
     let (pragmas, unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
-    if pragmas.ignore_file {
+    if pragmas.ignore_file && !options.strip_typescript {
         return Ok(empty_coverage_result(filename, source, unhandled_pragmas));
     }
 
@@ -387,6 +387,17 @@ pub fn instrument(
         program: &mut parsed.program,
         options,
     })?;
+    if pragmas.ignore_file {
+        let (code, _) = emit_code(EmitInputs {
+            program: &parsed.program,
+            scoping,
+            source,
+            filename,
+            preamble: "",
+            options,
+        });
+        return Ok(empty_coverage_result(filename, &code, unhandled_pragmas));
+    }
     let cov_fn_name = generate_cov_fn_name(filename);
 
     let (transform, scoping) = run_coverage_transform(CoverageTransformRun {
@@ -851,9 +862,6 @@ pub enum InstrumentError {
     ParseError(String),
     /// The coverage variable name is not a valid JavaScript identifier.
     InvalidCoverageVariable(String),
-    /// Coverage data serialization failed. [`instrument`] never produces this
-    /// variant: every type reachable from `FileCoverage` serializes infallibly.
-    SerializationError(String),
     /// The TypeScript strip pass produced diagnostics. Only emitted when
     /// `InstrumentOptions::strip_typescript` is enabled. The vector
     /// contains one entry per transformer diagnostic so callers can
@@ -866,7 +874,6 @@ impl std::fmt::Display for InstrumentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ParseError(msg) => write!(f, "parse error: {msg}"),
-            Self::SerializationError(msg) => write!(f, "serialization error: {msg}"),
             Self::TransformError(msgs) => write!(f, "transform error: {}", msgs.join("; ")),
             Self::InvalidCoverageVariable(name) => {
                 write!(

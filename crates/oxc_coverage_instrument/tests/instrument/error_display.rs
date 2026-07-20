@@ -6,12 +6,6 @@
 use oxc_coverage_instrument::{InstrumentError, V8ToIstanbulError};
 
 #[test]
-fn instrument_error_display_serialization_error() {
-    let err = InstrumentError::SerializationError("circular ref".to_string());
-    assert_eq!(format!("{err}"), "serialization error: circular ref");
-}
-
-#[test]
 fn transform_error_display_format() {
     let err = InstrumentError::TransformError(vec![
         "unsupported syntax at line 5".to_string(),

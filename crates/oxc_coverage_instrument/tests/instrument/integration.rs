@@ -1645,6 +1645,39 @@ fn private_class_method_does_not_add_function_counter() {
     assert_eq!(result.coverage_map.branch_map.len(), 1);
 }
 
+#[test]
+fn private_method_in_parameter_default_does_not_steal_enclosing_function_counter() {
+    let result = instrument_js("function f(x = class { #m() {} }) {}");
+    assert_eq!(result.coverage_map.fn_map.len(), 1);
+    assert_eq!(result.coverage_map.fn_map["0"].name, "f");
+
+    let counter = result.code.find(".f[0]").expect("function counter");
+    let enclosing_body = result.code.rfind(")) {").expect("enclosing function body");
+    assert!(
+        counter > enclosing_body,
+        "the counter for f must be emitted in f's body, not the nested private method: {}",
+        result.code
+    );
+}
+
+#[test]
+fn private_accessors_in_parameter_defaults_do_not_steal_enclosing_function_counters() {
+    for member in ["get #m() { return 1; }", "set #m(value) {}"] {
+        let source = format!("function f(x = class {{ {member} }}) {{}}");
+        let result = instrument_js(&source);
+        assert_eq!(result.coverage_map.fn_map.len(), 1, "{member}");
+        assert_eq!(result.coverage_map.fn_map["0"].name, "f", "{member}");
+
+        let counter = result.code.find(".f[0]").expect("function counter");
+        let enclosing_body = result.code.rfind(")) {").expect("enclosing function body");
+        assert!(
+            counter > enclosing_body,
+            "the counter for f must stay in f's body for {member}: {}",
+            result.code
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Source map composition: partial input maps
 // ---------------------------------------------------------------------------
