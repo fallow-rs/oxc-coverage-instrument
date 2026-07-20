@@ -37,17 +37,19 @@ pub fn branch_counts(file: &FileCoverage) -> (u32, u32) {
 /// Hit counts keyed by the source line a statement starts on.
 ///
 /// A line is covered when any statement starting on it ran, so overlapping
-/// statements collapse to their maximum rather than their sum. Statements at
-/// the `line == 0` unknown-position sentinel are skipped: they belong to no
-/// source line.
+/// statements collapse to their maximum rather than their sum. The counter map
+/// is authoritative, matching Istanbul: metadata without a counter contributes
+/// no line. Statements at the `line == 0` unknown-position sentinel are skipped.
 pub fn line_hits(file: &FileCoverage) -> BTreeMap<u32, u32> {
     let mut by_line: BTreeMap<u32, u32> = BTreeMap::new();
-    for (id, loc) in &file.statement_map {
+    for (id, &hits) in &file.s {
+        let Some(loc) = file.statement_map.get(id) else {
+            continue;
+        };
         let line = loc.start.line;
         if line == 0 {
             continue;
         }
-        let hits = file.s.get(id).copied().unwrap_or(0);
         by_line
             .entry(line)
             .and_modify(|existing| *existing = (*existing).max(hits))
@@ -119,5 +121,12 @@ mod tests {
         let entry = &file.branch_map["0"];
         assert_eq!(aligned_branch_hits(file, "0", entry), vec![4, 0]);
         assert_eq!(branch_counts(file), (2, 1));
+    }
+
+    #[test]
+    fn line_hits_ignore_statement_map_entries_without_counters() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":5}},"1":{"start":{"line":7,"column":0},"end":{"line":7,"column":5}}},"fnMap":{},"branchMap":{},"s":{"0":3},"f":{},"b":{}}}"#;
+        let map = parse_coverage_map(json).unwrap();
+        assert_eq!(line_hits(&map["a.js"]), BTreeMap::from([(1, 3)]));
     }
 }

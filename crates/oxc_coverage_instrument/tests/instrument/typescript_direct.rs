@@ -5,6 +5,8 @@
 
 use oxc_coverage_instrument::{DecoratorMode, InstrumentError, InstrumentOptions, instrument};
 
+use crate::common::assert_reparses;
+
 fn ts_opts() -> InstrumentOptions {
     InstrumentOptions { source_map: true, strip_typescript: true, ..InstrumentOptions::default() }
 }
@@ -28,6 +30,25 @@ fn ts_direct_output_is_valid_js() {
         "executable JS variable declaration expected, got: {}",
         result.code
     );
+}
+
+#[test]
+fn ts_direct_ignore_file_pragmas_still_strip_typescript() {
+    for tool in ["istanbul", "v8", "c8"] {
+        let src = format!(
+            "/* {tool} ignore file */\ninterface Hidden {{ value: number }}\nexport const add = (a: number, b: number): number => a + b;"
+        );
+        let result = instrument(&src, "app.ts", &ts_opts()).expect("instrument");
+
+        assert!(!result.code.contains("interface Hidden"), "{tool}: {code}", code = result.code);
+        assert!(!result.code.contains(": number"), "{tool}: {code}", code = result.code);
+        assert!(!result.code.contains("cov_"), "{tool}: ignored file must have no preamble");
+        assert_reparses(&result.code, "app.js");
+        assert!(result.coverage_map.statement_map.is_empty(), "{tool}");
+        assert!(result.coverage_map.fn_map.is_empty(), "{tool}");
+        assert!(result.coverage_map.branch_map.is_empty(), "{tool}");
+        assert!(result.source_map.is_none(), "{tool}: preserve ignored-file source-map contract");
+    }
 }
 
 #[test]

@@ -34,3 +34,12 @@ fn location_maps_matches_deferred_get_mapping_keep_decision() {
     // direct-lookup route the remap path sends it down.
     assert!(remapper.location_maps(&loc(0, 0, 0, 0)), "line-0 sentinel is a keep no-op");
 }
+
+#[test]
+fn admits_map_when_a_later_source_resolves() {
+    let input_sm = r#"{"version":3,"sources":["","src/app.ts"],"sourcesContent":[null,"const a = 1;\n"],"mappings":"ACAA","names":[]}"#;
+    let remapper = PositionRemapper::from_json(input_sm)
+        .expect("a map with a usable later source is admitted like deferred remapping");
+
+    assert!(remapper.location_maps(&loc(1, 0, 1, 4)), "source index 1 maps");
+}

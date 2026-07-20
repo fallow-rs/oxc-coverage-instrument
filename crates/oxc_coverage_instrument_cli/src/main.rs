@@ -40,9 +40,11 @@ const DEFAULT_COVERAGE_VARIABLE: &str = "__coverage__";
 /// `--threshold` default: percentage at or above which html cells render green.
 const DEFAULT_GREEN_THRESHOLD: f64 = 80.0;
 
-/// Exit code for a coverage failure, as opposed to a usage or I/O failure:
-/// line coverage below `--fail-under`, or a coverage file with no entries.
-const EXIT_COVERAGE_FAILURE: u8 = 2;
+/// Exit code for line coverage below `--fail-under`.
+const EXIT_COVERAGE_THRESHOLD: u8 = 2;
+
+/// Exit code for a valid coverage map that contains no files.
+const EXIT_EMPTY_COVERAGE: u8 = 3;
 
 struct InstrumentArgs {
     filename: String,
@@ -61,6 +63,21 @@ impl InstrumentArgs {
             source_map: false,
             coverage_variable: DEFAULT_COVERAGE_VARIABLE.to_string(),
         }
+    }
+
+    fn validate_output_options(&self) -> Result<(), ExitCode> {
+        if !self.coverage_map_only {
+            return Ok(());
+        }
+        if self.output_file.is_some() {
+            eprintln!("error: --coverage-map cannot be combined with -o or --output");
+            return Err(ExitCode::FAILURE);
+        }
+        if self.source_map {
+            eprintln!("error: --coverage-map cannot be combined with --source-map");
+            return Err(ExitCode::FAILURE);
+        }
+        Ok(())
     }
 }
 
@@ -82,7 +99,7 @@ struct ReportArgs {
     /// "N of M files fall below the X% coverage threshold" sentence.
     green_threshold: f64,
     /// Aggregate line-coverage floor. When supplied, reports still render,
-    /// then the process exits with [`EXIT_COVERAGE_FAILURE`] if total line
+    /// then the process exits with [`EXIT_COVERAGE_THRESHOLD`] if total line
     /// coverage is below the configured percentage.
     fail_under: Option<f64>,
 }
@@ -286,13 +303,14 @@ fn parse_instrument_args(args: &[String]) -> Result<InstrumentArgs, ExitCode> {
             }
             other => {
                 eprintln!("error: unknown option: {other}");
-                print_usage();
+                print_instrument_usage();
                 return Err(ExitCode::FAILURE);
             }
         }
         i += 1;
     }
 
+    cli.validate_output_options()?;
     Ok(cli)
 }
 
@@ -451,7 +469,7 @@ fn read_coverage_map(args: &ReportArgs) -> Result<CoverageMap, ExitCode> {
     };
     if map.is_empty() {
         eprintln!("error: {} contains no files", args.coverage_file);
-        return Err(ExitCode::from(EXIT_COVERAGE_FAILURE));
+        return Err(ExitCode::from(EXIT_EMPTY_COVERAGE));
     }
 
     Ok(map)
@@ -507,7 +525,7 @@ fn apply_fail_under(root: &ReportNode, fail_under: Option<f64>) -> ExitCode {
         let actual = root.summary.lines.pct;
         if actual < floor {
             eprintln!("coverage {actual:.2}% is below --fail-under {floor:.2}%");
-            return ExitCode::from(EXIT_COVERAGE_FAILURE);
+            return ExitCode::from(EXIT_COVERAGE_THRESHOLD);
         }
     }
     ExitCode::SUCCESS

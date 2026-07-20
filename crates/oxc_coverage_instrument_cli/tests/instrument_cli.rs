@@ -68,10 +68,25 @@ fn bare_word_typo_hints_at_subcommands() {
 #[test]
 fn unknown_option_exits_failure() {
     let src = write_temp("unknown_opt.js", "const x = 1;");
-    let out = cli().arg(&src).arg("--totally-unknown").output().unwrap();
-    assert!(!out.status.success());
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("unknown option"), "should reject unknown option, got: {stderr}");
+    for explicit in [false, true] {
+        let mut command = cli();
+        if explicit {
+            command.arg("instrument");
+        }
+        let out = command.arg(&src).arg("--totally-unknown").output().unwrap();
+        assert!(!out.status.success());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("unknown option"), "should reject unknown option, got: {stderr}");
+        assert!(stderr.contains("oxc-coverage-instrument instrument"), "got: {stderr}");
+        assert!(
+            !stderr.contains("--fail-under"),
+            "instrument usage must omit report flags: {stderr}"
+        );
+        assert!(
+            !stderr.contains("--threshold"),
+            "instrument usage must omit report flags: {stderr}"
+        );
+    }
 }
 
 #[test]
@@ -103,6 +118,56 @@ fn coverage_map_only_outputs_valid_json_with_expected_keys() {
         value["fnMap"]["0"]["name"], "add",
         "function name should be resolved from declaration"
     );
+}
+
+#[test]
+fn coverage_map_only_rejects_discarded_output_options() {
+    let src = write_temp("coverage_map_invalid_options.js", "const x = 1;");
+
+    for explicit in [false, true] {
+        let out_path = temp_path(if explicit {
+            "coverage_map_explicit_out.json"
+        } else {
+            "coverage_map_implicit_out.json"
+        });
+        let _ = std::fs::remove_file(&out_path);
+
+        let mut output_command = cli();
+        if explicit {
+            output_command.arg("instrument");
+        }
+        let output = output_command
+            .arg(&src)
+            .arg("--coverage-map")
+            .arg("-o")
+            .arg(&out_path)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("--coverage-map cannot be combined with -o or --output"),
+            "got: {stderr}"
+        );
+        assert!(!out_path.exists(), "invalid combination must not create an output file");
+
+        let mut source_map_command = cli();
+        if explicit {
+            source_map_command.arg("instrument");
+        }
+        let source_map = source_map_command
+            .arg(&src)
+            .arg("--coverage-map")
+            .arg("--source-map")
+            .output()
+            .unwrap();
+        assert_eq!(source_map.status.code(), Some(1));
+        let stderr = String::from_utf8_lossy(&source_map.stderr);
+        assert!(
+            stderr.contains("--coverage-map cannot be combined with --source-map"),
+            "got: {stderr}"
+        );
+    }
 }
 
 #[test]

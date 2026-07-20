@@ -119,9 +119,9 @@ fn decode_percent_encoded(input: &str) -> Option<String> {
     let bytes = input.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hi = hex_digit(bytes[i + 1])?;
-            let lo = hex_digit(bytes[i + 2])?;
+        if bytes[i] == b'%' {
+            let hi = hex_digit(*bytes.get(i + 1)?)?;
+            let lo = hex_digit(*bytes.get(i + 2)?)?;
             out.push((hi << 4) | lo);
             i += 3;
         } else {
@@ -130,4 +130,15 @@ fn decode_percent_encoded(input: &str) -> Option<String> {
         }
     }
     String::from_utf8(out).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode_percent_encoded;
+
+    #[test]
+    fn rejects_truncated_percent_escape_at_payload_end() {
+        assert_eq!(decode_percent_encoded("payload%"), None);
+        assert_eq!(decode_percent_encoded("payload%4"), None);
+    }
 }

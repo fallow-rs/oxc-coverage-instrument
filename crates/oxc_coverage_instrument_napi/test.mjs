@@ -1602,6 +1602,22 @@ function runInstrumented(result, filename, callExpression) {
     `error must spell out the expected shape, got: ${caught.message}`,
   );
 
+  let loaderCaught = null;
+  try {
+    remapCoverageMapWithLoader(r.coverageMap, {});
+  } catch (e) {
+    loaderCaught = e;
+  }
+  assert(loaderCaught !== null, 'loader remap must also reject a single FileCoverage');
+  assert(
+    loaderCaught.message.includes('the remap API expects'),
+    `loader error must use the shared remap API hint, got: ${loaderCaught.message}`,
+  );
+  assert(
+    !loaderCaught.message.includes('remapCoverageMap expects'),
+    `loader error must not name a different function, got: ${loaderCaught.message}`,
+  );
+
   // Sanity: the same input wrapped in the correct shape works.
   const fc = JSON.parse(r.coverageMap);
   const remapped = JSON.parse(remapCoverageMap(JSON.stringify({ [fc.path]: fc })));

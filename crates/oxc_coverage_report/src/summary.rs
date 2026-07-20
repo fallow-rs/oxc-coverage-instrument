@@ -139,7 +139,12 @@ fn branches_metric(file: &FileCoverage) -> Metric {
 fn lines_metric(file: &FileCoverage) -> Metric {
     let mut all_lines: BTreeSet<u32> = BTreeSet::new();
     let mut hit_lines: BTreeSet<u32> = BTreeSet::new();
-    for (id, loc) in &file.statement_map {
+    // Istanbul treats the counter map as authoritative for line coverage.
+    // Metadata without a matching counter contributes no source line.
+    for (id, hits) in &file.s {
+        let Some(loc) = file.statement_map.get(id) else {
+            continue;
+        };
         let line = loc.start.line;
         // Istanbul lines are 1-based, so 0 is the unknown-position sentinel
         // rather than a source line.
@@ -147,7 +152,7 @@ fn lines_metric(file: &FileCoverage) -> Metric {
             continue;
         }
         all_lines.insert(line);
-        if file.s.get(id).copied().unwrap_or(0) > 0 {
+        if *hits > 0 {
             hit_lines.insert(line);
         }
     }
@@ -223,6 +228,13 @@ mod tests {
         let summary = CoverageSummary::from_file(&parse_single(json));
         assert_eq!(summary.statements, Metric::new(1, 0));
         assert_eq!(summary.functions, Metric::new(1, 0));
+    }
+
+    #[test]
+    fn lines_ignore_statement_map_entries_without_counters() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":5}},"1":{"start":{"line":7,"column":0},"end":{"line":7,"column":5}}},"fnMap":{},"branchMap":{},"s":{"0":3},"f":{},"b":{}}}"#;
+        let summary = CoverageSummary::from_file(&parse_single(json));
+        assert_eq!(summary.lines, Metric::new(1, 1));
     }
 
     #[test]

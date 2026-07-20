@@ -88,7 +88,7 @@ struct CoverageContext<'a> {
     ranges: &'a [V8CoverageRange],
     arm_ranges: &'a [V8CoverageRange],
     inheritance_ranges: &'a [CoverageRangeWithMode],
-    wrapper_length: u32,
+    wrapper_length_utf16: u32,
 }
 
 impl CoverageContext<'_> {
@@ -141,8 +141,8 @@ impl CoverageContext<'_> {
     fn arm_utf16_span(&self, arm_loc: &Location, body_byte_span: Option<(u32, u32)>) -> (u32, u32) {
         match body_byte_span {
             Some((start, end)) => (
-                self.source_index.byte_to_utf16(start).saturating_add(self.wrapper_length),
-                self.source_index.byte_to_utf16(end).saturating_add(self.wrapper_length),
+                self.source_index.byte_to_utf16(start).saturating_add(self.wrapper_length_utf16),
+                self.source_index.byte_to_utf16(end).saturating_add(self.wrapper_length_utf16),
             ),
             None => self.location_utf16_span(arm_loc),
         }
@@ -152,10 +152,10 @@ impl CoverageContext<'_> {
         (
             self.source_index
                 .position_to_utf16(loc.start.line, loc.start.column)
-                .saturating_add(self.wrapper_length),
+                .saturating_add(self.wrapper_length_utf16),
             self.source_index
                 .position_to_utf16(loc.end.line, loc.end.column)
-                .saturating_add(self.wrapper_length),
+                .saturating_add(self.wrapper_length_utf16),
         )
     }
 
@@ -207,13 +207,13 @@ impl CoverageContext<'_> {
 /// non-empty body span is matched against V8's block ranges before falling back
 /// to the arm's [`Location`].
 ///
-/// `wrapper_length` is the UTF-16 code-unit base for producers that report
+/// `wrapper_length_utf16` is the UTF-16 code-unit base for producers that report
 /// wrapper-shifted ranges. Pass 0 for source-relative inspector output.
 pub fn apply_v8_coverage(
     file_coverage: &mut FileCoverage,
     source: &str,
     functions: &[V8FunctionCoverage],
-    wrapper_length: u32,
+    wrapper_length_utf16: u32,
     arm_body_byte_spans: &BTreeMap<String, Vec<(u32, u32)>>,
 ) {
     let source_index = SourceIndex::new(source);
@@ -246,7 +246,7 @@ pub fn apply_v8_coverage(
         ranges: &ranges,
         arm_ranges: &arm_ranges,
         inheritance_ranges: &inheritance_ranges,
-        wrapper_length,
+        wrapper_length_utf16,
     };
 
     apply_statement_counts(file_coverage, &context);

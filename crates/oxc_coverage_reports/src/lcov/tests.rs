@@ -196,6 +196,50 @@ fn brda_block_falls_back_to_index_for_non_numeric_id() {
 }
 
 #[test]
+fn brda_blocks_use_one_scheme_for_mixed_ids() {
+    let json = r#"{
+        "a.js": {
+            "path": "a.js",
+            "statementMap": {},
+            "fnMap": {},
+            "branchMap": {
+                "1": {"loc": {"start": {"line": 5, "column": 0}, "end": {"line": 5, "column": 10}}, "line": 5, "type": "if", "locations": [{"start": {"line": 5, "column": 0}, "end": {"line": 5, "column": 5}}, {"start": {"line": 5, "column": 6}, "end": {"line": 5, "column": 10}}]},
+                "br_a": {"loc": {"start": {"line": 5, "column": 11}, "end": {"line": 5, "column": 20}}, "line": 5, "type": "if", "locations": [{"start": {"line": 5, "column": 11}, "end": {"line": 5, "column": 15}}, {"start": {"line": 5, "column": 16}, "end": {"line": 5, "column": 20}}]}
+            },
+            "s": {},
+            "f": {},
+            "b": {"1": [1, 0], "br_a": [0, 1]}
+        }
+    }"#;
+    let out = render(json);
+    assert!(out.contains("BRDA:5,0,0,1"), "got:\n{out}");
+    assert!(out.contains("BRDA:5,0,1,0"), "got:\n{out}");
+    assert!(out.contains("BRDA:5,1,0,0"), "got:\n{out}");
+    assert!(out.contains("BRDA:5,1,1,1"), "got:\n{out}");
+}
+
+#[test]
+fn brda_blocks_fall_back_when_numeric_ids_alias() {
+    let json = r#"{
+        "a.js": {
+            "path": "a.js",
+            "statementMap": {},
+            "fnMap": {},
+            "branchMap": {
+                "01": {"loc": {"start": {"line": 5, "column": 0}, "end": {"line": 5, "column": 5}}, "line": 5, "type": "if", "locations": [{"start": {"line": 5, "column": 0}, "end": {"line": 5, "column": 5}}]},
+                "1": {"loc": {"start": {"line": 5, "column": 6}, "end": {"line": 5, "column": 10}}, "line": 5, "type": "if", "locations": [{"start": {"line": 5, "column": 6}, "end": {"line": 5, "column": 10}}]}
+            },
+            "s": {},
+            "f": {},
+            "b": {"01": [1], "1": [0]}
+        }
+    }"#;
+    let out = render(json);
+    assert!(out.contains("BRDA:5,0,0,1"), "got:\n{out}");
+    assert!(out.contains("BRDA:5,1,0,-"), "got:\n{out}");
+}
+
+#[test]
 fn lf_lh_counts_unique_lines() {
     let json = r#"{
         "a.js": {
@@ -214,5 +258,15 @@ fn lf_lh_counts_unique_lines() {
     }"#;
     let out = render(json);
     assert!(out.contains("LF:2"), "got:\n{out}");
+    assert!(out.contains("LH:1"), "got:\n{out}");
+}
+
+#[test]
+fn lines_ignore_statement_map_entries_without_counters() {
+    let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":5}},"1":{"start":{"line":7,"column":0},"end":{"line":7,"column":5}}},"fnMap":{},"branchMap":{},"s":{"0":3},"f":{},"b":{}}}"#;
+    let out = render(json);
+    assert!(out.contains("DA:1,3"), "got:\n{out}");
+    assert!(!out.contains("DA:7,"), "got:\n{out}");
+    assert!(out.contains("LF:1"), "got:\n{out}");
     assert!(out.contains("LH:1"), "got:\n{out}");
 }

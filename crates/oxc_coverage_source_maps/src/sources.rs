@@ -4,13 +4,13 @@ use std::collections::BTreeSet;
 
 use srcmap_sourcemap::SourceMap;
 
-/// Coverage path for `sources[0]`, or `None` when that entry is empty.
+/// Whether at least one `sources` entry resolves to a coverage path.
 #[expect(
     clippy::redundant_pub_crate,
     reason = "`pub(crate)` marks the API boundary; the module is private by construction"
 )]
-pub(crate) fn resolve_primary_source(sm: &SourceMap) -> Option<String> {
-    resolve_source_path(sm, 0)
+pub(crate) fn has_resolved_source(sm: &SourceMap) -> bool {
+    sm.sources.iter().any(|source| !source.is_empty())
 }
 
 /// Coverage path for one `sources` entry, `None` when it is absent or empty.

@@ -8,7 +8,7 @@ use srcmap_sourcemap::SourceMap;
 use crate::{
     context::{RemapCaches, RemapContext},
     get_mapping::get_mapping_location_cached,
-    sources::resolve_primary_source,
+    sources::has_resolved_source,
 };
 
 /// A position-remap predicate over a parsed `inputSourceMap`.
@@ -29,12 +29,14 @@ pub struct PositionRemapper {
 impl PositionRemapper {
     /// Parse a source map from JSON.
     ///
-    /// Returns `None` when the JSON fails to parse, or when `sources[0]`
-    /// resolves to no path (the `resolve_primary_source` bail).
+    /// Returns `None` when the JSON fails to parse, or when none of its
+    /// `sources` entries resolves to a path.
     #[must_use]
     pub fn from_json(input_sm_json: &str) -> Option<Self> {
         let sm = SourceMap::from_json(input_sm_json).ok()?;
-        resolve_primary_source(&sm)?;
+        if !has_resolved_source(&sm) {
+            return None;
+        }
         Some(Self { sm, caches: RefCell::new(RemapCaches::default()) })
     }
 

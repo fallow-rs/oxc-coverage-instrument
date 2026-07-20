@@ -2,7 +2,7 @@
 //! greatest-lower-bound, ends resolve to the next original segment or the end
 //! of the original line.
 
-use oxc_coverage_source_maps::remap_coverage;
+use oxc_coverage_source_maps::{RemapOptions, remap_coverage, remap_coverage_with_options};
 use oxc_coverage_types::FileCoverage;
 use srcmap_generator::SourceMapGenerator;
 
@@ -102,6 +102,28 @@ fn get_mapping_mappings_only_handles_sparse_huge_original_line() {
     let remapped = remap_coverage(&fc).expect("remap succeeds");
     let loc = &remapped.statement_map["0"];
     assert_eq!(loc.end.column, 17, "sparse mappings retain their greatest original column");
+}
+
+#[test]
+fn get_mapping_drops_original_column_that_cannot_advance() {
+    let map = serde_json::from_str(
+        r#"{"version":3,"sources":["src/app.ts"],"sourcesContent":["const x = 1;\n"],"names":[],"mappings":"AAAA,KAA+/////H"}"#,
+    )
+    .expect("source map is valid JSON");
+    let fc = single_statement_coverage(map, 1, 0, 1, 6);
+
+    let remapped = remap_coverage_with_options(&fc, RemapOptions { drop_unmapped: true })
+        .expect("malformed mapping is handled without panicking");
+
+    assert!(
+        remapped.statement_map.is_empty(),
+        "an original column that cannot advance has no valid exclusive end",
+    );
+    assert!(remapped.s.is_empty(), "the dropped statement's counter is removed");
+
+    let kept = remap_coverage(&fc).expect("default mode also handles malformed input safely");
+    assert_eq!(kept.statement_map.len(), 1, "default mode retains the generated entry");
+    assert_eq!(kept.s.len(), 1, "default mode retains the aligned counter");
 }
 
 #[test]

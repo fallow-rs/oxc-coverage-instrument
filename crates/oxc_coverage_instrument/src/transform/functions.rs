@@ -44,7 +44,14 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         self.skip_next = false;
         self.skip_fn_counter_only = false;
         self.ignored_fn_stack.push(pragma_skip);
-        if pragma_skip || fn_counter_only_skip {
+        if pragma_skip {
+            self.pending_name = None;
+            return;
+        }
+        if fn_counter_only_skip {
+            if func.body.is_some() {
+                self.pending_fn_counters.push(None);
+            }
             self.pending_name = None;
             return;
         }

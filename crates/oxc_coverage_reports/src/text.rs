@@ -139,12 +139,16 @@ fn format_pct(pct: f64) -> String {
 /// Collapse uncovered statement line numbers into a compact range list.
 fn uncovered_lines(file: &FileCoverage) -> String {
     let mut lines: BTreeSet<u32> = BTreeSet::new();
-    for (id, loc) in &file.statement_map {
-        if file.s.get(id).copied().unwrap_or(0) == 0 {
-            let line = loc.start.line;
-            if line != 0 {
-                lines.insert(line);
-            }
+    for (id, &hits) in &file.s {
+        if hits > 0 {
+            continue;
+        }
+        let Some(loc) = file.statement_map.get(id) else {
+            continue;
+        };
+        let line = loc.start.line;
+        if line != 0 {
+            lines.insert(line);
         }
     }
     collapse_ranges(&lines)
@@ -225,5 +229,12 @@ mod tests {
         let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"1":{"start":{"line":2,"column":0},"end":{"line":2,"column":1}},"2":{"start":{"line":5,"column":0},"end":{"line":5,"column":1}}},"fnMap":{},"branchMap":{},"s":{"0":1,"1":0,"2":0},"f":{},"b":{}}}"#;
         let out = render(json);
         assert!(out.contains("2,5"), "expected 2,5 in: {out}");
+    }
+
+    #[test]
+    fn uncovered_column_ignores_statement_map_entries_without_counters() {
+        let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":5}},"1":{"start":{"line":7,"column":0},"end":{"line":7,"column":5}}},"fnMap":{},"branchMap":{},"s":{"0":3},"f":{},"b":{}}}"#;
+        let map = parse_coverage_map(json).unwrap();
+        assert_eq!(uncovered_lines(&map["a.js"]), "");
     }
 }

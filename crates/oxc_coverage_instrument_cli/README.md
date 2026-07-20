@@ -24,6 +24,9 @@ oxc-coverage-instrument src/app.js --coverage-map           # coverage map only
 oxc-coverage-instrument src/app.js -o dist/app.js --source-map
 ```
 
+`--coverage-map` writes JSON to stdout and cannot be combined with `-o` or
+`--source-map`.
+
 Reporting, through the `report` subcommand:
 
 ```bash
@@ -37,6 +40,15 @@ oxc-coverage-instrument report --format html         --root . coverage-final.jso
 # Render, then exit 2 if aggregate line coverage falls below the floor
 oxc-coverage-instrument report --format text-summary coverage-final.json --fail-under 80
 ```
+
+Exit codes are part of the CLI contract:
+
+| Code | Meaning |
+| ---: | :--- |
+| 0 | Success |
+| 1 | Usage, parsing, I/O, or rendering failure |
+| 2 | Aggregate line coverage is below `--fail-under` |
+| 3 | The coverage map is valid but contains no files |
 
 `lcov` and `cobertura` use `--root` to relativize source paths, defaulting to the
 working directory. Repo-relative paths are required by self-hosted Codecov, the

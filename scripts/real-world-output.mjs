@@ -258,6 +258,16 @@ globalThis.serviceResults = [service.find('1')?.name, service.find('2')];`,
     },
   },
   {
+    name: 'private method in parameter default',
+    filename: 'runtime/private-method-default.js',
+    source: `function f(x = class { #m() {} }) {}
+f();`,
+    verify: ({ coverageMap, coverage }) => {
+      assert.equal(coverageMap.fnMap['0'].name, 'f');
+      assert.equal(coverage.f['0'], 1, 'the enclosing function counter must increment');
+    },
+  },
+  {
     name: 'async function paths',
     filename: 'runtime/async.js',
     source: `async function load(flag) {

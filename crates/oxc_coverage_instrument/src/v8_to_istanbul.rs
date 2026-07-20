@@ -38,7 +38,7 @@ impl std::error::Error for V8ToIstanbulError {}
 
 /// Convert V8 function coverage into Istanbul `FileCoverage`.
 ///
-/// `wrapper_length` is an explicit UTF-16 code-unit base for coverage producers
+/// `wrapper_length_utf16` is an explicit UTF-16 code-unit base for coverage producers
 /// that report wrapper-shifted ranges. Pass 0 for source-relative Node inspector
 /// coverage.
 ///
@@ -59,9 +59,9 @@ pub fn v8_to_istanbul(
     source: &str,
     filename: &str,
     functions: &[V8FunctionCoverage],
-    wrapper_length: u32,
+    wrapper_length_utf16: u32,
 ) -> Result<FileCoverage, V8ToIstanbulError> {
-    v8_to_istanbul_with_loader(source, filename, functions, wrapper_length, |_| None)
+    v8_to_istanbul_with_loader(source, filename, functions, wrapper_length_utf16, |_| None)
 }
 
 /// Like [`v8_to_istanbul`], but with a loader for external `sourceMappingURL`
@@ -110,7 +110,7 @@ pub fn v8_to_istanbul_with_loader<L>(
     source: &str,
     filename: &str,
     functions: &[V8FunctionCoverage],
-    wrapper_length: u32,
+    wrapper_length_utf16: u32,
     loader: L,
 ) -> Result<FileCoverage, V8ToIstanbulError>
 where
@@ -123,7 +123,7 @@ where
         &mut file_coverage,
         source,
         functions,
-        wrapper_length,
+        wrapper_length_utf16,
         &collected.arm_body_byte_spans,
     );
 
