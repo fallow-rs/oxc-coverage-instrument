@@ -121,6 +121,27 @@ pub struct InstrumentOptions {
     /// Defaults to [`DecoratorMode::PassThrough`]: decorator syntax flows
     /// through verbatim and a downstream tool is responsible for lowering it.
     pub decorator_mode: DecoratorMode,
+    /// Whether the source is compiled under `strictNullChecks`. Mirrors the
+    /// [`strictNullChecks`] flag in `tsconfig.json`.
+    ///
+    /// Only consulted when `decorator_mode` is
+    /// [`DecoratorMode::ExperimentalWithMetadata`], where it decides how a
+    /// nullable union is written into the emitted `design:type` metadata. With
+    /// `true`, `foo: string | null` emits `Object`, matching what `tsc` does
+    /// under `strictNullChecks`. With `false`, `null` and `undefined` are
+    /// elided from the union first, so the same property emits `String`.
+    ///
+    /// Getting this wrong is silent: the instrumented code still runs, but
+    /// NestJS dependency injection, TypeORM column inference, and
+    /// class-validator all read that metadata and will see a different type
+    /// than `tsc` would have produced. Set it to match the `tsconfig.json` the
+    /// source is compiled with.
+    ///
+    /// Defaults to true, matching both the oxc default and `tsc` under
+    /// `strict`.
+    ///
+    /// [`strictNullChecks`]: https://www.typescriptlang.org/tsconfig#strictNullChecks
+    pub strict_null_checks: bool,
     /// When true, attach an optional `x_fallow_functionMap` overlay to the
     /// resulting `FileCoverage`. The overlay carries a stable
     /// `fallow:fn:<hex>` identity per function, keyed by the same ids as
@@ -227,6 +248,7 @@ impl Default for InstrumentOptions {
             ignore_class_methods: Vec::new(),
             strip_typescript: false,
             decorator_mode: DecoratorMode::PassThrough,
+            strict_null_checks: true,
             function_identity_overlay: false,
             name_callback_arguments: false,
         }
@@ -389,6 +411,7 @@ fn prepare_scoping(input: PrepareScopingInput<'_, '_>) -> Result<Scoping, Instru
         program,
         scoping,
         decorator_mode: options.decorator_mode,
+        strict_null_checks: options.strict_null_checks,
     })
 }
 
@@ -463,10 +486,18 @@ struct StripTypescriptInput<'arena, 'a> {
     program: &'a mut Program<'arena>,
     scoping: Scoping,
     decorator_mode: DecoratorMode,
+    strict_null_checks: bool,
 }
 
 fn strip_typescript_pass(input: StripTypescriptInput<'_, '_>) -> Result<Scoping, InstrumentError> {
-    let StripTypescriptInput { allocator, filename, program, scoping, decorator_mode } = input;
+    let StripTypescriptInput {
+        allocator,
+        filename,
+        program,
+        scoping,
+        decorator_mode,
+        strict_null_checks,
+    } = input;
     // `JsxOptions::default()` calls `JsxOptions::enable()`, which would
     // rewrite `<div>` to `React.createElement` / `_jsx` on `.tsx` input.
     // Strip-pass only removes type syntax; JSX must round-trip unchanged
@@ -477,17 +508,15 @@ fn strip_typescript_pass(input: StripTypescriptInput<'_, '_>) -> Result<Scoping,
     // `decorator` defaults to `legacy: false, emit_decorator_metadata: false`,
     // which makes the decorator pass a no-op (syntax flows through verbatim).
     // Callers can opt into legacy lowering and metadata emission via
-    // `InstrumentOptions::decorator_mode`.
+    // `InstrumentOptions::decorator_mode`, and control how nullable unions are
+    // written into that metadata via `InstrumentOptions::strict_null_checks`.
     let options = TransformOptions {
         typescript: TypeScriptOptions::default(),
         jsx: JsxOptions::disable(),
         decorator: DecoratorOptions {
             legacy: decorator_mode.legacy(),
             emit_decorator_metadata: decorator_mode.emit_metadata(),
-            // Matches both the oxc and the `tsc` default. Only consulted when
-            // `emit_decorator_metadata` is on, where it decides whether `null` /
-            // `undefined` are elided from union `design:type` annotations.
-            strict_null_checks: true,
+            strict_null_checks,
         },
         ..TransformOptions::default()
     };

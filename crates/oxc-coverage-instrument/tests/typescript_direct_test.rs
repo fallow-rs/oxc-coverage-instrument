@@ -197,6 +197,56 @@ fn ts_direct_decorator_metadata_emits_helper_imports() {
     );
 }
 
+/// A nullable union is the only thing `strict_null_checks` changes, and it
+/// changes it silently: the emitted code runs either way, but NestJS DI,
+/// TypeORM column inference, and class-validator all read `design:type` and
+/// would see a different constructor. Pin both directions so the default
+/// cannot drift with an upstream change.
+const NULLABLE_PROPERTY_SAMPLE: &str = "function D() { return function (_t: any, _k: any) {}; }\n\
+export class C {\n\
+  @D() foo: string | null = null;\n\
+}\n";
+
+#[test]
+fn ts_direct_strict_null_checks_widens_nullable_design_type() {
+    let opts = InstrumentOptions {
+        strip_typescript: true,
+        decorator_mode: DecoratorMode::ExperimentalWithMetadata,
+        strict_null_checks: true,
+        ..InstrumentOptions::default()
+    };
+    let result = instrument(NULLABLE_PROPERTY_SAMPLE, "c.ts", &opts).expect("instrument");
+    assert!(
+        result.code.contains("_decorateMetadata(\"design:type\", Object)"),
+        "under strictNullChecks `string | null` should widen to Object, got: {}",
+        result.code
+    );
+}
+
+#[test]
+fn ts_direct_without_strict_null_checks_elides_null_from_design_type() {
+    let opts = InstrumentOptions {
+        strip_typescript: true,
+        decorator_mode: DecoratorMode::ExperimentalWithMetadata,
+        strict_null_checks: false,
+        ..InstrumentOptions::default()
+    };
+    let result = instrument(NULLABLE_PROPERTY_SAMPLE, "c.ts", &opts).expect("instrument");
+    assert!(
+        result.code.contains("_decorateMetadata(\"design:type\", String)"),
+        "without strictNullChecks `null` should be elided, leaving String, got: {}",
+        result.code
+    );
+}
+
+#[test]
+fn ts_direct_strict_null_checks_defaults_to_true() {
+    assert!(
+        InstrumentOptions::default().strict_null_checks,
+        "default must match tsc under `strict`, which NestJS and TypeORM users compile with"
+    );
+}
+
 #[test]
 fn ts_direct_decorator_metadata_statement_counters_land_on_real_lines() {
     // The decorator lowering pass produces synthetic helper-call expressions.

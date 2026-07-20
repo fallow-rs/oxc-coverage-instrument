@@ -54,6 +54,14 @@ export interface OxcInstrumenterOptions {
    * this adapter layer, matching `tsconfig.json` semantics.
    */
   emitDecoratorMetadata?: boolean;
+  /**
+   * Whether the source is compiled under `strictNullChecks`, matching the
+   * `tsconfig.json` flag. Only consulted when `emitDecoratorMetadata` is true,
+   * where it decides how a nullable union is written into `design:type`:
+   * `foo: string | null` emits `Object` when true and `String` when false.
+   * Defaults to true, matching `tsc` under `strict`.
+   */
+  strictNullChecks?: boolean;
 }
 
 /** A JSON primitive accepted in an input source map. */

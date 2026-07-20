@@ -93,6 +93,7 @@ mod tests {
             strip_typescript: None,
             experimental_decorators: None,
             emit_decorator_metadata: None,
+            strict_null_checks: None,
             function_identity_overlay: None,
             name_callback_arguments: None,
         }
@@ -400,6 +401,22 @@ pub struct InstrumentOptions {
     ///
     /// Has no effect unless `stripTypescript` is also true. Defaults to false.
     pub emit_decorator_metadata: Option<bool>,
+    /// Whether the source is compiled under `strictNullChecks`. Mirrors the
+    /// `strictNullChecks` flag in `tsconfig.json`.
+    ///
+    /// Only consulted when `emitDecoratorMetadata` is true, where it decides
+    /// how a nullable union is written into the emitted `design:type`. With
+    /// `true`, `foo: string | null` emits `Object`, matching what `tsc` does
+    /// under `strictNullChecks`. With `false`, `null` and `undefined` are
+    /// elided from the union first, so the same property emits `String`.
+    ///
+    /// Getting this wrong is silent: the code still runs, but NestJS
+    /// dependency injection, TypeORM column inference, and class-validator all
+    /// read that metadata and will see a different type than `tsc` produced.
+    /// Set it to match the `tsconfig.json` the source is compiled with.
+    ///
+    /// Defaults to true, matching `tsc` under `strict`.
+    pub strict_null_checks: Option<bool>,
     /// When true, attach an optional `x_fallow_functionMap` overlay to the
     /// returned coverage map. The overlay carries a stable
     /// `fallow:fn:<hex>` identity per function, keyed by the same ids as
@@ -526,6 +543,7 @@ fn native_instrument_options(
         ignore_class_methods: o.ignore_class_methods.unwrap_or_default(),
         strip_typescript: o.strip_typescript.unwrap_or(false),
         decorator_mode,
+        strict_null_checks: o.strict_null_checks.unwrap_or(true),
         function_identity_overlay: o.function_identity_overlay.unwrap_or(false),
         name_callback_arguments: o.name_callback_arguments.unwrap_or(false),
     })

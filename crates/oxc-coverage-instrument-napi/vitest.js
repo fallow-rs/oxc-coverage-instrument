@@ -72,6 +72,14 @@ const TS_EXTENSION_REGEX = /\.([mc]ts|tsx?)$/i;
  *   this layer, matching tsconfig.json semantics. The bare `instrument()`
  *   napi entry point rejects the same combination with an Error; the vitest
  *   adapter preserves the tsconfig-style ergonomics for the vitest UX.
+ * @param {boolean} [options.strictNullChecks] Whether the source is compiled
+ *   under `strictNullChecks` (matches the `strictNullChecks` flag in
+ *   `tsconfig.json`). Only consulted when `emitDecoratorMetadata` is true,
+ *   where it decides how a nullable union is written into `design:type`:
+ *   `foo: string | null` emits `Object` when true and `String` when false.
+ *   Defaults to true, matching `tsc` under `strict`. Set it to match the
+ *   tsconfig your sources are compiled with, or NestJS DI and TypeORM will
+ *   read a different type than `tsc` produced.
  * @param {boolean} [options.functionIdentityOverlay] Attach the optional
  *   `x_fallow_functionMap` extension to the last file coverage object.
  * @param {boolean} [options.nameCallbackArguments] Name an otherwise-anonymous
@@ -128,6 +136,13 @@ function createOxcInstrumenter(options) {
       `oxc-coverage-instrument: createOxcInstrumenter({ emitDecoratorMetadata }) must be a boolean or undefined, got ${typeof options.emitDecoratorMetadata}`,
     );
   }
+  const strictNullChecks =
+    options.strictNullChecks === undefined ? true : options.strictNullChecks;
+  if (typeof strictNullChecks !== 'boolean') {
+    throw new TypeError(
+      `oxc-coverage-instrument: createOxcInstrumenter({ strictNullChecks }) must be a boolean or undefined, got ${typeof options.strictNullChecks}`,
+    );
+  }
   // Auto-promote at the vitest layer: setting emitDecoratorMetadata alone is a
   // tsconfig.json idiom (TypeScript itself silently enables experimentalDecorators
   // in that case). The bare napi `instrument()` rejects the same combination so
@@ -175,6 +190,7 @@ function createOxcInstrumenter(options) {
         stripTypescript,
         experimentalDecorators,
         emitDecoratorMetadata,
+        strictNullChecks,
         functionIdentityOverlay,
         nameCallbackArguments,
       });

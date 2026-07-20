@@ -2318,4 +2318,47 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] export const arrow declaration statement counts at module eval (issue #114)');
 }
 
+// Test: strictNullChecks controls how a nullable union lands in design:type.
+// Wrong value here is silent: the code still runs, but NestJS DI, TypeORM
+// column inference, and class-validator read that metadata and would see a
+// different constructor than tsc emitted.
+{
+  const source =
+    'function D() { return function (_t, _k) {}; }\n' +
+    'export class C { @D() foo: string | null = null; }\n';
+  const opts = {
+    stripTypescript: true,
+    experimentalDecorators: true,
+    emitDecoratorMetadata: true,
+  };
+
+  const strict = instrument(source, 'c.ts', { ...opts, strictNullChecks: true });
+  assert.ok(
+    strict.code.includes('_decorateMetadata("design:type", Object)'),
+    'strictNullChecks: true must widen `string | null` to Object',
+  );
+
+  const loose = instrument(source, 'c.ts', { ...opts, strictNullChecks: false });
+  assert.ok(
+    loose.code.includes('_decorateMetadata("design:type", String)'),
+    'strictNullChecks: false must elide null, leaving String',
+  );
+
+  const omitted = instrument(source, 'c.ts', opts);
+  assert.equal(
+    omitted.code.toString(),
+    strict.code.toString(),
+    'omitting strictNullChecks must default to true (tsc under `strict`)',
+  );
+
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  assert.throws(
+    () => createOxcInstrumenter({ strictNullChecks: 'yes' }),
+    /strictNullChecks.*must be a boolean or undefined/,
+    'createOxcInstrumenter must reject a non-boolean strictNullChecks',
+  );
+
+  console.log('  [PASS] strictNullChecks controls nullable design:type metadata');
+}
+
 console.log('\nAll tests passed!');
