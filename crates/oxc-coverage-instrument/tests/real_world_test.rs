@@ -39,7 +39,8 @@ fn assert_valid_instrumentation(source: &str, filename: &str) -> InstrumentResul
     let source_type = SourceType::from_path(filename)
         .unwrap_or_else(|_| panic!("{filename}: unable to determine source type from path"));
     let parsed = Parser::new(&allocator, &result.code, source_type).parse();
-    let diagnostics = parsed.errors.iter().map(|error| format!("{error}")).collect::<Vec<_>>();
+    let diagnostics =
+        parsed.diagnostics.errors().map(|error| format!("{error}")).collect::<Vec<_>>();
     assert!(
         diagnostics.is_empty(),
         "{filename}: instrumented code has parse diagnostics: {}",

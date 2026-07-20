@@ -478,8 +478,8 @@ The `html` format writes a self-contained directory tree (`--output-dir`, defaul
 
 ## Compatibility
 
-- **Rust**: 1.92+ (2024 edition)
-- **Oxc**: 0.126.x
+- **Rust**: 1.95+ (2024 edition)
+- **Oxc**: 0.140.x
 - **Istanbul**: `coverage-final.json` v3+ format
 - **Node.js**: 18+ (via napi-rs)
 

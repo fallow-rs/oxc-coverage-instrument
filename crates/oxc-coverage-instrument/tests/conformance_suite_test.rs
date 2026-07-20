@@ -222,10 +222,10 @@ macro_rules! conformance_test {
                     oxc_span::SourceType::from_path(concat!($fixture, ".js")).unwrap_or_default();
                 let parsed = oxc_parser::Parser::new(&allocator, code, source_type).parse();
                 assert!(
-                    parsed.errors.is_empty(),
+                    !parsed.diagnostics.has_errors(),
                     "{}: instrumented code has parse errors: {:?}",
                     $fixture,
-                    parsed.errors.iter().map(|e| e.to_string()).collect::<Vec<_>>()
+                    parsed.diagnostics.errors().map(|e| e.to_string()).collect::<Vec<_>>()
                 );
             }
         }

@@ -519,8 +519,12 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         if stmt.alternate.is_none() {
             let scope_id =
                 ctx.create_child_scope_of_current(oxc_syntax::scope::ScopeFlags::empty());
-            stmt.alternate =
-                Some(ctx.ast.statement_block_with_scope_id(SPAN, ctx.ast.vec(), scope_id));
+            stmt.alternate = Some(Statement::new_block_statement_with_scope_id(
+                SPAN,
+                ArenaVec::new_in(ctx),
+                scope_id,
+                ctx,
+            ));
         }
         if let Some(alt) = &mut stmt.alternate {
             inject_branch_counter_into_statement(
@@ -590,13 +594,13 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
 
         let cov_fn = self.cov_fn_name;
         let scope_id = ctx.create_child_scope_of_current(oxc_syntax::scope::ScopeFlags::empty());
-        let original = mem::replace(body, ctx.ast.statement_empty(SPAN));
-        let mut stmts = ctx.ast.vec();
+        let original = mem::replace(body, Statement::new_empty_statement(SPAN, ctx));
+        let mut stmts = ArenaVec::new_in(ctx);
         for insertion in pending {
             stmts.push(build_counter_stmt(CounterKind::from_pending(cov_fn, &insertion), ctx));
         }
         stmts.push(original);
-        *body = ctx.ast.statement_block_with_scope_id(SPAN, stmts, scope_id);
+        *body = Statement::new_block_statement_with_scope_id(SPAN, stmts, scope_id, ctx);
     }
 
     /// Wrap an optional-chain link's `object`/`callee` with the
@@ -639,17 +643,18 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
         let oc_name = self
             .cov_fn_oc_name
             .expect("wrap_optional_chain_link runs only when track_optional_chain is on");
-        let callee = ctx.ast.expression_identifier(SPAN, oc_name);
+        let callee = Expression::new_identifier(SPAN, oc_name, ctx);
         let original = mem::replace(object, dummy_expr(ctx));
-        let mut args = ctx.ast.vec();
+        let mut args = ArenaVec::new_in(ctx);
         args.push(Argument::from(original));
         args.push(Argument::from(numeric_literal(ctx, branch_id as f64)));
-        *object = ctx.ast.expression_call(
+        *object = Expression::new_call_expression(
             SPAN,
             callee,
             None::<TSTypeParameterInstantiation>,
             args,
             false,
+            ctx,
         );
     }
 
@@ -762,7 +767,13 @@ fn static_field<'a>(
     field: &'a str,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) -> MemberExpression<'a> {
-    ctx.ast.member_expression_static(SPAN, base, ctx.ast.identifier_name(SPAN, field), false)
+    MemberExpression::new_static_member_expression(
+        SPAN,
+        base,
+        IdentifierName::new(SPAN, field, ctx),
+        false,
+        ctx,
+    )
 }
 
 /// Build a `base[idx]` computed (numeric-index) member access.
@@ -771,11 +782,12 @@ fn computed_index<'a>(
     idx: usize,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) -> MemberExpression<'a> {
-    ctx.ast.member_expression_computed(
+    MemberExpression::new_computed_member_expression(
         SPAN,
         Expression::from(base),
         numeric_literal(ctx, idx as f64),
         false,
+        ctx,
     )
 }
 
@@ -787,22 +799,23 @@ fn build_counter_expr<'a>(
 ) -> Expression<'a> {
     let target = match kind {
         CounterKind::Statement { cov_fn_name, type_, id } => {
-            let coverage = ctx.ast.expression_identifier(SPAN, cov_fn_name);
+            let coverage = Expression::new_identifier(SPAN, cov_fn_name, ctx);
             let field = static_field(coverage, alloc_str(type_, ctx), ctx);
             computed_index(field, id, ctx)
         }
         CounterKind::Branch { cov_fn_name, branch_id, path_idx } => {
-            let coverage = ctx.ast.expression_identifier(SPAN, cov_fn_name);
+            let coverage = Expression::new_identifier(SPAN, cov_fn_name, ctx);
             let b = static_field(coverage, "b", ctx);
             let outer = computed_index(b, branch_id, ctx);
             computed_index(outer, path_idx, ctx)
         }
     };
-    ctx.ast.expression_update(
+    Expression::new_update_expression(
         SPAN,
         UpdateOperator::Increment,
         true,
         SimpleAssignmentTarget::from(target),
+        ctx,
     )
 }
 
@@ -812,7 +825,7 @@ fn build_counter_stmt<'a>(
     ctx: &TraverseCtx<'a, CoverageState>,
 ) -> Statement<'a> {
     let expr = build_counter_expr(kind, ctx);
-    ctx.ast.statement_expression(SPAN, expr)
+    Statement::new_expression_statement(SPAN, expr, ctx)
 }
 
 /// Replace `target` with the sequence expression `(counter, target)`, where
@@ -826,14 +839,14 @@ fn prepend_counter<'a>(
 ) {
     let counter = build_counter_expr(kind, ctx);
     let orig = mem::replace(target, dummy_expr(ctx));
-    let mut items = ctx.ast.vec();
+    let mut items = ArenaVec::new_in(ctx);
     items.push(counter);
     items.push(orig);
-    *target = ctx.ast.expression_sequence(SPAN, items);
+    *target = Expression::new_sequence_expression(SPAN, items, ctx);
 }
 
 fn numeric_literal<'a>(ctx: &TraverseCtx<'a, CoverageState>, value: f64) -> Expression<'a> {
-    ctx.ast.expression_numeric_literal(SPAN, value, None, oxc_syntax::number::NumberBase::Decimal)
+    Expression::new_numeric_literal(SPAN, value, None, oxc_syntax::number::NumberBase::Decimal, ctx)
 }
 
 /// Inputs to [`generate_preamble_source`], grouped so the generator stays
@@ -934,7 +947,7 @@ pub fn generate_cov_fn_name(file_path: &str) -> String {
 
 /// Create a dummy expression for `mem::replace` operations.
 fn dummy_expr<'a>(ctx: &TraverseCtx<'a, CoverageState>) -> Expression<'a> {
-    ctx.ast.expression_numeric_literal(SPAN, 0.0, None, oxc_syntax::number::NumberBase::Decimal)
+    Expression::new_numeric_literal(SPAN, 0.0, None, oxc_syntax::number::NumberBase::Decimal, ctx)
 }
 
 // istanbul-lib-instrument treats these variants as containers, not statements:
@@ -1198,12 +1211,19 @@ fn build_bt_call<'a>(
     ctx: &TraverseCtx<'a, CoverageState>,
 ) -> Expression<'a> {
     let bt_name = state.cov_fn_bt_name.expect("report_logic requires cov_fn_bt_name");
-    let callee = ctx.ast.expression_identifier(SPAN, bt_name);
-    let mut args = ctx.ast.vec();
+    let callee = Expression::new_identifier(SPAN, bt_name, ctx);
+    let mut args = ArenaVec::new_in(ctx);
     args.push(Argument::from(inner));
     args.push(Argument::from(numeric_literal(ctx, state.branch_id as f64)));
     args.push(Argument::from(numeric_literal(ctx, state.current_path_idx() as f64)));
-    ctx.ast.expression_call(SPAN, callee, None::<TSTypeParameterInstantiation>, args, false)
+    Expression::new_call_expression(
+        SPAN,
+        callee,
+        None::<TSTypeParameterInstantiation>,
+        args,
+        false,
+        ctx,
+    )
 }
 
 fn wrap_logical_leaf<'a>(
@@ -1387,7 +1407,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
                 let dummy = dummy_expr(ctx);
                 let expr = mem::replace(&mut expr_stmt.expression, dummy);
                 let last_idx = arrow.body.statements.len() - 1;
-                arrow.body.statements[last_idx] = ctx.ast.statement_return(SPAN, Some(expr));
+                arrow.body.statements[last_idx] =
+                    Statement::new_return_statement(SPAN, Some(expr), ctx);
             }
             arrow.expression = false;
         }
@@ -1637,7 +1658,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         for hoist in &hoists {
             by_target.insert(hoist.target_start, hoist);
         }
-        let original = std::mem::replace(&mut body.body, ctx.ast.vec());
+        let original = std::mem::replace(&mut body.body, ArenaVec::new_in(ctx));
         for element in original {
             if let ClassElement::PropertyDefinition(prop) = &element
                 && let Some(hoist) = by_target.get(&prop.span.start)
@@ -1791,8 +1812,8 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             return;
         }
 
-        let original = mem::replace(stmts, ctx.ast.vec());
-        let mut rebuilt = ctx.ast.vec_with_capacity(original.len() + matched_count);
+        let original = mem::replace(stmts, ArenaVec::new_in(ctx));
+        let mut rebuilt = ArenaVec::with_capacity_in(original.len() + matched_count, ctx);
         for stmt in original {
             let span = stmt.span();
             if let Some(insertions) = insertions_by_target.remove(&span.start) {
@@ -2377,11 +2398,11 @@ fn build_class_field_counter<'a>(
 ) -> ClassElement<'a> {
     let counter = build_counter_expr(CounterKind::stmt(cov_fn, hoist.counter_id), ctx);
     let key_name = alloc_str(&format!("__cov_{}_init_{}", cov_fn, hoist.counter_id), ctx);
-    let key = PropertyKey::StaticIdentifier(ctx.ast.alloc_identifier_name(SPAN, key_name));
-    ctx.ast.class_element_property_definition(
+    let key = PropertyKey::StaticIdentifier(IdentifierName::boxed(SPAN, key_name, ctx));
+    ClassElement::new_property_definition(
         SPAN,
         PropertyDefinitionType::PropertyDefinition,
-        ctx.ast.vec(),
+        ArenaVec::new_in(ctx),
         key,
         None::<TSTypeAnnotation>,
         Some(counter),
@@ -2393,6 +2414,7 @@ fn build_class_field_counter<'a>(
         false,
         false,
         None,
+        ctx,
     )
 }
 
@@ -2413,11 +2435,11 @@ fn inject_branch_counter_into_statement<'a>(
             // Must create a scope for the new block to avoid traverse panics.
             let scope_id =
                 ctx.create_child_scope_of_current(oxc_syntax::scope::ScopeFlags::empty());
-            let original = mem::replace(stmt, ctx.ast.statement_empty(SPAN));
-            let mut stmts = ctx.ast.vec();
+            let original = mem::replace(stmt, Statement::new_empty_statement(SPAN, ctx));
+            let mut stmts = ArenaVec::new_in(ctx);
             stmts.push(counter_stmt);
             stmts.push(original);
-            *stmt = ctx.ast.statement_block_with_scope_id(SPAN, stmts, scope_id);
+            *stmt = Statement::new_block_statement_with_scope_id(SPAN, stmts, scope_id, ctx);
         }
     }
 }

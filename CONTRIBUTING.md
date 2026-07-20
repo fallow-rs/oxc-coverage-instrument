@@ -184,7 +184,7 @@ node crates/oxc-coverage-instrument/tests/conformance/generate-reference.mjs
 
 ## Code conventions
 
-- Rust 2024 edition, MSRV 1.92
+- Rust 2024 edition, MSRV 1.95
 - Strict clippy (all + pedantic + nursery + Oxc-level restriction lints)
 - `cargo fmt` with `style_edition = "2024"`, `use_small_heuristics = "Max"`
 - Doc comments on all public types and functions

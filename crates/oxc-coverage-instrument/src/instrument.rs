@@ -373,7 +373,13 @@ struct PrepareScopingInput<'arena, 'a> {
 
 fn prepare_scoping(input: PrepareScopingInput<'_, '_>) -> Result<Scoping, InstrumentError> {
     let PrepareScopingInput { allocator, filename, program, options } = input;
-    let scoping = SemanticBuilder::new().build(program).semantic.into_scoping();
+    // `with_enum_eval` pre-computes TypeScript enum member values into `Scoping`.
+    // Since oxc 0.140 the transformer asserts on it when lowering an `enum`, so
+    // this is required on the scoping handed to `strip_typescript_pass` below.
+    // The V8-collect path builds its own scoping for our traverse pass only, and
+    // never reaches the transformer, so it does not pay for enum evaluation.
+    let scoping =
+        SemanticBuilder::new().with_enum_eval(true).build(program).semantic.into_scoping();
     if !options.strip_typescript {
         return Ok(scoping);
     }
@@ -478,14 +484,21 @@ fn strip_typescript_pass(input: StripTypescriptInput<'_, '_>) -> Result<Scoping,
         decorator: DecoratorOptions {
             legacy: decorator_mode.legacy(),
             emit_decorator_metadata: decorator_mode.emit_metadata(),
+            // Matches both the oxc and the `tsc` default. Only consulted when
+            // `emit_decorator_metadata` is on, where it decides whether `null` /
+            // `undefined` are elided from union `design:type` annotations.
+            strict_null_checks: true,
         },
         ..TransformOptions::default()
     };
     let transformer = Transformer::new(allocator, Path::new(filename), &options);
     let ret = transformer.build_with_scoping(scoping, program);
-    if !ret.errors.is_empty() {
+    // `diagnostics` carries both errors and warnings since oxc 0.140. Gate on
+    // error severity only, so a warning-only transform is not reported as a
+    // failure the way the pre-0.140 `errors` field would never have done.
+    if ret.diagnostics.has_errors() {
         return Err(InstrumentError::TransformError(
-            ret.errors.iter().map(|e| format!("{e}")).collect::<Vec<_>>(),
+            ret.diagnostics.errors().map(|e| format!("{e}")).collect::<Vec<_>>(),
         ));
     }
     Ok(ret.scoping)
@@ -498,12 +511,13 @@ fn parse_program<'a>(
 ) -> Result<ParserReturn<'a>, InstrumentError> {
     let source_type = SourceType::from_path(filename).unwrap_or_default();
     let parsed = Parser::new(allocator, source, source_type).parse();
-    if parsed.errors.is_empty() {
-        Ok(parsed)
-    } else {
+    // See `transform_typescript`: gate on error severity, not on any diagnostic.
+    if parsed.diagnostics.has_errors() {
         Err(InstrumentError::ParseError(
-            parsed.errors.iter().map(|e| format!("{e}")).collect::<Vec<_>>().join("; "),
+            parsed.diagnostics.errors().map(|e| format!("{e}")).collect::<Vec<_>>().join("; "),
         ))
+    } else {
+        Ok(parsed)
     }
 }
 

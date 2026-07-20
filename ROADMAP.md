@@ -82,7 +82,7 @@ Coverage suite (umbrella [#45](https://github.com/fallow-rs/oxc-coverage-instrum
 
 Reproduce-locally targets for every CI gate live in `CONTRIBUTING.md` under *Development workflow*. Current surface:
 
-- **`ci.yml`**: cross-platform `check` matrix (ubuntu / macos / windows), `msrv` (1.92), `doc` (`RUSTDOCFLAGS=-D warnings`), `typos`, `audit` (cargo-audit / RustSec), `deny` (cargo-deny per `deny.toml`), `shear` (unused / misplaced deps), `zizmor` (workflow security), `napi` (build + `node test.mjs`), `istanbul-diff` (byte parity against `istanbul-lib-instrument` on 27 fixtures), `vitest-typescript-example` (end-to-end Vitest adapter smoke), and a single `ci-ok` aggregator job for branch protection
+- **`ci.yml`**: cross-platform `check` matrix (ubuntu / macos / windows), `msrv` (1.95), `doc` (`RUSTDOCFLAGS=-D warnings`), `typos`, `audit` (cargo-audit / RustSec), `deny` (cargo-deny per `deny.toml`), `shear` (unused / misplaced deps), `zizmor` (workflow security), `napi` (build + `node test.mjs`), `istanbul-diff` (byte parity against `istanbul-lib-instrument` on 27 fixtures), `vitest-typescript-example` (end-to-end Vitest adapter smoke), and a single `ci-ok` aggregator job for branch protection
 - **`coverage.yml`**: `cargo llvm-cov` on every push to `main`, publishes a shields.io-compatible JSON badge to the `badges` branch
 - **`bench.yml`**: CodSpeed simulations on push / PR with `crates/**` paths, covering instrumentation, source maps, V8 conversion, N-API remapping, and report generation
 - **`bloat.yml`**: CLI binary size tracking via cargo-bloat, with size history stored separately on `gh-pages` through `github-action-benchmark` and alert threshold 120%

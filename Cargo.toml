@@ -18,7 +18,7 @@ homepage = "https://github.com/fallow-rs/oxc-coverage-instrument"
 keywords = ["oxc", "istanbul", "coverage", "javascript", "typescript"]
 license = "MIT"
 repository = "https://github.com/fallow-rs/oxc-coverage-instrument"
-rust-version = "1.92"
+rust-version = "1.95"
 
 [workspace.lints.rust]
 unsafe_code = "warn"                    # No unsafe in this workspace today; lint preserves that

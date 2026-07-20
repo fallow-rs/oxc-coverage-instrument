@@ -65,9 +65,9 @@ fn validate_output_reparseable(result: &oxc_coverage_instrument::InstrumentResul
     let parsed = oxc_parser::Parser::new(&allocator, code, source_type).parse();
 
     assert!(
-        parsed.errors.is_empty(),
+        !parsed.diagnostics.has_errors(),
         "{name}: instrumented code has parse errors: {:?}",
-        parsed.errors.iter().map(|e| format!("{e}")).collect::<Vec<_>>()
+        parsed.diagnostics.errors().map(|e| format!("{e}")).collect::<Vec<_>>()
     );
 }
 

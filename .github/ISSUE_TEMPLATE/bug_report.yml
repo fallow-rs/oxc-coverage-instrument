@@ -75,6 +75,6 @@ body:
     attributes:
       label: Node.js / Rust version
       description: Node version (for npm/Vitest usage) or `rustc --version` (for the crate).
-      placeholder: "Node 22.11.0 / rustc 1.92.0"
+      placeholder: "Node 22.11.0 / rustc 1.95.0"
     validations:
       required: false
