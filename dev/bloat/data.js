@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784555213178,
+  "lastUpdate": 1784573888092,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1971,6 +1971,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 90675016,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "a6cf8931a157010c12a5e541683eb0de6f2b4184",
+          "message": "docs(contributing): point local zizmor setup at the CI pin\n\nCONTRIBUTING told contributors to `brew install zizmor`, which is now the\none path that reproduces the drift the pin was added to prevent: a\nsystem-installed zizmor is whatever version you happen to have, so a local\npass says nothing about the pinned version CI runs. Recommend installing uv\ninstead, and explain that the check target resolves the pin itself.\n\nAlso record in ci.yml that dependabot cannot see this pin, since it scans\n`uses:` and package manifests rather than versions inside `run:`. It will\nnot be bumped for you, so the comment carries the command to check for a\nnewer release. No automation for that: a stale pin only means missing new\naudits, which does not justify a scheduled job.",
+          "timestamp": "2026-07-20T20:56:16+02:00",
+          "tree_id": "feb670a4a9db499a3c257d4a5f6deb03e06a92b4",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/a6cf8931a157010c12a5e541683eb0de6f2b4184"
+        },
+        "date": 1784573887750,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 90675120,
             "unit": "bytes"
           }
         ]
