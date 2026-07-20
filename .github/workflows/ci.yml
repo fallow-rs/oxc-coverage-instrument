@@ -365,13 +365,12 @@ jobs:
           path: istanbul-diff.log
           if-no-files-found: warn
 
-  vitest-typescript-example:
-    # End-to-end smoke for the Vitest TypeScript example: builds the napi
-    # binding, runs vitest with the createOxcInstrumenter adapter on a small
-    # TypeScript project with zero pre-transform, then verifies the resulting
-    # coverage-final.json is keyed by the .ts source path and statementMap
-    # entries point at .ts line numbers.
-    name: Vitest TypeScript example
+  vitest-example-binding:
+    # Builds the napi binding once for the matrix below. The .node artifact is
+    # N-API, so it is ABI-stable across Node majors and the TypeScript version
+    # cannot affect it. Building per matrix leg would pay a full release build
+    # of oxc four times over for a binary that is bit-identical each time.
+    name: Vitest example binding
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -395,9 +394,80 @@ jobs:
         working-directory: crates/oxc-coverage-instrument-napi
         run: npx napi build --release --platform
 
+      - name: Upload binding
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: vitest-example-binding
+          path: |
+            crates/oxc-coverage-instrument-napi/*.node
+            crates/oxc-coverage-instrument-napi/index.js
+            crates/oxc-coverage-instrument-napi/index.d.ts
+          if-no-files-found: error
+          retention-days: 1
+
+  vitest-typescript-example:
+    # End-to-end smoke for the Vitest TypeScript example: runs vitest with the
+    # createOxcInstrumenter adapter on a small TypeScript project with zero
+    # pre-transform, then verifies the resulting coverage-final.json is keyed by
+    # the .ts source path and statementMap entries point at .ts line numbers.
+    #
+    # The matrix backs the permissive `>=` devDependency ranges in the example's
+    # package.json with something that actually tests them. A plain `npm install`
+    # only ever resolves the newest satisfying versions, so without pinning each
+    # leg the floor of those ranges would never be exercised. Legs pair a Node
+    # major with the matching @types/node major, and cover both the floor
+    # (Node 22 / TS 6 / types 22) and the ceiling (Node 24 / TS 7 / types 26).
+    name: Vitest TypeScript example (node ${{ matrix.node }}, ts ${{ matrix.ts }})
+    needs: vitest-example-binding
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: 22
+            ts: 6
+            types: 22
+          - node: 22
+            ts: 7
+            types: 26
+          - node: 24
+            ts: 6
+            types: 24
+          - node: 24
+            ts: 7
+            types: 26
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Download binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: vitest-example-binding
+          path: crates/oxc-coverage-instrument-napi
+
       - name: Install example deps
         working-directory: examples/vitest-typescript
         run: npm install
+
+      # Pin this leg's toolchain. --no-save keeps package.json's declared range
+      # intact so the range stays the source of truth and only the resolution
+      # under test changes.
+      - name: Pin toolchain for this leg
+        working-directory: examples/vitest-typescript
+        run: npm install --no-save "typescript@${{ matrix.ts }}" "@types/node@${{ matrix.types }}"
+
+      - name: Report resolved toolchain
+        working-directory: examples/vitest-typescript
+        run: |
+          node -e "console.log('typescript', require('typescript/package.json').version)"
+          node -e "console.log('@types/node', require('@types/node/package.json').version)"
 
       - name: Typecheck example
         working-directory: examples/vitest-typescript
@@ -679,6 +749,7 @@ jobs:
       - napi
       - napi-wasm
       - istanbul-diff
+      - vitest-example-binding
       - vitest-typescript-example
       - native-vs-wasm-parity
       - wasm-node-example
