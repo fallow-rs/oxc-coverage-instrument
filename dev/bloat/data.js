@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784585556749,
+  "lastUpdate": 1784588694785,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2029,6 +2029,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 91037864,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a79e654126aa4f30e63965208665250a8cfa4426",
+          "message": "fix: resolve coverage correctness edge cases (#191)\n\nResolve instrumentation, reporting, source-map, CLI, V8, N-API, and benchmark issues #171 through #185. The next release containing the InstrumentError variant removal must be explicitly breaking.",
+          "timestamp": "2026-07-21T01:02:38+02:00",
+          "tree_id": "7292c6dbf28823ebfff7856f7c74c888658dbbc4",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/a79e654126aa4f30e63965208665250a8cfa4426"
+        },
+        "date": 1784588693977,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 91195608,
             "unit": "bytes"
           }
         ]
