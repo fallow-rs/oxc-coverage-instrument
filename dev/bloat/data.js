@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784040763001,
+  "lastUpdate": 1784555213178,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -1942,6 +1942,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 91710232,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": false,
+          "id": "b4b359c7e67f443e6ce8630faac9eebff27df858",
+          "message": "chore(deps): bump oxc to 0.140 and refresh the dependency tree\n\noxc 0.140 requires Rust 1.95, so the workspace MSRV moves 1.92 -> 1.95.\nThat gate matters beyond the pin: while rust-version stayed at 1.92,\ncargo's resolver silently held oxc_sourcemap at 8.1.0 and\noxc-browserslist at 3.0.9.\n\nThree API breaks came with the bump:\n\n- DecoratorOptions gained strict_null_checks, set to the oxc and tsc\n  default of true. It is only consulted when emit_decorator_metadata is\n  on.\n- ParserReturn/TransformerReturn `errors` is now `diagnostics`, which is\n  not a pure rename: the new Diagnostics type carries warnings as well.\n  Both checks gate on has_errors()/errors() so a warning-only source is\n  not newly reported as a failure.\n- The transformer now asserts on SemanticBuilder::with_enum_eval(true)\n  when lowering a TypeScript enum. It is enabled only on the scoping fed\n  to the strip pass; the V8-collect path builds its own scoping for the\n  traverse pass and never reaches the transformer.\n\nThe old ctx.ast.* builder methods are deprecated in favour of the\ntype-associated interface (oxc#23043). With clippy running under\n-D warnings that migration is mandatory, so all 29 call sites in\ntransform.rs move to Type::new_xxx(.., ctx) and ArenaVec::new_in(ctx).\n\nOn the npm side: @commitlint/cli 21.2.1, @napi-rs/cli 3.7.3, and the\nemnapi trio to 1.11.2 in lockstep so the override from #149 holds. The\ntracked Cloudflare Workers lockfile still pinned the linked napi package\nat 0.7.2 and is resynced.",
+          "timestamp": "2026-07-20T15:42:37+02:00",
+          "tree_id": "136b91a35fc307d092139f1e23023226207bb2da",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/b4b359c7e67f443e6ce8630faac9eebff27df858"
+        },
+        "date": 1784555212186,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 90675016,
             "unit": "bytes"
           }
         ]
