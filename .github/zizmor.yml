@@ -45,3 +45,10 @@ rules:
   adhoc-packages:
     ignore:
       - release-npm.yml
+      # The vitest-typescript-example matrix installs a TypeScript and
+      # @types/node major per leg to prove the example's `>=` devDependency
+      # ranges hold across them. Fetching the current release of each major at
+      # run time is the point of that job: pinning exact versions would freeze
+      # the matrix and stop it testing what consumers actually resolve. Scope is
+      # a devDependency inside a private example, never a published artifact.
+      - ci.yml

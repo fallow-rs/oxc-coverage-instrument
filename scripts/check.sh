@@ -302,10 +302,41 @@ run_actionlint() {
   actionlint .github/workflows/*.yml
 }
 
+# Single source of truth for the zizmor version, read from the CI step so local
+# runs cannot drift from what the Actions Security job actually enforces. A
+# floating `uvx zizmor` in CI plus whatever zizmor a developer happened to
+# install locally is how a locally-green workflow change lands red on main.
+zizmor_pinned_version() {
+  sed -n 's/.*uvx zizmor@\([0-9][0-9.]*\).*/\1/p' "$ROOT/.github/workflows/ci.yml" | head -1
+}
+
 run_zizmor() {
-  require_tool zizmor "Install zizmor using Homebrew, cargo, or pip."
-  echo "[check:zizmor] zizmor --config .github/zizmor.yml --min-confidence medium --format plain .github/"
-  zizmor --config .github/zizmor.yml --min-confidence medium --format plain .github/
+  local pinned
+  pinned="$(zizmor_pinned_version)"
+  if [ -z "$pinned" ]; then
+    echo "[check:zizmor] could not read the pinned zizmor version from .github/workflows/ci.yml" >&2
+    return 1
+  fi
+
+  local args=(--config .github/zizmor.yml --min-confidence medium --format plain .github/)
+
+  # Prefer uvx so the local run resolves the identical build CI resolves.
+  if command -v uvx >/dev/null 2>&1; then
+    echo "[check:zizmor] uvx zizmor@${pinned} ${args[*]}"
+    uvx "zizmor@${pinned}" "${args[@]}"
+    return
+  fi
+
+  require_tool zizmor "Install uv (preferred, matches CI exactly) or zizmor ${pinned} via Homebrew, cargo, or pip."
+  local installed
+  installed="$(zizmor --version 2>/dev/null | awk '{print $2}')"
+  if [ "$installed" != "$pinned" ]; then
+    echo "[check:zizmor] WARNING: local zizmor ${installed:-unknown} != CI-pinned ${pinned}." >&2
+    echo "[check:zizmor] A pass here does not guarantee the Actions Security job passes." >&2
+    echo "[check:zizmor] Install uv so this target runs the same build as CI." >&2
+  fi
+  echo "[check:zizmor] zizmor ${args[*]}"
+  zizmor "${args[@]}"
 }
 
 run_commitlint() {

@@ -184,7 +184,11 @@ jobs:
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           enable-cache: false
-      - run: uvx zizmor --config .github/zizmor.yml --min-confidence medium --format plain .github/
+      # Pinned rather than floating: an unpinned `uvx zizmor` silently adopts
+      # each new release, so a new audit turns main red on a commit that was
+      # green locally and in review. scripts/check.sh reads this version back so
+      # local runs resolve the same build. Bump deliberately.
+      - run: uvx zizmor@1.27.0 --config .github/zizmor.yml --min-confidence medium --format plain .github/
 
   napi:
     name: Napi Test
