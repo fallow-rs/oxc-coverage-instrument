@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784573888092,
+  "lastUpdate": 1784585556749,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2000,6 +2000,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 90675120,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "945a2085d882b8d944830561faedc08a861a734d",
+          "message": "refactor: restructure crate layout, lints and docs (#186)\n\nBring the workspace in line with the conventions used across the Oxc\necosystem, so the crates read the same way as the libraries they build on.\n\nLayout:\n- Rename crate directories to match their package names, and add a\n  per-crate README plus ARCHITECTURE.md for the pipeline overview.\n- Split the three oversized modules into submodules along conceptual\n  seams: the coverage transform, the HTML reporter, and source-map\n  remapping. Pure code motion, public API unchanged.\n- Group integration tests per crate behind a single harness, and move\n  the format dispatch tests out of the reports snapshot suite into the\n  dispatch suite that already covered the same ground.\n\nLints:\n- Adopt the upstream workspace lint tables and .clippy.toml, including\n  the disallowed std collection types and allocating string methods.\n- Replace the allocating str helpers with their cow_utils equivalents.\n  The napi crate keeps std HashMap behind an #[expect]: napi-derive\n  keys its TypeScript emit on that ident.\n\nDocumentation:\n- Document the public API with # Errors and # Panics sections on\n  fallible and panicking items.\n- Drop commentary that restated the code or referenced earlier revisions\n  of it, and keep the comments that carry a rationale or an invariant.\n- Rewrite README, CONTRIBUTING and AGENTS.md. Remove the dangling\n  @-import of a path outside the repository, and qualify or drop the\n  unqualified performance claims.",
+          "timestamp": "2026-07-21T00:11:05+02:00",
+          "tree_id": "5e04bf252e368af62d203638cc4a2ca415a1fd5b",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/945a2085d882b8d944830561faedc08a861a734d"
+        },
+        "date": 1784585556115,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 91037864,
             "unit": "bytes"
           }
         ]
