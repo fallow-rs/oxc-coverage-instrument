@@ -8,7 +8,7 @@
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
-    "oxc-coverage-instrument": "file:../../crates/oxc-coverage-instrument-napi"
+    "oxc-coverage-instrument": "file:../../crates/oxc_coverage_instrument_napi"
   },
   "devDependencies": {
     "wrangler": "^4.94.0"

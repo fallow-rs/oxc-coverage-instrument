@@ -1,0 +1,574 @@
+/* oxc-coverage-instrument HTML reporter base stylesheet.
+ *
+ * Structural rules only. The palette lives in a sibling file,
+ * `coverage-tokens.css`, `@import`-ed at the top so a consumer can swap
+ * the colours without touching the rules below.
+ *
+ * Hard constraints: file://-portable, strict CSP (no web fonts, no
+ * external assets), no JS required for the visual layer (sortable +
+ * filter + line-anchor are progressive enhancement on top).
+ */
+@import url("coverage-tokens.css");
+
+/* ---- Base + reset ----------------------------------------------------- */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html,
+body { margin: 0; padding: 0; }
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  color: var(--text-high);
+  line-height: var(--leading-tight);
+  margin: 0 0 0.5em;
+}
+h1 { font-size: var(--text-2xl); font-weight: 700; letter-spacing: var(--tracking-display); }
+h2 { font-size: var(--text-xl); font-weight: 700; }
+h3 { font-size: var(--text-lg); font-weight: 600; }
+
+a { color: var(--link); text-decoration: none; }
+a:hover,
+a:focus-visible { text-decoration: underline; }
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+::selection {
+  background-color: var(--blue-subtle);
+  color: var(--text-high);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Visually-hidden helper (for screen-reader-only labels) */
+.sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- Page header (h1 + breadcrumb + KPI row + theme toggle) ---------- */
+header.summary {
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border);
+  padding: 24px 32px 20px;
+  position: relative;
+}
+header.summary h1 {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+  margin: 0 0 8px 0;
+}
+
+/* Breadcrumb: <nav><ol><li>...</li></ol></nav> (a11y: aria-label="Breadcrumb",
+ * aria-current="page" on the last <span>). */
+.breadcrumb {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+.breadcrumb ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.breadcrumb li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.breadcrumb a { color: var(--muted); }
+.breadcrumb a:hover { color: var(--text); text-decoration: underline; }
+.breadcrumb .current { color: var(--text); font-weight: 500; }
+.breadcrumb-sep {
+  color: var(--text-muted);
+  user-select: none;
+}
+
+/* Threshold summary sentence ("X of Y files below 80%"). Below the
+ * KPI row, before the table. Plain Inter, low-weight, muted. */
+.threshold-summary {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+.threshold-summary strong { color: var(--text); font-weight: 600; }
+
+.source-unavailable {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.source-unavailable code {
+  font-family: var(--font-code);
+  color: var(--text);
+}
+
+/* KPI metric pills (Statements / Branches / Functions / Lines) */
+.kpi-row {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.kpi-cell {
+  flex: 1 1 0;
+  min-width: 144px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kpi-cell__label {
+  font-family: var(--font-code);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* The default text colour for the value is the neutral text token, not
+ * a severity colour. Every metric pill must carry an explicit
+ * `kpi-cell--{high,medium,low}` modifier; a missing modifier renders
+ * neutral rather than silently green. */
+.kpi-cell__value {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: var(--tracking-display);
+  color: var(--text);
+}
+.kpi-cell--high .kpi-cell__value { color: var(--pct-high); }
+.kpi-cell--medium .kpi-cell__value { color: var(--pct-medium); }
+.kpi-cell--low .kpi-cell__value { color: var(--pct-low); }
+.kpi-cell__sub {
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+/* Theme toggle (top-right of header.summary) */
+.theme-toggle {
+  position: absolute;
+  top: 24px;
+  right: 32px;
+  display: inline-flex;
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+}
+.theme-toggle__btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  padding: 6px 12px;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  transition: color 100ms ease-out, background-color 100ms ease-out;
+}
+.theme-toggle__btn:last-child { border-right: 0; }
+.theme-toggle__btn:hover { color: var(--text); }
+.theme-toggle__btn[aria-pressed="true"] {
+  background: var(--btn-bg-active);
+  color: var(--btn-fg-active);
+}
+
+/* Ghost button, used by "Next uncovered". Carries the offset key-cap
+ * shadow from `--shadow-button-ghost`. */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text);
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  height: 32px;
+  padding: 0 14px;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: var(--shadow-button-ghost);
+  transition: box-shadow 100ms ease-out, background-color 100ms ease-out;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  box-shadow: var(--shadow-button-ghost-hover);
+}
+.btn-ghost:active:not(:disabled) { box-shadow: var(--shadow-button-ghost-active); }
+.btn-ghost:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .btn-ghost { transition: none; }
+}
+
+/* ---- Filter (index pages) -------------------------------------------- */
+.pad1 { padding: 24px 32px; }
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  max-width: 480px;
+}
+.filter-group__label {
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.filter-input {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+  line-height: 1.3;
+  color: var(--text);
+  padding: 8px 12px;
+  transition: border-color 100ms ease-out, box-shadow 100ms ease-out;
+}
+.filter-input::placeholder { color: var(--muted); }
+.filter-input:hover:not(:focus) { border-color: var(--border-strong); }
+.filter-input:focus {
+  outline: none;
+  border-color: var(--blue-text);
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--blue-text);
+}
+.filter-count {
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  min-height: 1em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .filter-input { transition: none; }
+}
+
+/* ---- Index summary table --------------------------------------------- */
+table.coverage-summary {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+table.coverage-summary thead {
+  position: sticky;
+  top: 0;
+  background: var(--header-bg);
+  z-index: 1;
+}
+table.coverage-summary th,
+table.coverage-summary td {
+  text-align: right;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+table.coverage-summary th {
+  font-family: var(--font-code);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--muted);
+}
+table.coverage-summary tbody tr:hover { background: var(--surface-2); }
+table.coverage-summary td.file { text-align: left; }
+table.coverage-summary td.file a { color: var(--link); }
+table.coverage-summary tr.row-high { background: var(--row-high); }
+table.coverage-summary tr.row-medium { background: var(--row-medium); }
+table.coverage-summary tr.row-low { background: var(--row-low); }
+table.coverage-summary td.pct.high { color: var(--pct-high); }
+table.coverage-summary td.pct.medium { color: var(--pct-medium); }
+table.coverage-summary td.pct.low { color: var(--pct-low); }
+table.coverage-summary .quiet {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-family: var(--font-code);
+}
+
+/* Sortable column headers: progressive enhancement, .sortable class
+ * added by base.js. Inline ::after Unicode arrows keep the indicator
+ * adjacent to the label regardless of cell alignment. */
+table.coverage-summary th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+table.coverage-summary th.sortable:first-child { text-align: left; }
+table.coverage-summary th.sortable::after {
+  content: " \2195";
+  margin-left: 4px;
+  font-size: 0.85em;
+  opacity: 0.35;
+  display: inline-block;
+}
+table.coverage-summary th.sortable[aria-sort="ascending"]::after {
+  content: " \25B2";
+  opacity: 0.95;
+}
+table.coverage-summary th.sortable[aria-sort="descending"]::after {
+  content: " \25BC";
+  opacity: 0.95;
+}
+table.coverage-summary th.sortable:hover { color: var(--text); }
+table.coverage-summary th.sortable:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+/* Mini coverage meter inline in the index table: track plus severity
+ * fill, 1px outline, no radius. */
+.cov-meter {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+  background: var(--gutter-bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.cov-meter__fill {
+  display: block;
+  height: 100%;
+  background: var(--hit-solid);
+}
+.cov-meter--medium .cov-meter__fill { background: var(--partial-solid); }
+.cov-meter--low .cov-meter__fill { background: var(--miss-solid); }
+
+/* ---- Detail page: action header (Next uncovered + back) -------------- */
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* ---- Detail page source table ---------------------------------------- */
+table.source {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  background: var(--code-bg);
+}
+table.source th,
+table.source td {
+  padding: 0 12px;
+  vertical-align: top;
+}
+table.source thead {
+  background: var(--header-bg);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+table.source th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Gutter cells (line-num + hits + severity glyph) */
+table.source td.line-num {
+  text-align: right;
+  background: var(--gutter-bg);
+  color: var(--muted);
+  width: 64px;
+  user-select: none;
+  border-left: 2px solid transparent;
+  position: relative;
+}
+table.source td.hits {
+  text-align: right;
+  background: var(--gutter-bg);
+  color: var(--muted);
+  width: 80px;
+  user-select: none;
+  font-size: var(--text-xs);
+}
+table.source td.src pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Line anchor button: appears inside td.line-num. Renders the line
+ * number as a clickable button that copies #L<n> to the URL hash and
+ * the clipboard. Falls back to plain text without JS. */
+.line-anchor {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.line-anchor:hover { color: var(--text); text-decoration: underline; }
+.line-anchor:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Coverage row backgrounds + 2px left luminance bar.
+ * The luminance values are chosen so all three are distinguishable
+ * under grayscale (WCAG 1.4.1 non-color cue). */
+table.source tr.line.hit { background: var(--hit-bg); }
+table.source tr.line.miss { background: var(--miss-bg); }
+table.source tr.line.partial { background: var(--partial-bg); }
+table.source tr.line.no-stmt { background: var(--code-bg); }
+
+table.source tr.line.hit > td.line-num { border-left-color: var(--hit-solid); }
+table.source tr.line.miss > td.line-num { border-left-color: var(--miss-solid); }
+table.source tr.line.partial > td.line-num { border-left-color: var(--partial-solid); }
+
+/* Keyboard parity with mouse hover: any row containing keyboard focus
+ * gets the same emphasis a hover would give. */
+table.source tr.line:hover,
+table.source tr.line:focus-within {
+  filter: brightness(0.98);
+}
+
+/* Anchor target (when navigating to #L42) */
+table.source tr.line:target {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  scroll-margin-top: 80px;
+}
+
+/* Branch note appended after partial lines */
+table.source .branch-note {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: var(--text-xs);
+  font-family: var(--font-body);
+  color: var(--muted);
+}
+.branch-arm {
+  display: inline-block;
+  margin-left: 4px;
+  font-family: var(--font-code);
+}
+.branch-arm--hit { color: var(--hit-solid); }
+.branch-arm--miss { color: var(--miss-solid); }
+
+.fn-note {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--partial-solid);
+}
+
+/* Severity glyph (`[H]`/`[P]`/`[M]`) placed in the hits cell so it sits
+ * alongside the per-line hit count and acts as a non-color coverage cue
+ * for users with deuteranopia/protanopia. aria-hidden in markup; the
+ * row's aria-label conveys the same information to screen readers. */
+.sev-glyph {
+  display: inline-block;
+  font-family: var(--font-code);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  margin-right: 6px;
+}
+.sev-glyph--hit { color: var(--hit-solid); }
+.sev-glyph--partial { color: var(--partial-solid); }
+.sev-glyph--miss { color: var(--miss-solid); }
+
+/* ---- Syntax-highlighting tokens (consumed by syntect-emitted spans) -- */
+/* Selectors target the leading TextMate scope segment that syntect
+ * emits via ClassStyle::SpacedPrefixed { prefix: "stok-" }. Trailing
+ * scope-tail classes (e.g. `stok-double-slash`) are kept in markup for
+ * finer theming but unused here. */
+.stok-comment { color: var(--tok-comment); font-style: italic; }
+.stok-keyword { color: var(--tok-keyword); font-weight: 600; }
+.stok-storage { color: var(--tok-keyword); font-weight: 600; }
+.stok-string { color: var(--tok-string); }
+.stok-constant { color: var(--tok-number); }
+.stok-support { color: var(--tok-builtin); }
+.stok-entity { color: var(--tok-builtin); }
+.stok-variable.stok-language { color: var(--tok-keyword); }
+.stok-punctuation { color: var(--tok-punct); }
+
+/* ---- Copy-toast live region for the line-anchor confirmation -------- */
+.copy-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  padding: 8px 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+.copy-toast.visible { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .copy-toast { transition: none; }
+}

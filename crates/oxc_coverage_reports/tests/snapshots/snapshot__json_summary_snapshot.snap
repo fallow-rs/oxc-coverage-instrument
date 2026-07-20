@@ -1,0 +1,84 @@
+---
+source: crates/oxc_coverage_reports/tests/snapshot.rs
+expression: out
+---
+{
+  "total": {
+    "lines": {
+      "total": 5,
+      "covered": 2,
+      "skipped": 0,
+      "pct": 40.0
+    },
+    "statements": {
+      "total": 5,
+      "covered": 2,
+      "skipped": 0,
+      "pct": 40.0
+    },
+    "functions": {
+      "total": 1,
+      "covered": 1,
+      "skipped": 0,
+      "pct": 100.0
+    },
+    "branches": {
+      "total": 2,
+      "covered": 1,
+      "skipped": 0,
+      "pct": 50.0
+    }
+  },
+  "src/a.js": {
+    "lines": {
+      "total": 3,
+      "covered": 2,
+      "skipped": 0,
+      "pct": 66.67
+    },
+    "statements": {
+      "total": 3,
+      "covered": 2,
+      "skipped": 0,
+      "pct": 66.67
+    },
+    "functions": {
+      "total": 1,
+      "covered": 1,
+      "skipped": 0,
+      "pct": 100.0
+    },
+    "branches": {
+      "total": 2,
+      "covered": 1,
+      "skipped": 0,
+      "pct": 50.0
+    }
+  },
+  "src/b.js": {
+    "lines": {
+      "total": 2,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 0.0
+    },
+    "statements": {
+      "total": 2,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 0.0
+    },
+    "functions": {
+      "total": 0,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 100.0
+    },
+    "branches": {
+      "total": 0,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 100.0
+    }
+  }
+}

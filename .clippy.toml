@@ -1,5 +1,22 @@
-# Maximum nesting depth before clippy::excessive_nesting fires.
+# The suite is pre-1.0 and its consumers pin exact versions, so a breaking
+# signature change is cheaper than living with a shape clippy flags.
+avoid-breaking-exported-api = false
+
+# The instrumenter's visitors branch on node kind, coverage kind and pragma
+# state at once; past this depth the applicable conditions stop fitting on
+# screen and the branch that actually runs is hard to identify.
 excessive-nesting-threshold = 7
 
-# Don't break public API compatibility checks (we're pre-1.0)
-avoid-breaking-exported-api = false
+disallowed-methods = [
+  { path = "str::to_ascii_lowercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_ascii_lowercase` instead." },
+  { path = "str::to_ascii_uppercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_ascii_uppercase` instead." },
+  { path = "str::to_lowercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_lowercase` instead." },
+  { path = "str::to_uppercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_uppercase` instead." },
+  { path = "str::replace", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_replace` instead." },
+  { path = "str::replacen", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_replacen` instead." },
+]
+
+disallowed-types = [
+  { path = "std::collections::HashMap", reason = "Use `rustc_hash::FxHashMap` instead, which is typically faster." },
+  { path = "std::collections::HashSet", reason = "Use `rustc_hash::FxHashSet` instead, which is typically faster." },
+]

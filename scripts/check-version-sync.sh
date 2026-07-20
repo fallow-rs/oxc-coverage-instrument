@@ -14,10 +14,10 @@
 #   --mode=published  (release-time, networked)
 #       For each publishable crate whose local version is ALREADY published on
 #       crates.io, diff the local src/ against the published .crate's src/. Any
-#       drift means the crate changed without a version bump: the exact trap
-#       that stalled crates.io at 0.7.2 (source_maps gained API at 0.2.0 without
-#       a bump) and again at 0.7.6 (overlay fix landed on the already-published
-#       source_maps 0.3.1). Fail loudly so the release bumps the crate first.
+#       drift means the crate changed without a version bump, so the release
+#       would ship code that does not match what the version already promises,
+#       while crates.io refuses to overwrite it. Fail loudly here instead and
+#       bump the crate first.
 #
 # Usage:
 #   scripts/check-version-sync.sh [--mode=pins|published]
@@ -63,7 +63,7 @@ for manifest in sorted(crates_dir.glob("*/Cargo.toml")):
 
 dir_to_name = {c["dir"]: n for n, c in crates.items()}
 failures = []
-napi_dir = root / "crates/oxc-coverage-instrument-napi"
+napi_dir = root / "crates/oxc_coverage_instrument_napi"
 
 
 def load_json(path):
@@ -141,7 +141,7 @@ def check_pins():
             version = spec.get("version")
             if path is None:
                 continue
-            target_dir = pathlib.PurePosixPath(path).name  # ../oxc-coverage-x -> oxc-coverage-x
+            target_dir = pathlib.PurePosixPath(path).name  # ../oxc_coverage_x -> oxc_coverage_x
             target_name = dir_to_name.get(target_dir)
             if target_name is None:
                 failures.append(f"{name}: dep '{dep_name}' path '{path}' resolves to no workspace crate")

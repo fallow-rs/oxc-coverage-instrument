@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
-const napiDir = join(repoRoot, 'crates', 'oxc-coverage-instrument-napi');
+const napiDir = join(repoRoot, 'crates', 'oxc_coverage_instrument_napi');
 
 let packageName = '@oxc-coverage-instrument/binding-wasm32-wasi-singlethreaded';
 const installRoots = [];

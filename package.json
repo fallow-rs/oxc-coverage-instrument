@@ -1,8 +1,7 @@
 {
   "name": "oxc-coverage-instrument",
-  "version": "0.4.1",
   "private": true,
-  "description": "Development helper manifest for oxc-coverage-instrument scripts; the published npm package lives in crates/oxc-coverage-instrument-napi.",
+  "description": "Development helper manifest for oxc-coverage-instrument scripts; the published npm package lives in crates/oxc_coverage_instrument_napi.",
   "scripts": {
     "commitlint": "commitlint",
     "istanbul:diff": "node scripts/istanbul-diff.mjs",

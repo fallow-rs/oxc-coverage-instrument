@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { strict as assert } from 'node:assert';
-import { instrument } from '../crates/oxc-coverage-instrument-napi/index.js';
+import { instrument } from '../crates/oxc_coverage_instrument_napi/index.js';
 
 const filename = 'wasm-smoke-fixture.js';
 const source = Array.from({ length: 100 }, (_, index) => {

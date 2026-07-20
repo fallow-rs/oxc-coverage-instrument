@@ -8,6 +8,6 @@
     "smoke:wasi": "NAPI_RS_FORCE_WASI=error node scripts/smoke.mjs"
   },
   "devDependencies": {
-    "oxc-coverage-instrument": "file:../../crates/oxc-coverage-instrument-napi"
+    "oxc-coverage-instrument": "file:../../crates/oxc_coverage_instrument_napi"
   }
 }

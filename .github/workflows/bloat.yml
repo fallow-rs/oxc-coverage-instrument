@@ -54,14 +54,14 @@ jobs:
         run: cargo install cargo-bloat --locked
 
       - name: Build CLI in release mode
-        run: cargo build --release -p oxc-coverage-instrument-cli
+        run: cargo build --release -p oxc_coverage_instrument_cli
 
       - name: Report top functions by size
         run: |
           {
             echo "## Top 20 functions by size"
             echo '```'
-            cargo bloat --release -p oxc-coverage-instrument-cli -n 20
+            cargo bloat --release -p oxc_coverage_instrument_cli -n 20
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -70,7 +70,7 @@ jobs:
           {
             echo "## Top 20 crates by size"
             echo '```'
-            cargo bloat --release -p oxc-coverage-instrument-cli --crates -n 20
+            cargo bloat --release -p oxc_coverage_instrument_cli --crates -n 20
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

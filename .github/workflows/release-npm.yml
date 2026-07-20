@@ -35,7 +35,7 @@ jobs:
         run: ./scripts/check.sh version-sync
 
       - name: Validate exact npm install
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: npm ci
 
   build:
@@ -102,14 +102,12 @@ jobs:
 
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      # `./.github/actions/setup-rust` (not the dtolnay action directly) so the
-      # rust-toolchain.toml channel pin (currently 1.95) is honored when
-      # installing the cross target. Calling dtolnay with `toolchain: stable`
-      # installed the cross target into the `stable` sysroot while cargo,
-      # invoked under the repo, picked up the 1.95 channel from
-      # rust-toolchain.toml and could not find the target's `core` crate.
-      # Caught the hard way on v0.7.0: 5/8 matrix jobs failed and npm publish
-      # was skipped while crates.io publish had already succeeded.
+      # `./.github/actions/setup-rust`, not the dtolnay action directly, so the
+      # rust-toolchain.toml channel pin is honored when installing the cross
+      # target. Calling dtolnay with `toolchain: stable` installs the target
+      # into the `stable` sysroot, while cargo invoked under the repo picks up
+      # the channel from rust-toolchain.toml and cannot find the target's
+      # `core` crate.
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target }}
@@ -131,33 +129,33 @@ jobs:
           tool: cargo-zigbuild
 
       - name: Install dependencies
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: npm ci
 
       - name: Patch napi-rs WASI link dir selector
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: node scripts/patch-napi-wasi-link-dir.mjs
 
       - name: Build native binding
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: ${{ matrix.build }}
 
       - name: Patch single-threaded WASI artifacts
         if: matrix.target == 'wasm32-wasip1'
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: node scripts/patch-wasi-singlethreaded-artifacts.mjs .
 
-      # Inject the SharedArrayBuffer guard into the regenerated browser shim
-      # (issue #89). The shim is only emitted by the wasm32-wasip1-threads
-      # matrix entry; the patch script is a no-op when the shim is absent,
-      # so it is safe to run unconditionally across the matrix.
+      # Inject the SharedArrayBuffer guard into the regenerated browser shim.
+      # Only the wasm32-wasip1-threads matrix entry emits the shim; the patch
+      # script is a no-op when it is absent, so running it across the whole
+      # matrix is safe.
       - name: Patch wasi-browser shim with SharedArrayBuffer guard
         if: matrix.target == 'wasm32-wasip1-threads'
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: node scripts/patch-wasi-browser-shim.mjs
 
       - name: Patch root browser loader
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: node scripts/patch-browser-loader.mjs
 
       - name: Upload artifact
@@ -177,15 +175,15 @@ jobs:
           # wasm-only globs alongside .node globs is safe (unmatched patterns are
           # silent as long as at least one file is captured).
           path: |
-            crates/oxc-coverage-instrument-napi/*.node
-            crates/oxc-coverage-instrument-napi/*.wasm
-            crates/oxc-coverage-instrument-napi/index.js
-            crates/oxc-coverage-instrument-napi/index.d.ts
-            crates/oxc-coverage-instrument-napi/browser.js
-            crates/oxc-coverage-instrument-napi/coverage-instrument.wasi.cjs
-            crates/oxc-coverage-instrument-napi/coverage-instrument.wasi-browser.js
-            crates/oxc-coverage-instrument-napi/wasi-worker.mjs
-            crates/oxc-coverage-instrument-napi/wasi-worker-browser.mjs
+            crates/oxc_coverage_instrument_napi/*.node
+            crates/oxc_coverage_instrument_napi/*.wasm
+            crates/oxc_coverage_instrument_napi/index.js
+            crates/oxc_coverage_instrument_napi/index.d.ts
+            crates/oxc_coverage_instrument_napi/browser.js
+            crates/oxc_coverage_instrument_napi/coverage-instrument.wasi.cjs
+            crates/oxc_coverage_instrument_napi/coverage-instrument.wasi-browser.js
+            crates/oxc_coverage_instrument_napi/wasi-worker.mjs
+            crates/oxc_coverage_instrument_napi/wasi-worker-browser.mjs
           if-no-files-found: error
 
   publish-crate:
@@ -204,13 +202,11 @@ jobs:
         with:
           cache-key: release-publish-crate
 
-      # Guard against the lagged-delta publish trap before any publish runs:
-      # for each publishable crate whose local version is ALREADY on crates.io,
-      # diff local src/ against the published .crate. Drift means the crate
-      # changed without a version bump (the source_maps regression that stalled
-      # crates.io at 0.7.2, and again on the already-published 0.3.1 at 0.7.6).
-      # Fails the job loudly so the missing bump is fixed instead of silently
-      # shipping mismatched code or skipping the crate.
+      # Before any publish runs: for each publishable crate whose local version
+      # is ALREADY on crates.io, diff local src/ against the published .crate.
+      # Drift means the crate changed without a version bump, and crates.io
+      # will not overwrite the published version. Fail loudly here so the
+      # missing bump is fixed instead of the crate silently being skipped.
       - name: Verify no unbumped src drift on published crates
         run: ./scripts/check-version-sync.sh --mode=published
 
@@ -224,9 +220,8 @@ jobs:
       # Each publish skips ONLY when the exact version already exists on the
       # crates.io index (idempotent re-run). Any other failure, notably a
       # verify-build error from a stale companion version pin, fails the job
-      # loudly instead of being swallowed by a blanket `|| echo skipping`.
-      # A silent mask previously let crates.io stall at 0.7.2 while npm kept
-      # shipping (the source_maps 0.2.0 API-without-bump regression).
+      # loudly instead of being swallowed by a blanket `|| echo skipping`,
+      # which would let crates.io fall behind npm without failing the release.
       - name: Publish oxc_coverage_types
         run: |
           set +e
@@ -326,16 +321,16 @@ jobs:
         run: npm install -g npm@11.12.1
 
       - name: Install dependencies
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: npm ci
 
       - name: Download all artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          path: crates/oxc-coverage-instrument-napi/artifacts
+          path: crates/oxc_coverage_instrument_napi/artifacts
 
       - name: Isolate single-threaded wasm artifact
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: |
           mkdir -p artifacts-singlethreaded
           mv artifacts/bindings-wasm32-wasip1 artifacts-singlethreaded/
@@ -346,15 +341,15 @@ jobs:
         # that `napi build` emits alongside the .wasm binary. Without it,
         # napi-rs looks at the package root and fails ENOENT during the
         # wasm32-wasi npm-dir population step.
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: npx napi artifacts --output-dir artifacts --build-output-dir artifacts/bindings-wasm32-wasip1-threads
 
       - name: Prepare single-threaded WASI npm package
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: node scripts/prepare-wasi-singlethreaded-package.mjs artifacts-singlethreaded/bindings-wasm32-wasip1
 
       - name: Validate single-threaded WASI npm package
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: node scripts/validate-wasi-singlethreaded-package.mjs npm/wasm32-wasi-singlethreaded
 
       - name: Restore JS/TS wrapper from build artifacts
@@ -363,8 +358,8 @@ jobs:
         # produced by the matrix build. Copy one pair back into the napi crate
         # directory so `npm publish` picks them up per the `files` field in package.json.
         # Without this, the tarball ships without index.js and `require('./index.js')`
-        # in vitest.js fails at import time (see issue triggered after v0.3.1).
-        working-directory: crates/oxc-coverage-instrument-napi
+        # in vitest.js fails at import time.
+        working-directory: crates/oxc_coverage_instrument_napi
         run: |
           for dir in artifacts/bindings-*/; do
             if [ -f "$dir/index.js" ] && [ -f "$dir/index.d.ts" ]; then
@@ -388,7 +383,7 @@ jobs:
         # root, so without this copy the root tarball ships an `exports` map that
         # references missing files. Source: the bindings-wasm32-wasip1-threads
         # artifact uploaded by the matrix build.
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: |
           src=artifacts/bindings-wasm32-wasip1-threads
           if [ ! -d "$src" ]; then
@@ -405,11 +400,11 @@ jobs:
           echo "Restored wasm shims from $src"
 
       - name: Patch root browser loader
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: node scripts/patch-browser-loader.mjs
 
       - name: Update versions from tag
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: |
           VERSION="${TAG_REF#refs/tags/v}"
           for pkg in package.json npm/*/package.json; do
@@ -429,11 +424,11 @@ jobs:
           done
 
       - name: Prepare root package
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: npx napi pre-publish --no-gh-release -t npm --skip-optional-publish
 
       - name: Restore single-threaded optional dependency
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: |
           VERSION="${TAG_REF#refs/tags/v}"
           node -e "
@@ -448,7 +443,7 @@ jobs:
         run: node scripts/npm-pack-surface-check.mjs --require-release-artifacts
 
       - name: Publish platform packages
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: |
           VERSION="${TAG_REF#refs/tags/v}"
           FAILED=0
@@ -471,7 +466,7 @@ jobs:
           fi
 
       - name: Publish root package
-        working-directory: crates/oxc-coverage-instrument-napi
+        working-directory: crates/oxc_coverage_instrument_napi
         run: |
           VERSION="${TAG_REF#refs/tags/v}"
           if npm view "oxc-coverage-instrument@$VERSION" version >/dev/null 2>&1; then

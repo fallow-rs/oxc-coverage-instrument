@@ -6,19 +6,19 @@ import { promisify } from 'node:util';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
-import { v8ToIstanbul } from '../crates/oxc-coverage-instrument-napi/index.js';
+import { v8ToIstanbul } from '../crates/oxc_coverage_instrument_napi/index.js';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const fixturePath = join(
   repoRoot,
   'crates',
-  'oxc-coverage-instrument',
+  'oxc_coverage_instrument',
   'tests',
   'conformance',
   'fixtures',
   '24-nested-functions.js',
 );
-const fixtureFilename = 'crates/oxc-coverage-instrument/tests/conformance/fixtures/24-nested-functions.js';
+const fixtureFilename = 'crates/oxc_coverage_instrument/tests/conformance/fixtures/24-nested-functions.js';
 const inlineFilename = 'inspector-inline.js';
 const inlineUrl = 'oxc-coverage-instrument://inline-precise-coverage.js';
 const nestedArmFilename = 'inspector-nested-arm.js';

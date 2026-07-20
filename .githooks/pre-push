@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Pre-push hook that mirrors the fast CI checks that block merges to main.
 #
-# Why: several releases this repo has shipped regressed in CI, or worse,
-# tagged a release, because a pre-flight check was skipped locally. The
-# costs of a tag-then-fix cycle on a published npm package are high
-# (deprecate, bump, repeat). This hook closes that gap.
+# Runs the same fast checks that gate a merge to main, so a broken push is
+# caught before it costs a CI round trip or a published-package fix-up.
 #
 # Setup (one-time, per clone):
 #   git config core.hooksPath .githooks

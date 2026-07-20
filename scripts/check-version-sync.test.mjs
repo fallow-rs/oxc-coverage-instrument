@@ -34,14 +34,14 @@ const makeFixture = (version = publicVersion) => {
   chmodSync(resolve(root, 'scripts/check-version-sync.sh'), 0o755);
   chmodSync(resolve(root, 'scripts/sync-npm-versions.sh'), 0o755);
 
-  mkdirSync(resolve(root, 'crates/oxc-coverage-instrument'), { recursive: true });
+  mkdirSync(resolve(root, 'crates/oxc_coverage_instrument'), { recursive: true });
   writeFileSync(
-    resolve(root, 'crates/oxc-coverage-instrument/Cargo.toml'),
+    resolve(root, 'crates/oxc_coverage_instrument/Cargo.toml'),
     `[package]\nname = "oxc_coverage_instrument"\nversion = "${version}"\n`,
   );
-  mkdirSync(resolve(root, 'crates/oxc-coverage-instrument-napi'), { recursive: true });
+  mkdirSync(resolve(root, 'crates/oxc_coverage_instrument_napi'), { recursive: true });
   writeFileSync(
-    resolve(root, 'crates/oxc-coverage-instrument-napi/Cargo.toml'),
+    resolve(root, 'crates/oxc_coverage_instrument_napi/Cargo.toml'),
     '[package]\nname = "oxc_coverage_instrument_napi"\nversion = "0.2.0"\npublish = false\n',
   );
   mkdirSync(resolve(root, '.github/workflows'), { recursive: true });
@@ -51,16 +51,16 @@ const makeFixture = (version = publicVersion) => {
   );
 
   const optionalDependencies = { [optionalName]: version };
-  writeJson(resolve(root, 'crates/oxc-coverage-instrument-napi/package.json'), {
+  writeJson(resolve(root, 'crates/oxc_coverage_instrument_napi/package.json'), {
     name: 'oxc-coverage-instrument',
     version,
     optionalDependencies,
   });
-  writeJson(resolve(root, 'crates/oxc-coverage-instrument-napi/npm/darwin-arm64/package.json'), {
+  writeJson(resolve(root, 'crates/oxc_coverage_instrument_napi/npm/darwin-arm64/package.json'), {
     name: optionalName,
     version,
   });
-  writeJson(resolve(root, 'crates/oxc-coverage-instrument-napi/package-lock.json'), {
+  writeJson(resolve(root, 'crates/oxc_coverage_instrument_napi/package-lock.json'), {
     name: 'oxc-coverage-instrument',
     version,
     lockfileVersion: 3,
@@ -89,7 +89,7 @@ const makeFixture = (version = publicVersion) => {
 const runCheck = (root, expectedVersion = null) => {
   if (expectedVersion !== null) {
     writeFileSync(
-      resolve(root, 'crates/oxc-coverage-instrument/Cargo.toml'),
+      resolve(root, 'crates/oxc_coverage_instrument/Cargo.toml'),
       `[package]\nname = "oxc_coverage_instrument"\nversion = "${expectedVersion}"\n`,
     );
   }
@@ -118,49 +118,49 @@ try {
   assert.equal(runCheck(makeFixture()).status, 0, 'synchronized fixture must pass');
   expectDriftFailure(
     'published npm version drift',
-    'crates/oxc-coverage-instrument-napi/package.json',
+    'crates/oxc_coverage_instrument_napi/package.json',
     (manifest) => { manifest.version = '0.10.0'; },
     /published npm package version/,
   );
   expectDriftFailure(
     'platform package version drift',
-    'crates/oxc-coverage-instrument-napi/npm/darwin-arm64/package.json',
+    'crates/oxc_coverage_instrument_napi/npm/darwin-arm64/package.json',
     (manifest) => { manifest.version = '0.10.0'; },
     /darwin-arm64.*version/,
   );
   expectDriftFailure(
     'published npm optional pin drift',
-    'crates/oxc-coverage-instrument-napi/package.json',
+    'crates/oxc_coverage_instrument_napi/package.json',
     (manifest) => { manifest.optionalDependencies[optionalName] = '0.10.0'; },
     /optional dependency.*darwin-arm64/,
   );
   expectDriftFailure(
     'lockfile top-level version drift',
-    'crates/oxc-coverage-instrument-napi/package-lock.json',
+    'crates/oxc_coverage_instrument_napi/package-lock.json',
     (lockfile) => { lockfile.version = '0.10.0'; },
     /lockfile top-level version/,
   );
   expectDriftFailure(
     'lockfile root package version drift',
-    'crates/oxc-coverage-instrument-napi/package-lock.json',
+    'crates/oxc_coverage_instrument_napi/package-lock.json',
     (lockfile) => { lockfile.packages[''].version = '0.10.0'; },
     /lockfile root package version/,
   );
   expectDriftFailure(
     'lockfile optional pin drift',
-    'crates/oxc-coverage-instrument-napi/package-lock.json',
+    'crates/oxc_coverage_instrument_napi/package-lock.json',
     (lockfile) => { lockfile.packages[''].optionalDependencies[optionalName] = '0.10.0'; },
     /lockfile optional dependency.*darwin-arm64/,
   );
   expectDriftFailure(
     'lockfile missing optional pin',
-    'crates/oxc-coverage-instrument-napi/package-lock.json',
+    'crates/oxc_coverage_instrument_napi/package-lock.json',
     (lockfile) => { delete lockfile.packages[''].optionalDependencies[optionalName]; },
     /lockfile optional dependency.*darwin-arm64/,
   );
   expectDriftFailure(
     'lockfile extra optional pin',
-    'crates/oxc-coverage-instrument-napi/package-lock.json',
+    'crates/oxc_coverage_instrument_napi/package-lock.json',
     (lockfile) => {
       lockfile.packages[''].optionalDependencies[
         '@oxc-coverage-instrument/binding-linux-x64-gnu'
@@ -170,7 +170,7 @@ try {
   );
   expectDriftFailure(
     'lockfile installed optional package version drift',
-    'crates/oxc-coverage-instrument-napi/package-lock.json',
+    'crates/oxc_coverage_instrument_napi/package-lock.json',
     (lockfile) => { lockfile.packages[optionalPackagePath].version = '0.10.0'; },
     /lockfile package.*darwin-arm64.*version/,
   );
@@ -184,7 +184,7 @@ try {
   const syncedCheck = runCheck(syncRoot, '0.10.2');
   assert.equal(syncedCheck.status, 0, `${syncedCheck.stdout}\n${syncedCheck.stderr}`);
   const syncedLock = readJson(
-    resolve(syncRoot, 'crates/oxc-coverage-instrument-napi/package-lock.json'),
+    resolve(syncRoot, 'crates/oxc_coverage_instrument_napi/package-lock.json'),
   );
   assert.equal(syncedLock.packages[optionalPackagePath].version, '0.10.2');
   assert.match(syncedLock.packages[optionalPackagePath].resolved, /0\.10\.2\.tgz$/);

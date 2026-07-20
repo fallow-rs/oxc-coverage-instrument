@@ -1,0 +1,36 @@
+{
+  "name": "@oxc-coverage-instrument/binding-wasm32-wasi-singlethreaded",
+  "version": "0.10.3",
+  "main": "coverage-instrument.wasi.cjs",
+  "browser": "coverage-instrument.wasi-browser.js",
+  "files": [
+    "coverage-instrument.wasm32-wasi.wasm",
+    "coverage-instrument.wasi.cjs",
+    "coverage-instrument.wasi-browser.js",
+    "wasi-worker.mjs",
+    "wasi-worker-browser.mjs"
+  ],
+  "description": "Single-threaded WASI WebAssembly binding for oxc-coverage-instrument.",
+  "keywords": [
+    "oxc",
+    "istanbul",
+    "coverage",
+    "javascript",
+    "typescript",
+    "instrumentation",
+    "code-coverage",
+    "wasm",
+    "wasi"
+  ],
+  "homepage": "https://github.com/fallow-rs/oxc-coverage-instrument",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fallow-rs/oxc-coverage-instrument.git",
+    "directory": "crates/oxc_coverage_instrument_napi/npm/wasm32-wasi-singlethreaded"
+  },
+  "bugs": "https://github.com/fallow-rs/oxc-coverage-instrument/issues",
+  "dependencies": {
+    "@napi-rs/wasm-runtime": "^1.1.4"
+  }
+}

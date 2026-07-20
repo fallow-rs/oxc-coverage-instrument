@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
-NAPI_DIR="$ROOT/crates/oxc-coverage-instrument-napi"
+NAPI_DIR="$ROOT/crates/oxc_coverage_instrument_napi"
 THREADED_PACKAGE="$NAPI_DIR/npm/wasm32-wasi"
 SINGLE_THREADED_PACKAGE="$NAPI_DIR/npm/wasm32-wasi-singlethreaded"
 NAPI_CLI_DIST="$NAPI_DIR/node_modules/@napi-rs/cli/dist"
@@ -198,7 +198,7 @@ require_tool cargo "Install Rust using rustup."
 require_tool rustup "Install Rust using rustup."
 
 if [ ! -d "$NAPI_DIR/node_modules/@napi-rs/cli" ]; then
-  die "N-API dependencies are missing. Run 'npm --prefix crates/oxc-coverage-instrument-napi install'."
+  die "N-API dependencies are missing. Run 'npm --prefix crates/oxc_coverage_instrument_napi install'."
 fi
 
 installed_targets="$(rustup target list --installed)"

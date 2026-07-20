@@ -367,10 +367,10 @@ write_fake_surface_fixture() {
     "$napi_dir/npm/wasm32-wasi" \
     "$napi_dir/npm/wasm32-wasi-singlethreaded" \
     "$bin_dir"
-  cp "$ROOT/crates/oxc-coverage-instrument-napi/package.json" "$napi_dir/package.json"
-  cp "$ROOT/crates/oxc-coverage-instrument-napi/npm/wasm32-wasi/package.json" \
+  cp "$ROOT/crates/oxc_coverage_instrument_napi/package.json" "$napi_dir/package.json"
+  cp "$ROOT/crates/oxc_coverage_instrument_napi/npm/wasm32-wasi/package.json" \
     "$napi_dir/npm/wasm32-wasi/package.json"
-  cp "$ROOT/crates/oxc-coverage-instrument-napi/npm/wasm32-wasi-singlethreaded/package.json" \
+  cp "$ROOT/crates/oxc_coverage_instrument_napi/npm/wasm32-wasi-singlethreaded/package.json" \
     "$napi_dir/npm/wasm32-wasi-singlethreaded/package.json"
 
   while IFS= read -r file; do

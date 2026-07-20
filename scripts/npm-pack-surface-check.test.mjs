@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const rootDir = fileURLToPath(new URL('..', import.meta.url));
 const sourceScript = resolve(rootDir, 'scripts/npm-pack-surface-check.mjs');
-const sourceNapiDir = resolve(rootDir, 'crates/oxc-coverage-instrument-napi');
+const sourceNapiDir = resolve(rootDir, 'crates/oxc_coverage_instrument_napi');
 const platformNames = [
   'darwin-arm64',
   'darwin-x64',
@@ -32,7 +32,7 @@ const platformNames = [
 
 const makeFixture = () => {
   const fixture = mkdtempSync(join(tmpdir(), 'npm-pack-surface-check-'));
-  const napiDir = resolve(fixture, 'crates/oxc-coverage-instrument-napi');
+  const napiDir = resolve(fixture, 'crates/oxc_coverage_instrument_napi');
   const script = resolve(fixture, 'scripts/npm-pack-surface-check.mjs');
   mkdirSync(dirname(script), { recursive: true });
   mkdirSync(resolve(fixture, '.github/workflows'), { recursive: true });
@@ -264,7 +264,7 @@ expectParityFailure(
     );
     manifest.name = '@oxc-coverage-instrument/binding-linux-riscv64-gnu';
     manifest.repository.directory =
-      'crates/oxc-coverage-instrument-napi/npm/linux-riscv64-gnu';
+      'crates/oxc_coverage_instrument_napi/npm/linux-riscv64-gnu';
     writeFileSync(resolve(targetDir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   },
   /platform manifests:.*unexpected.*linux-riscv64-gnu/,

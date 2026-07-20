@@ -1,0 +1,57 @@
+[package]
+name = "oxc_coverage_instrument"
+version = "0.10.3"
+authors.workspace = true
+categories = ["development-tools::testing", "web-programming"]
+edition.workspace = true
+homepage.workspace = true
+include = ["/README.md", "/benches", "/examples", "/src"]
+keywords.workspace = true
+license.workspace = true
+publish = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST"
+
+[lints]
+workspace = true
+
+[lib]
+# The crate-level docs and `instrument` carry runnable examples.
+doctest = true
+
+[features]
+codspeed = ["criterion2/codspeed"]
+
+[dependencies]
+oxc_coverage_source_maps = { workspace = true }
+oxc_coverage_types = { workspace = true }
+oxc_coverage_v8 = { workspace = true }
+
+oxc_allocator = { workspace = true }
+oxc_ast = { workspace = true }
+oxc_codegen = { workspace = true }
+oxc_parser = { workspace = true }
+oxc_semantic = { workspace = true }
+oxc_span = { workspace = true }
+oxc_syntax = { workspace = true }
+oxc_transformer = { workspace = true }
+oxc_traverse = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+srcmap-remapping = { workspace = true }
+srcmap-sourcemap = { workspace = true }
+
+[dev-dependencies]
+cow-utils = { workspace = true }
+criterion2 = { workspace = true }
+insta = { workspace = true }
+oxc_sourcemap = { workspace = true }
+rustc-hash = { workspace = true }
+serde = { workspace = true }
+
+[[bench]]
+name = "instrument"
+harness = false
+test = false
+required-features = ["codspeed"]
