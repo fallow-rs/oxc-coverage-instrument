@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784633254253,
+  "lastUpdate": 1784647312300,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2319,6 +2319,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 92259104,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "e3e9486f4882cd53eaa541d110f5fc88cb8f67a2",
+          "message": "fix(instrument): keep new API surfaces extensible",
+          "timestamp": "2026-07-21T17:15:17+02:00",
+          "tree_id": "45e51ba2bae9dade60b264abe321e4e8b2aee67f",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/e3e9486f4882cd53eaa541d110f5fc88cb8f67a2"
+        },
+        "date": 1784647311336,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92132216,
             "unit": "bytes"
           }
         ]
