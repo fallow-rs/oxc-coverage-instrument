@@ -30,7 +30,9 @@ version-sync            primitive    Internal version pins
 napi-test               primitive    Native Node binding tests
 wasi-shim-test          primitive    Generated WASI shim patch behavior
 browser-loader-test     primitive    Browser loader package selection
-istanbul-diff           primitive    Istanbul byte-for-byte comparison
+istanbul-diff-strict    primitive    Strict Istanbul byte-for-byte comparison
+istanbul-diff-default   primitive    Default profile documented-delta comparison
+istanbul-diff           aggregate    Both coverage profile comparisons
 prepare-package-surface preparation  Build generated WASI package artifacts
 package-surface         primitive    npm package file surfaces
 audit                   primitive    RustSec advisory audit
@@ -212,11 +214,17 @@ run_browser_loader_test() {
   (cd "$NAPI_DIR" && npm run test:browser-loader)
 }
 
-run_istanbul_diff() {
+run_istanbul_diff_profile() {
+  local profile="$1"
   require_native_napi
   require_dir "$ROOT/node_modules/istanbul-lib-instrument" "Run 'npm install' at the repository root."
-  echo "[check:istanbul-diff] node scripts/istanbul-diff.mjs"
-  node scripts/istanbul-diff.mjs
+  echo "[check:istanbul-diff-$profile] node scripts/istanbul-diff.mjs --profile=$profile"
+  node scripts/istanbul-diff.mjs "--profile=$profile"
+}
+
+run_istanbul_diff() {
+  run_istanbul_diff_profile strict
+  run_istanbul_diff_profile default
 }
 
 run_prepare_package_surface() {
@@ -427,6 +435,8 @@ case "$profile" in
   napi-test) run_napi_test ;;
   wasi-shim-test) run_wasi_shim_test ;;
   browser-loader-test) run_browser_loader_test ;;
+  istanbul-diff-strict) run_istanbul_diff_profile strict ;;
+  istanbul-diff-default) run_istanbul_diff_profile default ;;
   istanbul-diff) run_istanbul_diff ;;
   prepare-package-surface) run_prepare_package_surface ;;
   package-surface) run_package_surface ;;

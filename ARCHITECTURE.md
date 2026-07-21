@@ -127,9 +127,10 @@ per-branch location counts match, that the JSON field set matches, and that the
 instrumented output re-parses as valid JavaScript.
 
 CI also runs a blocking byte-for-byte diff over the same corpus under the strict
-Istanbul compatibility profile, without divergence filters. That catches
-span-level and counter-shape drift which count-only tests miss. The default Oxc
-extensions are enumerated in
+Istanbul compatibility profile, without divergence filters. A separate gate
+compares the default profile with that strict shape and permits only documented
+name, method-span, synthetic-else, logical-assignment, and optional-chain
+extensions. The default Oxc extensions are enumerated in
 [the instrumenter's README](crates/oxc_coverage_instrument/README.md#differences-from-istanbul-lib-instrument),
 and `scripts/istanbul-diff.mjs` is the tool that enforces profile parity.
 

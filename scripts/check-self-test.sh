@@ -589,6 +589,8 @@ expected_profiles=(
   napi-test
   wasi-shim-test
   browser-loader-test
+  istanbul-diff-strict
+  istanbul-diff-default
   istanbul-diff
   prepare-package-surface
   package-surface

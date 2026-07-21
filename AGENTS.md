@@ -99,15 +99,16 @@ npm install
 node crates/oxc_coverage_instrument/tests/conformance/generate-reference.mjs
 ```
 
-`./scripts/check.sh istanbul-diff` runs the byte-for-byte diff over the same
-corpus, filtering the divergences documented in the README.
+`./scripts/check.sh istanbul-diff` runs both profile gates over the same corpus:
+the strict profile must match Istanbul byte for byte, and the default profile
+may differ only through extensions documented in the README.
 
 ## Scripts
 
 | Script | Purpose |
 |:-------|:--------|
 | `scripts/check.sh` | Dispatcher for every local verification profile. |
-| `scripts/istanbul-diff.mjs` | Byte-for-byte conformance diff against `istanbul-lib-instrument`. |
+| `scripts/istanbul-diff.mjs` | Strict byte diff plus the default-profile documented-delta gate. |
 | `scripts/istanbul-upstream-specs.mjs` | Runtime cases taken from upstream Istanbul specs. |
 | `scripts/real-world-output.mjs` | Runtime behaviour and counter placement on production-like sources. |
 | `scripts/real-world-parity.mjs` | Count-level parity over the benchmark corpus. |

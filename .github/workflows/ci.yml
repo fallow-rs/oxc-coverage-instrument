@@ -334,10 +334,9 @@ jobs:
         run: node scripts/wasm-size-check.mjs crates/oxc_coverage_instrument_napi/coverage-instrument.wasm32-wasi.wasm
 
   istanbul-diff:
-    # Byte-for-byte diff against istanbul-lib-instrument on the shared
-    # conformance fixtures after filtering documented intentional divergences.
-    # This catches span-level and counter-shape regressions before they ship.
-    name: Istanbul byte diff
+    # The strict profile must match Istanbul exactly. The default profile may
+    # differ only through extensions documented in the instrumenter README.
+    name: Coverage profile conformance
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -353,7 +352,10 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install napi deps (brings in istanbul-lib-instrument devDep)
+      - name: Install conformance dependencies
+        run: npm ci
+
+      - name: Install napi dependencies
         working-directory: crates/oxc_coverage_instrument_napi
         run: npm ci || npm install
 
@@ -361,20 +363,23 @@ jobs:
         working-directory: crates/oxc_coverage_instrument_napi
         run: npx napi build --platform
 
-      - name: Run istanbul diff
-        run: node scripts/istanbul-diff.mjs | tee istanbul-diff.log
+      - name: Compare strict profile with Istanbul
+        run: ./scripts/check.sh istanbul-diff-strict | tee istanbul-diff-strict.log
+
+      - name: Check default profile extensions
+        run: ./scripts/check.sh istanbul-diff-default | tee istanbul-diff-default.log
 
       - name: Run compose smoke
         # Eager compose parity with the deferred remap, plus the mapping
         # boundary sweep; fails on any divergence or dangling counter.
         run: node scripts/compose-eager-smoke.mjs
 
-      - name: Upload diff log
+      - name: Upload profile logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: istanbul-diff-log
-          path: istanbul-diff.log
+          name: coverage-profile-logs
+          path: istanbul-diff-*.log
           if-no-files-found: warn
 
   vitest-example-binding:
