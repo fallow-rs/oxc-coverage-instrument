@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784627224617,
+  "lastUpdate": 1784629692644,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2232,6 +2232,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 92234720,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "982ed4c358a7b3e652089d1dc22a39d5f0750580",
+          "message": "fix(instrument): keep eager branches whose umbrella fails but arms remap\n\nThe eager gate in register_branch rejected a branch as soon as its umbrella\nlocation failed getMapping resolution, before the arms were considered. The\ndeferred path keeps such a branch: prune_single_source_unmapped and\nfan_out_branches drop only the unmappable arms and reassign the entry's loc\nfrom the first surviving arm. A switch whose head sits on an unmapped line\nwhile its cases sit on mapped ones therefore vanished from the eager map,\nalong with its arm counters, while the deferred remap kept it.\n\nMove the umbrella check after arm collection: when the umbrella fails but at\nleast one arm still remaps, keep the branch and store that arm's generated\nlocation as the entry loc, so the finalize remap resolves it to the same\noriginal position the deferred fallback assigns. The gate rejects on the\numbrella only when no arm remaps either, which is exactly when the deferred\npath drops the branch too. Outside eager mode location_maps never rejects,\nso registration is unchanged.\n\nValidated against the canonicalizing remap on the switch repro (map parity,\ncounter emission and runtime hits), the all-unmapped drop guard, the compose\nsmoke sweep, and real babel maps over the benchmark libraries.\n\nFixes #195",
+          "timestamp": "2026-07-21T12:26:20+02:00",
+          "tree_id": "dbe4b5d048eed2ee86d0a81dc6516bacd3625704",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/982ed4c358a7b3e652089d1dc22a39d5f0750580"
+        },
+        "date": 1784629692020,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92239224,
             "unit": "bytes"
           }
         ]
