@@ -1,4 +1,4 @@
-//! ECMAScript source-text location helpers.
+//! ECMAScript source-text location helpers for the transform kernel.
 
 /// Find the first ECMAScript line terminator and return its byte offset and
 /// byte width. CRLF is one logical terminator spanning two bytes.

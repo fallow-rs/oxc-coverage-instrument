@@ -26,6 +26,7 @@ codspeed = ["criterion2/codspeed"]
 
 [dependencies]
 oxc_coverage_source_maps = { workspace = true }
+oxc_coverage_transform = { workspace = true }
 oxc_coverage_types = { workspace = true }
 oxc_coverage_v8 = { workspace = true }
 
@@ -54,9 +55,3 @@ name = "instrument"
 harness = false
 test = false
 required-features = ["codspeed"]
-
-[[bench]]
-name = "ast_kernel"
-harness = false
-test = false
-required-features = ["ast-api", "codspeed"]

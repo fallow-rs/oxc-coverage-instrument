@@ -1,4 +1,4 @@
-//! Counter slot identity, and the AST builders that emit counter increments.
+//! Counter slot identity and the AST builders that emit counter increments.
 
 use std::mem;
 
@@ -8,7 +8,7 @@ use oxc_span::SPAN;
 use oxc_syntax::operator::UpdateOperator;
 use oxc_traverse::TraverseCtx;
 
-use super::CoverageState;
+use super::{CoverageState, root_bound_identifier};
 
 /// Which counter map a [`PendingInsertion`] belongs to.
 #[derive(Clone, Copy)]
@@ -97,16 +97,16 @@ fn computed_index<'a>(
 /// or `cov_fn.b[branch_id][path_idx]++` depending on the kind.
 fn build_counter_expr<'a>(
     kind: CounterKind<'a>,
-    ctx: &TraverseCtx<'a, CoverageState>,
+    ctx: &mut TraverseCtx<'a, CoverageState>,
 ) -> Expression<'a> {
     let target = match kind {
         CounterKind::Slot { cov_fn_name, kind, id } => {
-            let coverage = Expression::new_identifier(SPAN, cov_fn_name, ctx);
+            let coverage = root_bound_identifier(cov_fn_name, ctx).create_read_expression(ctx);
             let field = static_field(coverage, alloc_str(kind, ctx), ctx);
             computed_index(field, id, ctx)
         }
         CounterKind::Branch { cov_fn_name, branch_id, path_idx } => {
-            let coverage = Expression::new_identifier(SPAN, cov_fn_name, ctx);
+            let coverage = root_bound_identifier(cov_fn_name, ctx).create_read_expression(ctx);
             let b = static_field(coverage, "b", ctx);
             let outer = computed_index(b, branch_id, ctx);
             computed_index(outer, path_idx, ctx)
@@ -124,7 +124,7 @@ fn build_counter_expr<'a>(
 /// Build a counter increment statement wrapping the matching expression.
 pub(super) fn build_counter_stmt<'a>(
     kind: CounterKind<'a>,
-    ctx: &TraverseCtx<'a, CoverageState>,
+    ctx: &mut TraverseCtx<'a, CoverageState>,
 ) -> Statement<'a> {
     let expr = build_counter_expr(kind, ctx);
     Statement::new_expression_statement(SPAN, expr, ctx)
@@ -137,7 +137,7 @@ pub(super) fn build_counter_stmt<'a>(
 pub(super) fn prepend_counter<'a>(
     target: &mut Expression<'a>,
     kind: CounterKind<'a>,
-    ctx: &TraverseCtx<'a, CoverageState>,
+    ctx: &mut TraverseCtx<'a, CoverageState>,
 ) {
     let counter = build_counter_expr(kind, ctx);
     let orig = mem::replace(target, dummy_expr(ctx));

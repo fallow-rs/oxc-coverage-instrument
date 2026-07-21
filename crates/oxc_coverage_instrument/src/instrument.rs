@@ -3,26 +3,25 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::coverage_builder::{CoverageMaps, build_file_coverage, build_function_identity_map};
+use crate::preamble::{PreambleInputs, djb31_hex, generate_cov_fn_name, generate_preamble_source};
 use oxc_allocator::Allocator;
 use oxc_ast::{
     ast::{Expression, Program, Statement},
     builder::AstBuilder,
 };
 use oxc_codegen::{Codegen, CodegenOptions};
-use oxc_coverage_types::{FileCoverage, UnhandledPragma};
+use oxc_coverage_transform::{
+    BranchRecord, CoverageMetadata, FunctionRecord, PragmaMap, RegistrationPolicy, TransformInit,
+    TransformLocation, TransformPosition, TransformProgramInput, UnhandledDirective,
+    resolve_cov_fn_name, transform_program,
+};
+use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position, UnhandledPragma};
 use oxc_parser::{Parser, ParserReturn};
 use oxc_semantic::{Scoping, SemanticBuilder};
 use oxc_span::{SPAN, SourceType};
 use oxc_transformer::{
     DecoratorOptions, JsxOptions, TransformOptions, Transformer, TypeScriptOptions,
-};
-use oxc_traverse::traverse_mut;
-
-use crate::coverage_builder::{CoverageMaps, build_file_coverage, build_function_identity_map};
-use crate::pragma::PragmaMap;
-use crate::transform::{
-    CoverageState, CoverageTransform, PreambleInputs, TransformInit, djb31_hex,
-    generate_cov_fn_name, generate_preamble_source,
 };
 
 /// Parser source type supplied explicitly by an embedding host.
@@ -489,7 +488,8 @@ pub fn instrument(
     let mut parsed = parse_program(&allocator, source, filename, options.source_type)?;
     let prepared_input_source_map = prepare_input_source_map(options);
 
-    let (pragmas, unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
+    let (pragmas, unhandled_directives) = PragmaMap::from_program(&parsed.program, source);
+    let unhandled_pragmas = adapt_unhandled_directives(source, unhandled_directives);
     let scoping = prepare_scoping(PrepareScopingInput {
         allocator: &allocator,
         filename,
@@ -613,22 +613,32 @@ fn instrument_program_with_pragmas(
 
     let cov_fn_base = generate_cov_fn_name(filename);
     let cov_fn_name = resolve_cov_fn_name(&cov_fn_base, &scoping);
-    let (transform, scoping) = run_coverage_transform(CoverageTransformRun {
-        allocator,
+    let registration_adapter = prepared_input_source_map.map(SourceMapRegistrationAdapter);
+    let output = transform_program(TransformProgramInput {
         program,
         scoping,
         pragmas,
-        source,
-        cov_fn_name: &cov_fn_name,
-        options,
-        eager_remapper: options
-            .compose_input_source_map
-            .then_some(prepared_input_source_map)
-            .flatten(),
+        transform: TransformInit {
+            allocator,
+            source,
+            cov_fn_name: &cov_fn_name,
+            report_logic: options.report_logic,
+            track_optional_chain: options.track_optional_chain
+                && options.compat != Some(CompatProfile::Istanbul),
+            istanbul_compat: options.compat == Some(CompatProfile::Istanbul),
+            ignore_class_methods: options.ignore_class_methods.clone(),
+            name_callback_arguments: options.name_callback_arguments,
+            registration_policy: options
+                .compose_input_source_map
+                .then(|| {
+                    registration_adapter.as_ref().map(|adapter| adapter as &dyn RegistrationPolicy)
+                })
+                .flatten(),
+        },
     });
-    let needs_optional_chain_helper = transform.used_optional_chain_helper;
+    let needs_optional_chain_helper = output.metadata.used_optional_chain_helper;
     let coverage_map =
-        finalize_coverage_map(filename, transform, options, prepared_input_source_map);
+        finalize_coverage_map(filename, output.metadata, options, prepared_input_source_map);
     let (coverage_map_json, preamble) = build_instrument_preamble(
         &coverage_map,
         options,
@@ -637,7 +647,7 @@ fn instrument_program_with_pragmas(
     );
 
     Ok(InstrumentProgramResult {
-        scoping,
+        scoping: output.scoping,
         coverage_map,
         coverage_map_json,
         preamble: Some(preamble),
@@ -700,7 +710,8 @@ pub fn instrument_program<'arena>(
     filename: &str,
     options: &InstrumentOptions,
 ) -> Result<InstrumentProgramResult, InstrumentError> {
-    let (pragmas, unhandled_pragmas) = PragmaMap::from_program(program, source_text);
+    let (pragmas, unhandled_directives) = PragmaMap::from_program(program, source_text);
+    let unhandled_pragmas = adapt_unhandled_directives(source_text, unhandled_directives);
     let prepared_input_source_map = prepare_input_source_map(options);
     instrument_program_with_pragmas(InstrumentProgramInput {
         allocator,
@@ -713,45 +724,6 @@ pub fn instrument_program<'arena>(
         options,
         prepared_input_source_map: prepared_input_source_map.as_ref(),
     })
-}
-
-const COVERAGE_BINDING_SUFFIXES: [&str; 4] = ["", "_bt", "_oc", "_temp"];
-
-fn resolve_cov_fn_name(base: &str, scoping: &Scoping) -> String {
-    if coverage_binding_is_available(base, scoping) {
-        return base.to_string();
-    }
-
-    let mut suffix = 1_u32;
-    loop {
-        let candidate = format!("{base}_{suffix}");
-        if coverage_binding_is_available(&candidate, scoping) {
-            return candidate;
-        }
-        suffix = suffix.checked_add(1).expect("coverage binding suffix space exhausted");
-    }
-}
-
-fn coverage_binding_is_available(candidate: &str, scoping: &Scoping) -> bool {
-    let declared_names_available = scoping.iter_bindings().all(|(_, bindings)| {
-        bindings.keys().all(|symbol| {
-            COVERAGE_BINDING_SUFFIXES
-                .iter()
-                .all(|suffix| !symbol_is_coverage_binding(symbol.as_str(), candidate, suffix))
-        })
-    });
-    declared_names_available
-        && scoping.root_unresolved_references().keys().all(|symbol| {
-            COVERAGE_BINDING_SUFFIXES
-                .iter()
-                .all(|suffix| !symbol_is_coverage_binding(symbol.as_str(), candidate, suffix))
-        })
-}
-
-fn symbol_is_coverage_binding(symbol: &str, candidate: &str, suffix: &str) -> bool {
-    symbol.len() == candidate.len().saturating_add(suffix.len())
-        && symbol.starts_with(candidate)
-        && symbol.ends_with(suffix)
 }
 
 fn validate_coverage_variable(options: &InstrumentOptions) -> Result<(), InstrumentError> {
@@ -788,47 +760,6 @@ fn prepare_scoping(input: PrepareScopingInput<'_, '_>) -> Result<Scoping, Instru
         decorator_mode: options.decorator_mode,
         strict_null_checks: options.strict_null_checks,
     })
-}
-
-struct CoverageTransformRun<'src, 'arena, 'a> {
-    allocator: &'arena Allocator,
-    program: &'a mut Program<'arena>,
-    scoping: Scoping,
-    pragmas: PragmaMap,
-    source: &'src str,
-    cov_fn_name: &'src str,
-    options: &'a InstrumentOptions,
-    eager_remapper: Option<&'src oxc_coverage_source_maps::PositionRemapper>,
-}
-
-fn run_coverage_transform<'src, 'arena>(
-    input: CoverageTransformRun<'src, 'arena, '_>,
-) -> (CoverageTransform<'src, 'arena>, Scoping) {
-    let CoverageTransformRun {
-        allocator,
-        program,
-        scoping,
-        pragmas,
-        source,
-        cov_fn_name,
-        options,
-        eager_remapper,
-    } = input;
-    let mut transform = CoverageTransform::new(TransformInit {
-        allocator,
-        source,
-        cov_fn_name,
-        report_logic: options.report_logic,
-        track_optional_chain: options.track_optional_chain
-            && options.compat != Some(CompatProfile::Istanbul),
-        istanbul_compat: options.compat == Some(CompatProfile::Istanbul),
-        ignore_class_methods: options.ignore_class_methods.clone(),
-        name_callback_arguments: options.name_callback_arguments,
-        eager_remapper,
-    });
-    let state = CoverageState { pragmas };
-    let scoping = traverse_mut(&mut transform, allocator, program, scoping, state);
-    (transform, scoping)
 }
 
 fn build_instrument_preamble(
@@ -941,6 +872,63 @@ fn parse_program<'a>(
 
 /// A `FileCoverage` with every map empty, for a source suppressed by
 /// `/* istanbul ignore file */`.
+fn adapt_unhandled_directives(
+    source: &str,
+    directives: Vec<UnhandledDirective>,
+) -> Vec<UnhandledPragma> {
+    directives
+        .into_iter()
+        .map(|directive| {
+            let (line, column) = oxc_coverage_transform::line_column(source, directive.offset);
+            UnhandledPragma { comment: directive.comment, line, column }
+        })
+        .collect()
+}
+
+fn into_istanbul_position(position: &TransformPosition) -> Position {
+    Position { line: position.line, column: position.column }
+}
+
+fn into_istanbul_location(location: &TransformLocation) -> Location {
+    Location {
+        start: into_istanbul_position(&location.start),
+        end: into_istanbul_position(&location.end),
+    }
+}
+
+fn as_istanbul_location(location: &TransformLocation) -> Location {
+    Location {
+        start: Position { line: location.start.line, column: location.start.column },
+        end: Position { line: location.end.line, column: location.end.column },
+    }
+}
+
+fn into_transform_location(location: &Location) -> TransformLocation {
+    TransformLocation {
+        start: TransformPosition { line: location.start.line, column: location.start.column },
+        end: TransformPosition { line: location.end.line, column: location.end.column },
+    }
+}
+
+struct SourceMapRegistrationAdapter<'a>(&'a oxc_coverage_source_maps::PositionRemapper);
+
+impl RegistrationPolicy for SourceMapRegistrationAdapter<'_> {
+    fn location_maps(&self, location: &TransformLocation) -> bool {
+        oxc_coverage_source_maps::PositionRemapper::location_maps(
+            self.0,
+            &as_istanbul_location(location),
+        )
+    }
+
+    fn remap_location(&self, location: &TransformLocation) -> Option<(u32, TransformLocation)> {
+        let (source, mapped) = oxc_coverage_source_maps::PositionRemapper::remap_location(
+            self.0,
+            &as_istanbul_location(location),
+        )?;
+        Some((source, into_transform_location(&mapped)))
+    }
+}
+
 fn empty_coverage(filename: &str) -> FileCoverage {
     build_file_coverage(CoverageMaps {
         path: filename.to_string(),
@@ -951,13 +939,31 @@ fn empty_coverage(filename: &str) -> FileCoverage {
     })
 }
 
-fn build_coverage_map(filename: &str, transform: CoverageTransform<'_, '_>) -> FileCoverage {
+fn build_coverage_map(filename: &str, metadata: CoverageMetadata) -> FileCoverage {
     build_file_coverage(CoverageMaps {
         path: filename.to_string(),
-        statement_locs: transform.statement_map,
-        fn_entries: transform.fn_map,
-        branch_entries: transform.branch_map,
-        logical_branch_ids: transform.logical_branch_ids,
+        statement_locs: metadata.statements.iter().map(into_istanbul_location).collect(),
+        fn_entries: metadata
+            .functions
+            .into_iter()
+            .map(|FunctionRecord { name, line, decl, loc }| FnEntry {
+                name,
+                line,
+                decl: into_istanbul_location(&decl),
+                loc: into_istanbul_location(&loc),
+            })
+            .collect(),
+        branch_entries: metadata
+            .branches
+            .into_iter()
+            .map(|BranchRecord { loc, line, branch_type, locations }| BranchEntry {
+                loc: into_istanbul_location(&loc),
+                line,
+                branch_type,
+                locations: locations.iter().map(into_istanbul_location).collect(),
+            })
+            .collect(),
+        logical_branch_ids: metadata.logical_branch_ids,
     })
 }
 
@@ -975,12 +981,12 @@ fn prepare_input_source_map(
 
 fn finalize_coverage_map(
     filename: &str,
-    transform: CoverageTransform<'_, '_>,
+    metadata: CoverageMetadata,
     options: &InstrumentOptions,
     prepared_input_source_map: Option<&oxc_coverage_source_maps::PositionRemapper>,
 ) -> FileCoverage {
-    let overlay_conflict = transform.eager_function_overlay_conflict;
-    let mut coverage_map = build_coverage_map(filename, transform);
+    let overlay_conflict = metadata.function_overlay_conflict;
+    let mut coverage_map = build_coverage_map(filename, metadata);
     if options.function_identity_overlay {
         // Dropped before composition, so the composed result is overlay-free
         // the way the deferred `merge_functions` conflict rule leaves it.
@@ -1059,34 +1065,32 @@ pub(crate) fn collect_for_v8_to_istanbul(
     let scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
     let cov_fn_name = generate_cov_fn_name(filename);
 
-    let mut transform = CoverageTransform::new(TransformInit {
-        allocator: &allocator,
-        source,
-        cov_fn_name: &cov_fn_name,
-        report_logic: false,
-        // V8-collect builds the location maps that V8 UTF-16 ranges intersect
-        // against, so optional-chain branches stay tracked (the default); this
-        // path emits no runtime helper, only the maps.
-        track_optional_chain: true,
-        istanbul_compat: false,
-        ignore_class_methods: Vec::new(),
-        // V8-collect builds only the position maps that V8 UTF-16 ranges
-        // intersect against; the fnMap names never reach a consumer here, so
-        // it stays Istanbul-exact (no callback naming) with no options to wire.
-        name_callback_arguments: false,
-        // V8-collect never composes an input source map; gate is a no-op.
-        eager_remapper: None,
+    let output = transform_program(TransformProgramInput {
+        program: &mut parsed.program,
+        scoping,
+        pragmas,
+        transform: TransformInit {
+            allocator: &allocator,
+            source,
+            cov_fn_name: &cov_fn_name,
+            report_logic: false,
+            // V8-collect builds the location maps that V8 UTF-16 ranges
+            // intersect against, so optional-chain branches stay tracked.
+            track_optional_chain: true,
+            istanbul_compat: false,
+            ignore_class_methods: Vec::new(),
+            name_callback_arguments: false,
+            registration_policy: None,
+        },
     });
-    let state = CoverageState { pragmas };
-    let _scoping = traverse_mut(&mut transform, &allocator, &mut parsed.program, scoping, state);
 
     // Built before `branch_map` moves into `build_file_coverage`, which drops
     // branches with no locations but assigns ids from the pre-filter
     // `enumerate` index. The keys here use that same index, so they line up
     // with the surviving entries.
-    let arm_body_byte_spans = collect_arm_body_byte_spans(&transform);
+    let arm_body_byte_spans = collect_arm_body_byte_spans(&output.metadata);
 
-    let coverage_map = build_coverage_map(filename, transform);
+    let coverage_map = build_coverage_map(filename, output.metadata);
     Ok(V8CollectResult { coverage_map, arm_body_byte_spans })
 }
 
@@ -1094,13 +1098,10 @@ fn empty_v8_collect_result(filename: &str) -> V8CollectResult {
     V8CollectResult { coverage_map: empty_coverage(filename), arm_body_byte_spans: BTreeMap::new() }
 }
 
-fn collect_arm_body_byte_spans(
-    transform: &CoverageTransform<'_, '_>,
-) -> BTreeMap<String, Vec<(u32, u32)>> {
+fn collect_arm_body_byte_spans(metadata: &CoverageMetadata) -> BTreeMap<String, Vec<(u32, u32)>> {
     let mut spans: BTreeMap<String, Vec<(u32, u32)>> = BTreeMap::new();
-    for (idx, body_spans) in transform.branch_arm_body_byte_spans.iter().enumerate() {
-        let surviving =
-            transform.branch_map.get(idx).is_some_and(|entry| !entry.locations.is_empty());
+    for (idx, body_spans) in metadata.branch_arm_body_byte_spans.iter().enumerate() {
+        let surviving = metadata.branches.get(idx).is_some_and(|entry| !entry.locations.is_empty());
         if surviving {
             spans.insert(idx.to_string(), body_spans.clone());
         }

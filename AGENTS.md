@@ -11,7 +11,8 @@ and how to submit a change.
 
 | Crate | Published | Owns |
 |:------|:----------|:-----|
-| `crates/oxc_coverage_instrument` | crates.io | Parse, transform, codegen. The instrumenter itself. |
+| `crates/oxc_coverage_instrument` | crates.io | Parse, Istanbul adaptation, source maps, runtime setup, and codegen. |
+| `crates/oxc_coverage_transform` | no | Provisional AST-only Oxc transform kernel and neutral metadata. |
 | `crates/oxc_coverage_types` | crates.io | `FileCoverage`, `FnEntry`, `BranchEntry`, `Location`. |
 | `crates/oxc_coverage_source_maps` | crates.io | Remapping `FileCoverage` back through a source map. |
 | `crates/oxc_coverage_v8` | crates.io | V8 inspector range coverage to Istanbul. |

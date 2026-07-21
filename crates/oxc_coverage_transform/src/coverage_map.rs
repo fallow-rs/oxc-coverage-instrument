@@ -1,11 +1,11 @@
-//! Byte-span to istanbul position conversion, and registration of statement,
+//! Byte-span to coverage position conversion and registration of statement,
 //! function and branch entries under the eager-compose remap gate.
 
 use oxc_span::Span;
 
-use oxc_coverage_types::{BranchEntry, FnEntry, Location, Position};
-
-use super::CoverageTransform;
+use super::{
+    BranchRecord, CoverageTransform, FunctionRecord, TransformLocation, TransformPosition,
+};
 
 /// Identity of a coverage point after eager-compose resolution: the resolved
 /// source index plus the remapped original endpoints. Two generated spans with
@@ -20,8 +20,8 @@ pub(super) struct EagerMergeKey {
     end_column: u32,
 }
 
-impl From<(u32, Location)> for EagerMergeKey {
-    fn from((source, location): (u32, Location)) -> Self {
+impl From<(u32, TransformLocation)> for EagerMergeKey {
+    fn from((source, location): (u32, TransformLocation)) -> Self {
         Self {
             source,
             start_line: location.start.line,
@@ -99,7 +99,7 @@ impl BranchRegistration {
     }
 }
 
-const fn location_parts(loc: &Location) -> (u32, u32, u32, u32) {
+const fn location_parts(loc: &TransformLocation) -> (u32, u32, u32, u32) {
     (loc.start.line, loc.start.column, loc.end.line, loc.end.column)
 }
 
@@ -110,24 +110,24 @@ impl CoverageTransform<'_, '_> {
     /// `getMapping` rather than per-endpoint through a greatest-lower-bound
     /// lookup, so the two paths agree by construction. `true` when no remapper
     /// is set, so gating is a strict no-op outside eager mode.
-    fn location_maps(&self, loc: &Location) -> bool {
+    fn location_maps(&self, loc: &TransformLocation) -> bool {
         self.eager_remapper.as_ref().is_none_or(|r| r.location_maps(loc))
     }
 
     /// The eager merge key for `loc`: `None` outside eager mode, where every
     /// registration keeps its own id.
-    fn eager_merge_key(&self, loc: &Location) -> Option<EagerMergeKey> {
+    fn eager_merge_key(&self, loc: &TransformLocation) -> Option<EagerMergeKey> {
         self.eager_remapper.as_ref().and_then(|r| r.remap_location(loc)).map(EagerMergeKey::from)
     }
 
-    fn span_to_location(&self, span: Span) -> Location {
-        Location {
+    fn span_to_location(&self, span: Span) -> TransformLocation {
+        TransformLocation {
             start: self.offset_to_position(span.start),
             end: self.offset_to_position(span.end),
         }
     }
 
-    fn offset_to_position(&self, offset: u32) -> Position {
+    fn offset_to_position(&self, offset: u32) -> TransformPosition {
         let line = self.line_offsets.partition_point(|&o| o <= offset).saturating_sub(1);
         let line_start = self.line_offsets[line] as usize;
         let end = (offset as usize).min(self.source.len());
@@ -140,7 +140,7 @@ impl CoverageTransform<'_, '_> {
         } else {
             self.source[line_start..end].chars().map(char::len_utf16).sum::<usize>()
         };
-        Position {
+        TransformPosition {
             line: u32::try_from(line + 1).unwrap_or(u32::MAX),
             column: u32::try_from(column).unwrap_or(u32::MAX),
         }
@@ -190,7 +190,7 @@ impl CoverageTransform<'_, '_> {
             self.eager_function_ids.insert(key, id_num);
         }
         let line = decl.start.line;
-        self.fn_map.push(FnEntry { name, line, decl, loc });
+        self.fn_map.push(FunctionRecord { name, line, decl, loc });
         Some(id_num)
     }
 
@@ -228,7 +228,7 @@ impl CoverageTransform<'_, '_> {
     /// eager mode, when any arm fails to remap, or when arms span more than one
     /// source. A `None` key never over-folds relative to the deferred path,
     /// which within one output file only ever merges a single source.
-    fn eager_branch_key(&self, surviving_locs: &[Location]) -> Option<BranchKey> {
+    fn eager_branch_key(&self, surviving_locs: &[TransformLocation]) -> Option<BranchKey> {
         let remapper = self.eager_remapper.as_ref()?;
         let mut source = None;
         let mut arms = Vec::with_capacity(surviving_locs.len());
@@ -267,9 +267,9 @@ impl CoverageTransform<'_, '_> {
         let mut body_spans = Vec::new();
         for arm in &arms {
             let loc = arm.location_span.map_or_else(
-                || Location {
-                    start: Position { line: 0, column: 0 },
-                    end: Position { line: 0, column: 0 },
+                || TransformLocation {
+                    start: TransformPosition { line: 0, column: 0 },
+                    end: TransformPosition { line: 0, column: 0 },
                 },
                 |span| self.span_to_location(span),
             );
@@ -312,7 +312,7 @@ impl CoverageTransform<'_, '_> {
             self.eager_branch_ids.insert(key, branch_id);
         }
         let line = entry_loc.start.line;
-        self.branch_map.push(BranchEntry {
+        self.branch_map.push(BranchRecord {
             loc: entry_loc,
             line,
             branch_type: branch_type.to_string(),

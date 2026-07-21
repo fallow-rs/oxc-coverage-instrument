@@ -1,4 +1,8 @@
-//! AST-level coverage transform, driven by `oxc_traverse`.
+//! AST-only coverage transform kernel, driven by `oxc_traverse`.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "private concern modules expose their traversal helpers to the crate root"
+)]
 //!
 //! Collects the statement, function and branch spans that make up the
 //! coverage map while injecting the matching counter expressions
@@ -48,7 +52,6 @@
 //! - `logical.rs`: logical-chain flattening and per-leaf counter wrapping.
 //! - `names.rs`: `fnMap` name inference from declarations, bindings, property
 //!   keys, assignment targets and call arguments.
-//! - `preamble.rs`: the per-file coverage-object IIFE inserted after directives.
 //! - `statements.rs`: statement-counter placement, including the hoists that
 //!   keep `Function.name` inference intact.
 
@@ -56,14 +59,10 @@ use std::collections::BTreeMap;
 
 use oxc_allocator::{Allocator, Vec as ArenaVec};
 use oxc_ast::ast::*;
-use oxc_coverage_types::{BranchEntry, FnEntry, Location};
+use oxc_semantic::Scoping;
 use oxc_span::{GetSpan, Span};
-use oxc_traverse::{Traverse, TraverseCtx};
-
-use crate::{
-    pragma::{IgnoreType, PragmaMap},
-    source_text,
-};
+use oxc_syntax::symbol::SymbolFlags;
+use oxc_traverse::{BoundIdentifier, Traverse, TraverseCtx, traverse_mut};
 
 mod branches;
 mod counters;
@@ -71,8 +70,10 @@ mod coverage_map;
 mod functions;
 mod ignore;
 mod logical;
+mod metadata;
 mod names;
-mod preamble;
+mod pragma;
+mod source_text;
 mod statements;
 
 use branches::OptionalChainLinkInput;
@@ -81,9 +82,13 @@ use coverage_map::is_synthetic_span;
 use ignore::{
     is_ignored_case, jsx_attribute_ignored, jsx_child_ignored, jsx_spread_attribute_ignored,
 };
+pub use metadata::{
+    BranchRecord, CoverageMetadata, FunctionRecord, RegistrationPolicy, TransformLocation,
+    TransformPosition,
+};
 use names::{AssignmentTargetName, assignment_target_name};
-
-pub use preamble::{PreambleInputs, djb31_hex, generate_cov_fn_name, generate_preamble_source};
+pub use pragma::{IgnoreType, PragmaMap, UnhandledDirective};
+pub use source_text::line_column;
 
 /// State carried through the traverse for coverage instrumentation.
 pub struct CoverageState {
@@ -98,13 +103,12 @@ pub struct CoverageTransform<'src, 'arena> {
     /// True when the source is pure ASCII so columns can be reported as
     /// `offset - line_start` without walking chars for UTF-16 width.
     source_is_ascii: bool,
-    /// Function entries indexed by sequential id. Materialized into a
-    /// `BTreeMap<String, FnEntry>` once in `build_file_coverage`.
-    pub fn_map: Vec<FnEntry>,
+    /// Function records indexed by sequential counter id.
+    pub fn_map: Vec<FunctionRecord>,
     /// Statement locations indexed by sequential id.
-    pub statement_map: Vec<Location>,
+    pub statement_map: Vec<TransformLocation>,
     /// Branch entries indexed by sequential id.
-    pub branch_map: Vec<BranchEntry>,
+    pub branch_map: Vec<BranchRecord>,
     /// Body byte spans parallel to `branch_map[i].locations[j]`. For most
     /// branch shapes the body span equals the location span; the exception is
     /// if-arm 0, where `locations[0]` records the whole `IfStatement` span
@@ -202,7 +206,7 @@ pub struct CoverageTransform<'src, 'arena> {
     /// entry is registered and no counter is emitted, so the runtime coverage
     /// object and the emitted counters agree. `None` for every non-eager
     /// caller, where gating is a strict no-op.
-    eager_remapper: Option<&'src oxc_coverage_source_maps::PositionRemapper>,
+    eager_remapper: Option<&'src dyn RegistrationPolicy>,
     /// Statement ids already handed out per remapped location, so statements
     /// that collapse onto one original location under the eager gate share a
     /// counter. Empty outside eager mode.
@@ -250,7 +254,81 @@ pub struct TransformInit<'src, 'arena> {
     /// Eager-compose position-remap gate. `Some` only when
     /// `compose_input_source_map` is on and a usable input map is present;
     /// `None` for every other caller, where gating is a strict no-op.
-    pub eager_remapper: Option<&'src oxc_coverage_source_maps::PositionRemapper>,
+    pub registration_policy: Option<&'src dyn RegistrationPolicy>,
+}
+
+/// Inputs for one host-owned AST transform pass.
+pub struct TransformProgramInput<'src, 'arena, 'program> {
+    /// Program mutated in place.
+    pub program: &'program mut Program<'arena>,
+    /// Semantic state matching `program` before instrumentation.
+    pub scoping: Scoping,
+    /// Parsed ignore directives for the program.
+    pub pragmas: PragmaMap,
+    /// Transform construction inputs and policy.
+    pub transform: TransformInit<'src, 'arena>,
+}
+
+/// Result of one AST-only coverage transform pass.
+pub struct TransformOutput {
+    /// Semantic state updated by `oxc_traverse` during counter injection.
+    pub scoping: Scoping,
+    /// Neutral counter metadata consumed by satellite adapters.
+    pub metadata: CoverageMetadata,
+}
+
+/// Mutate a host-owned program and return neutral coverage metadata.
+pub fn transform_program(input: TransformProgramInput<'_, '_, '_>) -> TransformOutput {
+    let TransformProgramInput { program, scoping, pragmas, transform } = input;
+    let allocator = transform.allocator;
+    let mut coverage_transform = CoverageTransform::new(transform);
+    let state = CoverageState { pragmas };
+    let scoping = traverse_mut(&mut coverage_transform, allocator, program, scoping, state);
+    TransformOutput { scoping, metadata: coverage_transform.finish() }
+}
+
+const COVERAGE_BINDING_SUFFIXES: [&str; 4] = ["", "_bt", "_oc", "_temp"];
+
+/// Resolve a collision-safe root binding for the generated coverage function.
+///
+/// # Panics
+///
+/// Panics only if every `u32` collision suffix is exhausted.
+pub fn resolve_cov_fn_name(base: &str, scoping: &Scoping) -> String {
+    if coverage_binding_is_available(base, scoping) {
+        return base.to_string();
+    }
+
+    let mut suffix = 1_u32;
+    loop {
+        let candidate = format!("{base}_{suffix}");
+        if coverage_binding_is_available(&candidate, scoping) {
+            return candidate;
+        }
+        suffix = suffix.checked_add(1).expect("coverage binding suffix space exhausted");
+    }
+}
+
+fn coverage_binding_is_available(candidate: &str, scoping: &Scoping) -> bool {
+    let declared_names_available = scoping.iter_bindings().all(|(_, bindings)| {
+        bindings.keys().all(|symbol| {
+            COVERAGE_BINDING_SUFFIXES
+                .iter()
+                .all(|suffix| !symbol_is_coverage_binding(symbol.as_str(), candidate, suffix))
+        })
+    });
+    declared_names_available
+        && scoping.root_unresolved_references().keys().all(|symbol| {
+            COVERAGE_BINDING_SUFFIXES
+                .iter()
+                .all(|suffix| !symbol_is_coverage_binding(symbol.as_str(), candidate, suffix))
+        })
+}
+
+fn symbol_is_coverage_binding(symbol: &str, candidate: &str, suffix: &str) -> bool {
+    symbol.len() == candidate.len().saturating_add(suffix.len())
+        && symbol.starts_with(candidate)
+        && symbol.ends_with(suffix)
 }
 
 impl<'src, 'arena> CoverageTransform<'src, 'arena> {
@@ -264,7 +342,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             ignore_class_methods,
             name_callback_arguments,
             istanbul_compat,
-            eager_remapper,
+            registration_policy,
         } = init;
         let cov_fn_name = allocator.alloc_str(cov_fn_name);
         Self {
@@ -299,16 +377,40 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             istanbul_compat,
             logical_branch_ids: Vec::new(),
             used_optional_chain_helper: false,
-            eager_remapper,
+            eager_remapper: registration_policy,
             eager_statement_ids: BTreeMap::new(),
             eager_function_ids: BTreeMap::new(),
             eager_branch_ids: BTreeMap::new(),
             eager_function_overlay_conflict: false,
         }
     }
+
+    /// Consume the traversal state into the neutral adapter boundary.
+    pub fn finish(self) -> CoverageMetadata {
+        CoverageMetadata {
+            statements: self.statement_map,
+            functions: self.fn_map,
+            branches: self.branch_map,
+            branch_arm_body_byte_spans: self.branch_arm_body_byte_spans,
+            logical_branch_ids: self.logical_branch_ids,
+            used_optional_chain_helper: self.used_optional_chain_helper,
+            function_overlay_conflict: self.eager_function_overlay_conflict,
+        }
+    }
 }
 
 impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
+    fn enter_program(
+        &mut self,
+        _program: &mut Program<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        ensure_root_binding(self.cov_fn_name, SymbolFlags::FunctionScopedVariable, ctx);
+        if let Some(name) = self.cov_fn_bt_name {
+            ensure_root_binding(name, SymbolFlags::Function, ctx);
+        }
+    }
+
     fn enter_function(
         &mut self,
         func: &mut Function<'a>,
@@ -717,4 +819,29 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         }
         self.try_instrument_logical_assignment(expr, ctx);
     }
+}
+
+fn ensure_root_binding<'a>(
+    name: &'a str,
+    flags: SymbolFlags,
+    ctx: &mut TraverseCtx<'a, CoverageState>,
+) -> BoundIdentifier<'a> {
+    let name = name.into();
+    if let Some(symbol_id) = ctx.scoping().get_root_binding(name) {
+        return BoundIdentifier::new(name, symbol_id);
+    }
+    let root_scope_id = ctx.scoping().root_scope_id();
+    ctx.generate_binding(name, root_scope_id, flags)
+}
+
+fn root_bound_identifier<'a>(
+    name: &'a str,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) -> BoundIdentifier<'a> {
+    let name = name.into();
+    let symbol_id = ctx
+        .scoping()
+        .get_root_binding(name)
+        .expect("coverage helper binding must be registered before use");
+    BoundIdentifier::new(name, symbol_id)
 }

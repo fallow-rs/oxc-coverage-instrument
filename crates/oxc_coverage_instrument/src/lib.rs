@@ -121,9 +121,7 @@
 
 mod coverage_builder;
 mod instrument;
-mod pragma;
-mod source_text;
-mod transform;
+mod preamble;
 mod v8_to_istanbul;
 
 pub use instrument::{

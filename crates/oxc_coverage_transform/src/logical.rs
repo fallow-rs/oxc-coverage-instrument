@@ -1,4 +1,4 @@
-//! Logical-expression chain flattening, and per-leaf branch counter wrapping.
+//! Logical-expression chain flattening and per-leaf branch counter wrapping.
 
 use std::mem;
 
@@ -12,7 +12,7 @@ use crate::pragma::{IgnoreType, PragmaMap};
 
 use super::counters::{CounterKind, dummy_expr, index_literal, prepend_counter};
 use super::coverage_map::{PendingArm, PendingBranch, is_synthetic_span};
-use super::{CoverageState, CoverageTransform};
+use super::{CoverageState, CoverageTransform, root_bound_identifier};
 
 impl<'arena> CoverageTransform<'_, 'arena> {
     /// Register the `binary-expr` branch for a logical chain and wrap each
@@ -169,7 +169,7 @@ impl<'b> LogicalWrapState<'b> {
 fn wrap_expression_with_branch_counter<'a>(
     operand: &mut Expression<'a>,
     state: &LogicalWrapState<'a>,
-    ctx: &TraverseCtx<'a, CoverageState>,
+    ctx: &mut TraverseCtx<'a, CoverageState>,
 ) {
     prepend_counter(
         operand,
@@ -183,10 +183,10 @@ fn wrap_expression_with_branch_counter<'a>(
 fn build_bt_call<'a>(
     inner: Expression<'a>,
     state: &LogicalWrapState<'a>,
-    ctx: &TraverseCtx<'a, CoverageState>,
+    ctx: &mut TraverseCtx<'a, CoverageState>,
 ) -> Expression<'a> {
     let bt_name = state.cov_fn_bt_name.expect("report_logic requires cov_fn_bt_name");
-    let callee = Expression::new_identifier(SPAN, bt_name, ctx);
+    let callee = root_bound_identifier(bt_name, ctx).create_read_expression(ctx);
     let mut args = ArenaVec::new_in(ctx);
     args.push(Argument::from(inner));
     args.push(Argument::from(index_literal(ctx, state.branch_id)));
@@ -204,7 +204,7 @@ fn build_bt_call<'a>(
 fn wrap_logical_leaf<'a>(
     operand: &mut Expression<'a>,
     state: &mut LogicalWrapState<'a>,
-    ctx: &TraverseCtx<'a, CoverageState>,
+    ctx: &mut TraverseCtx<'a, CoverageState>,
 ) {
     wrap_expression_with_branch_counter(operand, state, ctx);
     if state.report_logic {

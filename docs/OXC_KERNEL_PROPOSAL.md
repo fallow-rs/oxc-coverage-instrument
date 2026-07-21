@@ -1,7 +1,8 @@
 # Oxc coverage transform kernel proposal
 
-Status: proposal for maintainer review. This document does not assume that the
-crate name, repository placement, or API has been accepted.
+Status: local prototype plus proposal for maintainer review. The unpublished
+workspace crate proves dependency isolation and preserves conformance, but its
+name, repository placement, metadata convention, and API are not accepted.
 
 ## Goal
 
@@ -40,7 +41,8 @@ The host supplies:
 - a mutable `Program`, after any syntax lowering required by the host,
 - the matching `Scoping`, source text, and source type,
 - typed transform options,
-- an optional location predicate for generated-to-original mapping policy.
+- an optional registration policy for generated-to-original mapping, drop,
+  arm filtering, canonical counter identity, and collision policy.
 
 The transform mutates the program and returns:
 
@@ -78,17 +80,19 @@ Satellite policy stays outside the kernel:
 - parser, lowering, and codegen options,
 - report, binding, and package configuration.
 
-The location predicate is intentionally an interface, not a dependency on this
-workspace's source-map crate. It lets a host suppress unmapped counters without
-pulling remapping code into the transform.
+The registration policy is intentionally an interface, not a dependency on
+this workspace's source-map crate. The satellite adapter currently supplies
+keep/drop and canonical remap decisions; the kernel keeps counter allocation,
+branch-arm filtering, fallback, and fold behavior consistent across policies.
 
 ## Neutral metadata
 
-Records should use typed counter indices, Oxc spans, optional function names,
-branch kind, and ordered arm spans. They should not contain `serde_json::Value`,
-Istanbul maps, source-map JSON, hashes, or reporter types. The satellite adapter
-converts spans to Istanbul locations, builds `FileCoverage`, performs optional
-remapping, and adds the Fallow overlay.
+The prototype returns ordered, neutral position records with typed functions
+and branches. It contains no Istanbul maps, `serde_json::Value`, source-map
+JSON, hashes, or reporter types. Before upstreaming, maintainers should decide
+whether the stable boundary carries Oxc spans or UTF-16 positions. The
+satellite adapter builds `FileCoverage`, performs optional remapping, and adds
+the Fallow overlay.
 
 Counter order and record order are observable compatibility constraints. The
 first adapter must prove strict Istanbul output and default-profile documented
@@ -125,5 +129,5 @@ prerequisites for direct Vitest integration.
 - whether setup insertion belongs in the kernel,
 - ownership transfer rules for `Scoping`, symbols, and references,
 - generated-span and comment conventions,
-- whether the location predicate belongs in the first API,
+- whether the registration policy belongs in the first API,
 - which Istanbul ordering guarantees Oxc is willing to treat as stable.

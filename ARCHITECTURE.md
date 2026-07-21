@@ -22,7 +22,8 @@ oxc_parser          parse to AST
 SemanticBuilder     build scope tree
     |
     v
-CoverageTransform   traverse AST, inject ++cov().s[N] counters
+oxc_coverage_transform
+                    traverse AST, inject counters, return neutral metadata
     |
     v
 oxc_codegen         emit instrumented code and source map
@@ -34,13 +35,17 @@ setup insertion     replace generated marker, shift source map
 instrumented code + coverage map
 ```
 
-`CoverageTransform` is an `oxc_traverse` visitor. It assigns each statement,
-function, and branch an id, records its `Location` in the coverage map, and
-injects the counter expression that increments the matching slot at runtime.
-The standalone adapter adds the setup marker, codegen emits the rewritten AST
-and its source map, then the adapter replaces that marker with the coverage
-setup. The experimental host-owned AST API instead returns the setup preamble
-for the host to insert and connect to semantic state.
+`oxc_coverage_transform` is an unpublished, provisional Oxc extraction target.
+It owns the `oxc_traverse` visitor, ignore semantics, collision-safe generated
+bindings, counter mutation, and neutral ordered metadata. Its normal dependency
+graph contains only Oxc AST, semantic, span, syntax, allocator, and traverse
+layers. The published instrument crate adapts that output to Istanbul types,
+applies source-map policy, and owns the runtime setup and source-to-source API.
+
+The standalone adapter currently adds the setup marker, codegen emits the
+rewritten AST and its source map, then the adapter replaces that marker with
+the coverage setup. Removing that remaining text boundary is the next step on
+the Oxc-specific branch.
 
 When an `inputSourceMap` is supplied, the instrumenter composes the codegen
 output map with the input map, so downstream remappers (Vitest, nyc, monocart)
@@ -57,6 +62,7 @@ reporter; the reporting crate implements the formats named below.
 
 | Crate | Replaces |
 |:------|:---------|
+| `oxc_coverage_transform` (unpublished proposal) | reusable Oxc AST mutation primitive |
 | [`oxc_coverage_instrument`](crates/oxc_coverage_instrument/README.md) | `istanbul-lib-instrument` |
 | [`oxc_coverage_types`](crates/oxc_coverage_types/README.md) | `istanbul-lib-coverage` (data model) |
 | [`oxc_coverage_source_maps`](crates/oxc_coverage_source_maps/README.md) | `istanbul-lib-source-maps` |
@@ -64,7 +70,8 @@ reporter; the reporting crate implements the formats named below.
 | [`oxc_coverage_report`](crates/oxc_coverage_report/README.md) | `istanbul-lib-report` |
 | [`oxc_coverage_reports`](crates/oxc_coverage_reports/README.md) | `istanbul-reports` (partial) |
 
-Two more crates are workspace-local rather than published to crates.io:
+Three crates are workspace-local rather than published to crates.io. The
+provisional `oxc_coverage_transform` exists only for upstream boundary review.
 [`oxc_coverage_instrument_cli`](crates/oxc_coverage_instrument_cli/README.md)
 ships the `oxc-coverage-instrument` binary, and
 [`oxc_coverage_instrument_napi`](crates/oxc_coverage_instrument_napi/README.md)

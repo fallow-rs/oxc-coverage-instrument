@@ -1085,6 +1085,7 @@ dependencies = [
  "oxc_ast",
  "oxc_codegen",
  "oxc_coverage_source_maps",
+ "oxc_coverage_transform",
  "oxc_coverage_types",
  "oxc_coverage_v8",
  "oxc_parser",
@@ -1163,6 +1164,21 @@ dependencies = [
  "srcmap-generator",
  "srcmap-remapping",
  "srcmap-sourcemap",
+]
+
+[[package]]
+name = "oxc_coverage_transform"
+version = "0.0.0"
+dependencies = [
+ "criterion2",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_ast_visit",
+ "oxc_parser",
+ "oxc_semantic",
+ "oxc_span",
+ "oxc_syntax",
+ "oxc_traverse",
 ]
 
 [[package]]

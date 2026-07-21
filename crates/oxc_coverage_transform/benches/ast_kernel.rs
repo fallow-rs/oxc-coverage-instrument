@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use oxc_allocator::Allocator;
-use oxc_coverage_instrument::{InstrumentOptions, instrument_program};
+use oxc_coverage_transform::{PragmaMap, TransformInit, TransformProgramInput, transform_program};
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
@@ -29,17 +29,25 @@ fn bench_ast_kernel(c: &mut Criterion) {
                     assert!(!parsed.diagnostics.has_errors());
                     let scoping =
                         SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
+                    let (pragmas, _) = PragmaMap::from_program(&parsed.program, source);
 
                     let started = Instant::now();
-                    let result = instrument_program(
-                        &allocator,
-                        &mut parsed.program,
+                    let result = transform_program(TransformProgramInput {
+                        program: &mut parsed.program,
                         scoping,
-                        source,
-                        "kernel.js",
-                        &InstrumentOptions::default(),
-                    )
-                    .expect("benchmark input must instrument");
+                        pragmas,
+                        transform: TransformInit {
+                            allocator: &allocator,
+                            source,
+                            cov_fn_name: "cov_benchmark",
+                            report_logic: false,
+                            track_optional_chain: true,
+                            ignore_class_methods: Vec::new(),
+                            name_callback_arguments: false,
+                            istanbul_compat: false,
+                            registration_policy: None,
+                        },
+                    });
                     elapsed += started.elapsed();
                     std::hint::black_box(result);
                 }

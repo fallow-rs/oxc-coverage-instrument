@@ -1,4 +1,4 @@
-//! `fnMap` entry registration for functions, arrows, methods and class
+//! Function entry registration for functions, arrows, methods and class
 //! members, plus name inheritance for function-valued properties.
 
 use std::mem;
@@ -75,7 +75,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     pub(super) fn insert_function_counter(
         &mut self,
         body: &mut FunctionBody<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         if self.in_ignored_subtree() {
             return;
@@ -227,7 +227,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     pub(super) fn instrument_property_definition(
         &mut self,
         prop: &mut PropertyDefinition<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         let parent_ignored = self.in_ignored_subtree();
         let has_ignore_next =

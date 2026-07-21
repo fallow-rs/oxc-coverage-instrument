@@ -1,4 +1,4 @@
-//! The per-file coverage preamble: the IIFE that installs the coverage object
+//! The satellite runtime preamble: the IIFE that installs the coverage object
 //! on the global, the runtime helpers it declares, and the path-derived
 //! identifier and hash it is keyed by.
 
