@@ -21,7 +21,7 @@ emitters.
 
 ```toml
 [dependencies]
-oxc_coverage_instrument = "0.10"
+oxc_coverage_instrument = "0.11"
 ```
 
 ```bash
