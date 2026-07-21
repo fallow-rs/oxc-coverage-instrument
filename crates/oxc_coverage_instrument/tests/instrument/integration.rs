@@ -1387,6 +1387,19 @@ fn nested_parameter_coverage_binding_collision_is_uniquified() {
 }
 
 #[test]
+fn unresolved_coverage_binding_reference_is_not_captured() {
+    let filename = "unresolved-collision.cjs";
+    let base = base_coverage_binding(filename);
+    let source = format!("console.log(typeof {base});");
+    let result = instrument(&source, filename, &default_opts()).unwrap();
+    let output = run_with_statement_counts(&result.code, filename);
+
+    assert!(result.code.starts_with(&format!("var {base}_1 =")));
+    assert_runtime_counted(&output);
+    assert_eq!(String::from_utf8_lossy(&output.stdout).lines().next(), Some("undefined"));
+}
+
+#[test]
 fn derived_coverage_helper_collision_uniquifies_base() {
     let filename = "helper-collision.cjs";
     let base = base_coverage_binding(filename);

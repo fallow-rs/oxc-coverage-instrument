@@ -682,13 +682,19 @@ fn resolve_cov_fn_name(base: &str, scoping: &Scoping) -> String {
 }
 
 fn coverage_binding_is_available(candidate: &str, scoping: &Scoping) -> bool {
-    scoping.iter_bindings().all(|(_, bindings)| {
+    let declared_names_available = scoping.iter_bindings().all(|(_, bindings)| {
         bindings.keys().all(|symbol| {
             COVERAGE_BINDING_SUFFIXES
                 .iter()
                 .all(|suffix| !symbol_is_coverage_binding(symbol.as_str(), candidate, suffix))
         })
-    })
+    });
+    declared_names_available
+        && scoping.root_unresolved_references().keys().all(|symbol| {
+            COVERAGE_BINDING_SUFFIXES
+                .iter()
+                .all(|suffix| !symbol_is_coverage_binding(symbol.as_str(), candidate, suffix))
+        })
 }
 
 fn symbol_is_coverage_binding(symbol: &str, candidate: &str, suffix: &str) -> bool {
