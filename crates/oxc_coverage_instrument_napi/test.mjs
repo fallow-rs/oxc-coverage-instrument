@@ -301,7 +301,7 @@ function runInstrumented(result, filename, callExpression) {
   const cachedSetup = instrument('function f() { return 1; }\nf();', 'issue-34.js');
   const covName = cachedSetup.code.match(/var (cov_[a-f0-9]+)/)?.[1];
   assert(covName, 'instrumented code should declare a coverage binding');
-  assert(cachedSetup.code.includes('return actualCoverage; })();'), 'coverage setup should be invoked once');
+  assert(cachedSetup.code.includes('return actualCoverage;\n})();'), 'coverage setup should be invoked once');
   assert(!cachedSetup.code.includes(`${covName}().`), 'counter sites should use cached coverage data');
   const issue34Coverage = runInstrumented(cachedSetup, 'issue-34.js', "eval('f')();");
   assert.equal(issue34Coverage.f['0'], 2, 'cached coverage object should still record runtime function hits');
