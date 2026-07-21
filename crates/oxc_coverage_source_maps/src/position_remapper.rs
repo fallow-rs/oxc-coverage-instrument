@@ -2,20 +2,33 @@
 
 use std::cell::RefCell;
 
-use oxc_coverage_types::{Location, Position};
+use oxc_coverage_types::{FileCoverage, Location, Position};
 use srcmap_sourcemap::SourceMap;
 
 use crate::{
+    apply::{apply_source_map_single_with_caches, apply_source_map_to_map_internal_with_caches},
     context::{RemapCaches, RemapContext},
     get_mapping::{get_mapped_location_cached, get_mapping_location_cached},
-    sources::has_resolved_source,
+    options::RemapOptions,
+    remap::select_single_remap,
+    sources::{has_resolved_source, sole_resolved_source_path},
 };
 
-/// A position-remap predicate over a parsed `inputSourceMap`.
+/// Generated-line adjustment applied before output-map composition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GeneratedLineShift {
+    /// First generated line whose mappings move down.
+    pub first_following_line: u32,
+    /// Number of generated lines inserted before `first_following_line`.
+    pub line_delta: u32,
+}
+
+/// A prepared, parsed `inputSourceMap` with reusable lookup caches.
 ///
 /// Lets the instrument crate decide, at AST-transform time, whether a coverage
-/// point's positions remap through the input source map, without depending on
-/// `srcmap-sourcemap` internals.
+/// point's positions remap through the input source map, then reuse the same
+/// parsed map for full coverage remapping and generated-map composition without
+/// depending on `srcmap-sourcemap` internals.
 pub struct PositionRemapper {
     sm: SourceMap,
     /// Lookup caches shared across every `location_maps` call for this map. The
@@ -79,10 +92,95 @@ impl PositionRemapper {
         get_mapped_location_cached(&mut ctx, loc).map(|mapped| (mapped.source, mapped.location))
     }
 
+    /// Remap one coverage object through this already parsed source map.
+    ///
+    /// Lookup caches populated by transform-time keep/drop checks are reused by
+    /// the full remap. Multi-source results remain `None`, matching
+    /// [`crate::remap_coverage`].
+    #[must_use]
+    pub fn remap_coverage(&self, coverage: &FileCoverage) -> Option<FileCoverage> {
+        let mut caches = self.caches.borrow_mut();
+        if let Some(path) = sole_resolved_source_path(&self.sm) {
+            return Some(apply_source_map_single_with_caches(
+                coverage,
+                &self.sm,
+                RemapOptions::default(),
+                path,
+                &mut caches,
+            ));
+        }
+        let remapped = apply_source_map_to_map_internal_with_caches(
+            coverage,
+            &self.sm,
+            RemapOptions::default(),
+            false,
+            &mut caches,
+        )?;
+        select_single_remap(remapped)
+    }
+
     /// `true` when the istanbul position (1-based `line`, 0-based UTF-16
     /// `column`) has a direct greatest-lower-bound mapping, or is the
     /// `line == 0` sentinel.
     fn direct_position_maps(&self, pos: &Position) -> bool {
         pos.line == 0 || self.sm.original_position_for(pos.line - 1, pos.column).is_some()
     }
+}
+
+/// Finalize a generated source map and compose it with an optional prepared
+/// input map.
+///
+/// `prepared_input` takes precedence over `input_source_map_json`. The raw JSON
+/// fallback preserves behavior for parseable maps without a resolved source,
+/// which [`PositionRemapper::from_json`] intentionally rejects for coverage
+/// remapping.
+#[must_use]
+pub fn finalize_generated_source_map(
+    output_json: &str,
+    shift: Option<GeneratedLineShift>,
+    prepared_input: Option<&PositionRemapper>,
+    input_source_map_json: Option<&str>,
+) -> String {
+    let Ok(mut output_sm) = SourceMap::from_json(output_json) else {
+        return output_json.to_string();
+    };
+    if let Some(shift) = shift {
+        let mappings = output_sm
+            .all_mappings()
+            .iter()
+            .copied()
+            .map(|mut mapping| {
+                if mapping.generated_line >= shift.first_following_line {
+                    mapping.generated_line =
+                        mapping.generated_line.saturating_add(shift.line_delta);
+                }
+                mapping
+            })
+            .collect();
+        output_sm = SourceMap::from_parts_with_extensions(
+            output_sm.file.clone(),
+            output_sm.source_root.clone(),
+            output_sm.sources.clone(),
+            output_sm.sources_content.clone(),
+            output_sm.names.clone(),
+            mappings,
+            output_sm.ignore_list.clone(),
+            output_sm.debug_id.clone(),
+            output_sm.scopes.clone(),
+            output_sm.extensions.clone(),
+        );
+    }
+
+    let parsed_input = if prepared_input.is_none() {
+        input_source_map_json.and_then(|json| SourceMap::from_json(json).ok())
+    } else {
+        None
+    };
+    let input_sm = prepared_input.map(|prepared| &prepared.sm).or(parsed_input.as_ref());
+    if let Some(input_sm) = input_sm {
+        let composed = srcmap_remapping::remap(&output_sm, |_name: &str| Some(input_sm.clone()));
+        return composed.to_json();
+    }
+
+    output_sm.to_json()
 }

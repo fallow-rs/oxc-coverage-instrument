@@ -252,6 +252,56 @@ pub struct BranchEntry {
 /// coverage map yields byte-stable JSON.
 pub type CoverageMap = BTreeMap<String, FileCoverage>;
 
+/// Error returned by [`parse_coverage_map_validated`].
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum CoverageMapValidationError {
+    /// The input is not valid Istanbul coverage JSON.
+    Json(serde_json::Error),
+    /// The outer map key has no non-empty `/`-separated path segment.
+    PathlessOuterKey {
+        /// The rejected outer map key, preserved verbatim.
+        outer_path: String,
+    },
+    /// A non-empty `FileCoverage.path` differs from its outer map key.
+    PathMismatch {
+        /// The authoritative outer map key.
+        outer_path: String,
+        /// The conflicting path stored inside `FileCoverage`.
+        inner_path: String,
+    },
+}
+
+impl std::fmt::Display for CoverageMapValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(error) => write!(f, "invalid coverage JSON: {error}"),
+            Self::PathlessOuterKey { outer_path } => {
+                write!(f, "invalid coverage path {outer_path:?}: expected a non-empty path segment")
+            }
+            Self::PathMismatch { outer_path, inner_path } => write!(
+                f,
+                "coverage path mismatch: outer key {outer_path:?} differs from FileCoverage.path {inner_path:?}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CoverageMapValidationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Json(error) => Some(error),
+            Self::PathlessOuterKey { .. } | Self::PathMismatch { .. } => None,
+        }
+    }
+}
+
+impl From<serde_json::Error> for CoverageMapValidationError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
+    }
+}
+
 /// Parse a `coverage-final.json` string into a map of file paths to coverage data.
 ///
 /// This is the inverse of instrumentation: it reads existing coverage data
@@ -275,6 +325,41 @@ pub type CoverageMap = BTreeMap<String, FileCoverage>;
 /// ```
 pub fn parse_coverage_map(json: &str) -> Result<CoverageMap, serde_json::Error> {
     serde_json::from_str(json)
+}
+
+/// Parse and validate a `coverage-final.json` string at an ingestion boundary.
+///
+/// Unlike [`parse_coverage_map`], this rejects outer keys without a reportable
+/// `/`-separated path segment and enforces one path identity per entry. An
+/// empty or `null` inner [`FileCoverage::path`] is normalized to the outer key;
+/// a conflicting non-empty inner path is rejected.
+///
+/// Path equality is byte-for-byte. This function does not resolve relative
+/// segments, convert platform separators, or access the filesystem.
+///
+/// # Errors
+///
+/// Returns [`CoverageMapValidationError::Json`] for JSON or schema errors,
+/// [`CoverageMapValidationError::PathlessOuterKey`] for a key such as `"///"`,
+/// and [`CoverageMapValidationError::PathMismatch`] for conflicting identities.
+pub fn parse_coverage_map_validated(json: &str) -> Result<CoverageMap, CoverageMapValidationError> {
+    let mut map = parse_coverage_map(json)?;
+    for (outer_path, coverage) in &mut map {
+        if !outer_path.split('/').any(|segment| !segment.is_empty()) {
+            return Err(CoverageMapValidationError::PathlessOuterKey {
+                outer_path: outer_path.clone(),
+            });
+        }
+        if coverage.path.is_empty() {
+            coverage.path.clone_from(outer_path);
+        } else if coverage.path != *outer_path {
+            return Err(CoverageMapValidationError::PathMismatch {
+                outer_path: outer_path.clone(),
+                inner_path: coverage.path.clone(),
+            });
+        }
+    }
+    Ok(map)
 }
 
 /// Coerce a `null` string to `""`.

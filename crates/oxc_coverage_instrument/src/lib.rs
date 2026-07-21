@@ -139,7 +139,8 @@ pub use oxc_coverage_source_maps::{
     remap_coverage_with_loader_and_options, remap_coverage_with_options,
 };
 pub use oxc_coverage_types::{
-    BranchEntry, FileCoverage, FnEntry, Location, Position, UnhandledPragma, parse_coverage_map,
+    BranchEntry, CoverageMapValidationError, FileCoverage, FnEntry, Location, Position,
+    UnhandledPragma, parse_coverage_map, parse_coverage_map_validated,
 };
 pub use v8_to_istanbul::{
     V8CoverageRange, V8FunctionCoverage, V8ToIstanbulError, v8_to_istanbul,

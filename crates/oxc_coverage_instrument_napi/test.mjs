@@ -169,6 +169,42 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] Stale coverage refresh by hash');
 }
 
+// Test: magic coverage storage keys cannot use inherited prototype state
+{
+  for (const coverageVariable of [
+    '__proto__',
+    'constructor',
+    'hasOwnProperty',
+    'isPrototypeOf',
+    'propertyIsEnumerable',
+    'toLocaleString',
+    'toString',
+    'valueOf',
+  ]) {
+    assert.throws(
+      () => instrument('const x = 1;', 'magic-variable.js', { coverageVariable }),
+      /invalid coverage variable.*Object\.prototype/,
+      `${coverageVariable} must be rejected`,
+    );
+  }
+
+  const first = instrument('globalThis.first = 1;', '__proto__');
+  const second = instrument('globalThis.second = 2; globalThis.third = 3;', '__proto__');
+  const sharedGlobal = {};
+  new Function('globalThis', first.code)(sharedGlobal);
+  const firstCoverage = sharedGlobal.__coverage__.__proto__;
+  new Function('globalThis', second.code)(sharedGlobal);
+  const replacedCoverage = sharedGlobal.__coverage__.__proto__;
+  new Function('globalThis', second.code)(sharedGlobal);
+  const store = sharedGlobal.__coverage__;
+  assert.equal(Object.hasOwn(store, '__proto__'), true, 'filename must create an own slot');
+  assert.deepEqual(Object.keys(store), ['__proto__'], 'filename slot must be enumerable');
+  assert.notEqual(store.__proto__, firstCoverage, 'changed coverage shape must replace stale data');
+  assert.equal(store.__proto__, replacedCoverage, 'matching coverage hash must reuse current data');
+  assert.equal(store.__proto__.path, '__proto__');
+  console.log('  [PASS] Magic coverage storage keys use own properties');
+}
+
 // Test: Issue regressions that require runtime counter execution
 {
   const noElse = instrument(

@@ -31,7 +31,7 @@ use std::{
 use oxc_coverage_instrument::{InstrumentOptions, InstrumentResult, instrument};
 use oxc_coverage_report::{CoverageMap, ReportNode, summarize};
 use oxc_coverage_reports::Format;
-use oxc_coverage_types::parse_coverage_map;
+use oxc_coverage_types::parse_coverage_map_validated;
 
 /// Name of the global the instrumented code writes into when
 /// `--coverage-variable` is absent.
@@ -460,7 +460,7 @@ fn read_coverage_map(args: &ReportArgs) -> Result<CoverageMap, ExitCode> {
             return Err(ExitCode::FAILURE);
         }
     };
-    let map = match parse_coverage_map(&json) {
+    let map = match parse_coverage_map_validated(&json) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("error: {} is not a valid coverage-final.json ({e})", args.coverage_file);

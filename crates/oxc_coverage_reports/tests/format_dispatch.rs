@@ -10,11 +10,13 @@ use common::TWO_FILE_MAP;
 use oxc_coverage_report::summarize;
 use oxc_coverage_reports::html::HtmlOptions;
 use oxc_coverage_reports::{Format, json_summary, lcov, text, text_summary};
-use oxc_coverage_types::parse_coverage_map;
+use oxc_coverage_types::{parse_coverage_map, parse_coverage_map_validated};
 use std::path::Path;
 
 const EMPTY_MAP: &str =
     r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
+
+const NULL_INNER_PATH_MAP: &str = r#"{"canonical.js":{"path":null,"statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":33}}},"fnMap":{},"branchMap":{},"s":{"0":1},"f":{},"b":{}}}"#;
 
 fn reject_directory_write(format: Format, map: &oxc_coverage_report::CoverageMap, dir: &Path) {
     let error = format
@@ -92,6 +94,43 @@ fn dispatch_matches_module_writers() {
     let mut b = Vec::new();
     Format::Lcov.write(&root, Path::new(""), &mut b).unwrap();
     assert_eq!(a, b);
+}
+
+#[test]
+fn validated_path_identity_reaches_every_report_surface() {
+    let map = parse_coverage_map_validated(NULL_INNER_PATH_MAP).unwrap();
+    assert_eq!(map["canonical.js"].path, "canonical.js");
+
+    let root = summarize(&map);
+    let leaf = &root.children()[0];
+    assert_eq!(leaf.relative_path, "canonical.js");
+
+    let mut output = Vec::new();
+    Format::JsonSummary.write(&root, Path::new(""), &mut output).unwrap();
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains(r#""canonical.js""#));
+
+    let mut output = Vec::new();
+    Format::Lcov.write(&root, Path::new(""), &mut output).unwrap();
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("SF:canonical.js\n"));
+
+    let mut output = Vec::new();
+    Format::Cobertura.write(&root, Path::new(""), &mut output).unwrap();
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("filename=\"canonical.js\""));
+
+    #[cfg(feature = "html")]
+    {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("canonical.js"), "globalThis.canonicalMarker = 1;\n")
+            .unwrap();
+        let output_dir = dir.path().join("html");
+        Format::Html.write_to_dir(&map, dir.path(), &output_dir, &HtmlOptions::default()).unwrap();
+        let detail = std::fs::read_to_string(output_dir.join("canonical.js.html")).unwrap();
+        assert!(detail.contains("canonical.js"));
+        assert!(detail.contains("canonicalMarker"));
+    }
 }
 
 #[cfg(feature = "html")]

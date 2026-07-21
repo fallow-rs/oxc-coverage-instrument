@@ -869,6 +869,66 @@ fn custom_coverage_variable() {
     assert!(result.code.contains("__custom_cov__"));
 }
 
+#[test]
+fn inherited_object_property_names_are_rejected_as_coverage_variables() {
+    for name in [
+        "__proto__",
+        "constructor",
+        "hasOwnProperty",
+        "isPrototypeOf",
+        "propertyIsEnumerable",
+        "toLocaleString",
+        "toString",
+        "valueOf",
+        "__defineGetter__",
+        "__defineSetter__",
+        "__lookupGetter__",
+        "__lookupSetter__",
+    ] {
+        let options = InstrumentOptions {
+            coverage_variable: name.to_string(),
+            ..InstrumentOptions::default()
+        };
+        let error = instrument("const x = 1;", "test.js", &options)
+            .expect_err("inherited Object property must be rejected");
+        assert!(error.to_string().contains("invalid coverage variable"), "{name}: {error}");
+        assert!(error.to_string().contains("Object.prototype"), "{name}: {error}");
+    }
+}
+
+#[test]
+fn proto_filename_uses_an_enumerable_own_coverage_slot_and_reuses_it() {
+    let first = instrument("globalThis.first = 1;", "__proto__", &default_opts()).unwrap();
+    let second =
+        instrument("globalThis.second = 2; globalThis.third = 3;", "__proto__", &default_opts())
+            .unwrap();
+    let script = format!(
+        "{}\nconst firstCoverage = globalThis.__coverage__.__proto__;\n{}\nconst replacedCoverage = globalThis.__coverage__.__proto__;\n{}\nconst store = globalThis.__coverage__;\nconsole.log(JSON.stringify({{ own: Object.hasOwn(store, '__proto__'), keys: Object.keys(store), staleReplaced: store.__proto__ !== firstCoverage, sameHashReused: store.__proto__ === replacedCoverage, path: store.__proto__.path, statements: Object.keys(store.__proto__.statementMap).length }}));",
+        first.code, second.code, second.code,
+    );
+    let output = run_node_eval(&script);
+
+    assert!(
+        output.status.success(),
+        "instrumented runtime failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).expect("runtime JSON");
+    assert_eq!(result["own"], true);
+    assert_eq!(result["keys"], serde_json::json!(["__proto__"]));
+    assert_eq!(result["staleReplaced"], true);
+    assert_eq!(result["sameHashReused"], true);
+    assert_eq!(result["path"], "__proto__");
+    assert_eq!(result["statements"], 2);
+}
+
+#[test]
+fn normal_filename_keeps_the_existing_preamble_shape() {
+    let code = instrument("const x = 1;", "normal.js", &default_opts()).unwrap().code;
+    assert!(!code.contains("Object.defineProperty"));
+    assert!(code.contains("if (!coverage[gcv][path] || coverage[gcv][path].hash !== hash)"));
+}
+
 // Deterministic output
 
 #[test]

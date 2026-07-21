@@ -29,11 +29,27 @@ pub(crate) fn apply_source_map_single(
     options: RemapOptions,
     path: String,
 ) -> FileCoverage {
+    let mut caches = RemapCaches::default();
+    apply_source_map_single_with_caches(coverage, sm, options, path, &mut caches)
+}
+
+/// Remap a single-source coverage object while reusing lookup caches owned by
+/// a prepared source map.
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
+)]
+pub(crate) fn apply_source_map_single_with_caches(
+    coverage: &FileCoverage,
+    sm: &SourceMap,
+    options: RemapOptions,
+    path: String,
+    caches: &mut RemapCaches,
+) -> FileCoverage {
     let mut output = coverage.clone();
     output.path = path;
     output.input_source_map = None;
-    let mut caches = RemapCaches::default();
-    let mut ctx = RemapContext::new(sm, &mut caches);
+    let mut ctx = RemapContext::new(sm, caches);
 
     if options.drop_unmapped {
         prune_single_source_unmapped(&mut output, &mut ctx);
@@ -186,6 +202,28 @@ pub(crate) fn apply_source_map_to_map_internal(
     options: RemapOptions,
     canonicalize_ids: bool,
 ) -> Option<BTreeMap<String, FileCoverage>> {
+    let mut caches = RemapCaches::default();
+    apply_source_map_to_map_internal_with_caches(
+        coverage,
+        sm,
+        options,
+        canonicalize_ids,
+        &mut caches,
+    )
+}
+
+/// Fan-out implementation that reuses lookup caches owned by a prepared map.
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
+)]
+pub(crate) fn apply_source_map_to_map_internal_with_caches(
+    coverage: &FileCoverage,
+    sm: &SourceMap,
+    options: RemapOptions,
+    canonicalize_ids: bool,
+    caches: &mut RemapCaches,
+) -> Option<BTreeMap<String, FileCoverage>> {
     let resolved_sources: Vec<(u32, String)> = sm
         .sources
         .iter()
@@ -204,8 +242,7 @@ pub(crate) fn apply_source_map_to_map_internal(
     let fallback_source =
         (!options.drop_unmapped && unique_paths.len() == 1).then(|| resolved_sources[0].0);
     let mut outputs = BTreeMap::new();
-    let mut caches = RemapCaches::default();
-    let mut ctx = RemapContext::new(sm, &mut caches);
+    let mut ctx = RemapContext::new(sm, caches);
 
     fan_out_statements(&mut outputs, coverage, &mut ctx, fallback_source, canonicalize_ids);
     fan_out_functions(&mut outputs, coverage, &mut ctx, fallback_source, canonicalize_ids);

@@ -82,7 +82,8 @@ pub struct InstrumentOptions {
     pub compat: Option<CompatProfile>,
     /// Explicit parser source type. Overrides filename inference.
     pub source_type: Option<InstrumentSourceType>,
-    /// Name of the global coverage variable. Defaults to `__coverage__`.
+    /// Safe standalone identifier for the global coverage variable. Defaults
+    /// to `__coverage__`. Names inherited from `Object.prototype` are rejected.
     pub coverage_variable: Option<String>,
     /// Generate a source map for the instrumented output. Defaults to `false`.
     pub source_map: Option<bool>,
@@ -252,7 +253,7 @@ pub struct InstrumentResult {
 ///
 /// Returns an error if:
 ///   * `emitDecoratorMetadata` is `true` while `experimentalDecorators` is not
-///   * `coverageVariable` is not a valid JavaScript identifier
+///   * `coverageVariable` is not a safe standalone JavaScript identifier
 ///   * `source` fails to parse
 ///   * the TypeScript-strip pass reports a diagnostic
 ///   * generated output cannot place the coverage setup after directives

@@ -67,6 +67,52 @@ fn bench_instrument_with_source_map(c: &mut Criterion) {
     group.finish();
 }
 
+fn identity_source_map(source: &str, filename: &str) -> String {
+    let line_count = source.lines().count();
+    let mappings = std::iter::once("AAAA")
+        .chain(std::iter::repeat_n("AACA", line_count.saturating_sub(1)))
+        .collect::<Vec<_>>()
+        .join(";");
+    serde_json::json!({
+        "version": 3,
+        "sources": [filename],
+        "sourcesContent": [source],
+        "names": [],
+        "mappings": mappings,
+    })
+    .to_string()
+}
+
+fn bench_eager_input_source_map(c: &mut Criterion) {
+    let mut group = c.benchmark_group("eager_input_source_map");
+
+    for &(label, count) in &[("small", 100), ("large", 5_000)] {
+        let source = flat_statements(count);
+        let input_source_map = identity_source_map(&source, "original.ts");
+
+        for &source_map in &[false, true] {
+            let options = InstrumentOptions {
+                source_map,
+                input_source_map: Some(input_source_map.clone()),
+                compose_input_source_map: true,
+                ..InstrumentOptions::default()
+            };
+            let output = if source_map { "with_output_map" } else { "coverage_only" };
+            group.bench_with_input(
+                BenchmarkId::new(format!("{label}_{output}"), count),
+                &source,
+                |b, source| {
+                    b.iter(|| {
+                        std::hint::black_box(instrument(source, "generated.js", &options).unwrap());
+                    });
+                },
+            );
+        }
+    }
+
+    group.finish();
+}
+
 fn bench_instrument_scaling(c: &mut Criterion) {
     let base = "function f_N() { if (Math.random() > 0.5) { return N; } else { return -N; } }\n";
     let mut group = c.benchmark_group("scaling");
@@ -141,6 +187,7 @@ criterion_group!(
     benches,
     bench_instrument_fixtures,
     bench_instrument_with_source_map,
+    bench_eager_input_source_map,
     bench_instrument_scaling,
     bench_flat_statement_scaling,
     bench_napi_path

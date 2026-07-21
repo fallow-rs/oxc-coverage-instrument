@@ -249,6 +249,67 @@ fn report_empty_coverage_map_has_distinct_exit_code_and_writes_nothing() {
 }
 
 #[test]
+fn report_rejects_pathless_coverage_before_fail_under() {
+    let cov = write_temp(
+        "report_pathless_cov.json",
+        r#"{"///":{"path":"///","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}}},"fnMap":{},"branchMap":{},"s":{"0":0},"f":{},"b":{}}}"#,
+    );
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("text")
+        .arg("--fail-under")
+        .arg("1")
+        .arg(&cov)
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success(), "pathless coverage must not pass the gate");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("invalid coverage path"), "got:\n{stderr}");
+    assert!(stderr.contains("\"///\""), "got:\n{stderr}");
+    assert!(!stderr.contains("below --fail-under"), "validation must run before gating: {stderr}");
+    assert!(out.stdout.is_empty(), "invalid coverage must not render a report");
+}
+
+#[test]
+fn report_normalizes_a_null_inner_path() {
+    let cov = write_temp(
+        "report_null_inner_path.json",
+        r#"{"src/a.js":{"path":null,"statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#,
+    );
+    let out = cli().arg("report").arg("--format").arg("lcov").arg(&cov).output().unwrap();
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("SF:src/a.js"));
+}
+
+#[test]
+fn report_rejects_mismatched_paths_before_creating_html_output() {
+    let cov = write_temp(
+        "report_mismatched_paths.json",
+        r#"{"src/a.js":{"path":"other/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#,
+    );
+    let out_dir = temp_path("html_mismatched_paths");
+    let _ = std::fs::remove_dir_all(&out_dir);
+    let out = cli()
+        .arg("report")
+        .arg("--format")
+        .arg("html")
+        .arg("--output-dir")
+        .arg(&out_dir)
+        .arg(&cov)
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success(), "mismatched paths must fail");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("coverage path mismatch"), "got:\n{stderr}");
+    assert!(stderr.contains("src/a.js") && stderr.contains("other/a.js"), "got:\n{stderr}");
+    assert!(!out_dir.exists(), "validation must run before creating the HTML directory");
+}
+
+#[test]
 fn report_fail_under_renders_then_exits_two_when_lines_are_low() {
     let cov = write_temp("report_fail_under_cov.json", SAMPLE_COVERAGE);
     let out = cli()

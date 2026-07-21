@@ -39,7 +39,7 @@
 //! * `remap.rs`:             Public entry points and the source map loader fallback.
 //! * `store.rs`:             [`SourceMapStore`], the Mode B container.
 //! * `options.rs`:           [`RemapOptions`].
-//! * `position_remapper.rs`: [`PositionRemapper`], the instrument-time gate predicate.
+//! * `position_remapper.rs`: [`PositionRemapper`], prepared-map reuse and the instrument-time gate.
 //! * `apply.rs`:             Rewriting one `FileCoverage` through a parsed source map.
 //! * `merge.rs`:             Merging entries that land on the same original path.
 //! * `get_mapping.rs`:       Istanbul `getMapping` position resolution.
@@ -58,7 +58,7 @@ mod store;
 
 pub use crate::{
     options::RemapOptions,
-    position_remapper::PositionRemapper,
+    position_remapper::{GeneratedLineShift, PositionRemapper, finalize_generated_source_map},
     remap::{
         remap_coverage, remap_coverage_map, remap_coverage_map_with_loader,
         remap_coverage_map_with_loader_and_options, remap_coverage_map_with_options,

@@ -1094,8 +1094,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "srcmap-remapping",
- "srcmap-sourcemap",
 ]
 
 [[package]]
@@ -1159,6 +1157,7 @@ dependencies = [
  "oxc_coverage_types",
  "serde_json",
  "srcmap-generator",
+ "srcmap-remapping",
  "srcmap-sourcemap",
 ]
 

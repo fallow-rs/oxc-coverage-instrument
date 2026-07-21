@@ -202,7 +202,7 @@ pub struct CoverageTransform<'src, 'arena> {
     /// entry is registered and no counter is emitted, so the runtime coverage
     /// object and the emitted counters agree. `None` for every non-eager
     /// caller, where gating is a strict no-op.
-    eager_remapper: Option<oxc_coverage_source_maps::PositionRemapper>,
+    eager_remapper: Option<&'src oxc_coverage_source_maps::PositionRemapper>,
     /// Statement ids already handed out per remapped location, so statements
     /// that collapse onto one original location under the eager gate share a
     /// counter. Empty outside eager mode.
@@ -250,7 +250,7 @@ pub struct TransformInit<'src, 'arena> {
     /// Eager-compose position-remap gate. `Some` only when
     /// `compose_input_source_map` is on and a usable input map is present;
     /// `None` for every other caller, where gating is a strict no-op.
-    pub eager_remapper: Option<oxc_coverage_source_maps::PositionRemapper>,
+    pub eager_remapper: Option<&'src oxc_coverage_source_maps::PositionRemapper>,
 }
 
 impl<'src, 'arena> CoverageTransform<'src, 'arena> {

@@ -1,8 +1,10 @@
 //! `PositionRemapper`, the eager instrument-time keep/drop predicate.
 
-use oxc_coverage_source_maps::PositionRemapper;
+use oxc_coverage_source_maps::{
+    GeneratedLineShift, PositionRemapper, finalize_generated_source_map, remap_coverage,
+};
 
-use crate::fixtures::loc;
+use crate::fixtures::{full_shape_file_coverage, identity_three_line_map, loc};
 
 #[test]
 fn location_maps_matches_deferred_get_mapping_keep_decision() {
@@ -42,4 +44,37 @@ fn admits_map_when_a_later_source_resolves() {
         .expect("a map with a usable later source is admitted like deferred remapping");
 
     assert!(remapper.location_maps(&loc(1, 0, 1, 4)), "source index 1 maps");
+}
+
+#[test]
+fn prepared_map_reuses_the_same_remap_semantics() {
+    let input_map = identity_three_line_map(None);
+    let input_json = serde_json::to_string(&input_map).expect("fixture serializes");
+    let remapper = PositionRemapper::from_json(&input_json).expect("usable map");
+    let embedded = full_shape_file_coverage(Some(input_map));
+    let mut prepared_input = embedded.clone();
+    prepared_input.input_source_map = None;
+
+    let prepared = remapper.remap_coverage(&prepared_input).expect("prepared remap succeeds");
+    let embedded = remap_coverage(&embedded).expect("embedded remap succeeds");
+    assert_eq!(
+        serde_json::to_value(prepared).expect("prepared coverage serializes"),
+        serde_json::to_value(embedded).expect("embedded coverage serializes"),
+        "prepared remapping must match the embedded-map API",
+    );
+}
+
+#[test]
+fn prepared_map_composes_output_after_generated_line_shift() {
+    let input_json = serde_json::to_string(&identity_three_line_map(None))
+        .expect("input map fixture serializes");
+    let remapper = PositionRemapper::from_json(&input_json).expect("usable map");
+    let output_json = r#"{"version":3,"sources":["intermediate.js"],"sourcesContent":["a\nb\nc\n"],"mappings":"AAAA;AACA;AACA","names":[]}"#;
+    let shift = GeneratedLineShift { first_following_line: 1, line_delta: 2 };
+
+    let prepared =
+        finalize_generated_source_map(output_json, Some(shift), Some(&remapper), Some("invalid"));
+    let raw = finalize_generated_source_map(output_json, Some(shift), None, Some(&input_json));
+
+    assert_eq!(prepared, raw, "prepared and raw composition paths must remain byte-equal");
 }

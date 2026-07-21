@@ -55,10 +55,17 @@ pub fn generate_preamble_source(inputs: &PreambleInputs<'_>) -> String {
     );
     let _ = write!(buf, "; var gcv = '{coverage_var}'; var coverageData = ");
     buf.push_str(coverage_json);
-    let _ = writeln!(
-        buf,
-        "; coverageData.hash = hash; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path] || coverage[gcv][path].hash !== hash) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }})();"
-    );
+    if coverage.path == "__proto__" {
+        let _ = writeln!(
+            buf,
+            "; coverageData.hash = hash; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!Object.prototype.hasOwnProperty.call(coverage[gcv], path) || !coverage[gcv][path] || coverage[gcv][path].hash !== hash) {{ Object.defineProperty(coverage[gcv], path, {{ value: coverageData, enumerable: true, writable: true, configurable: true }}); }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }})();"
+        );
+    } else {
+        let _ = writeln!(
+            buf,
+            "; coverageData.hash = hash; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path] || coverage[gcv][path].hash !== hash) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }})();"
+        );
+    }
     if report_logic {
         append_logic_helper(&mut buf, cov_fn_name);
     }

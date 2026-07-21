@@ -1,7 +1,10 @@
 //! Serde compatibility with the `null` shapes Istanbul producers emit, and the
 //! hand-written `Position` serialization.
 
-use oxc_coverage_types::{FileCoverage, Location, Position, parse_coverage_map};
+use oxc_coverage_types::{
+    CoverageMapValidationError, FileCoverage, Location, Position, parse_coverage_map,
+    parse_coverage_map_validated,
+};
 
 /// A `FileCoverage` whose nullable fields all carry `null`.
 const NULL_HEAVY: &str = r#"{
@@ -13,6 +16,81 @@ const NULL_HEAVY: &str = r#"{
     "f": {"0": null},
     "b": {"0": null}
 }"#;
+
+fn coverage_map_json(outer_path: &str, inner_path: Option<&str>) -> String {
+    let mut map = serde_json::Map::new();
+    map.insert(
+        outer_path.to_string(),
+        serde_json::json!({
+            "path": inner_path,
+            "statementMap": {},
+            "fnMap": {},
+            "branchMap": {},
+            "s": {},
+            "f": {},
+            "b": {},
+        }),
+    );
+    serde_json::Value::Object(map).to_string()
+}
+
+#[test]
+fn validated_map_rejects_pathless_outer_keys() {
+    for path in ["", "/", "///"] {
+        let json = coverage_map_json(path, Some(path));
+        let error = parse_coverage_map_validated(&json).expect_err("pathless key must fail");
+        assert!(
+            matches!(
+                error,
+                CoverageMapValidationError::PathlessOuterKey { ref outer_path }
+                    if outer_path == path
+            ),
+            "unexpected error for {path:?}: {error}",
+        );
+        assert!(error.to_string().contains(&format!("{path:?}")));
+    }
+}
+
+#[test]
+fn validated_map_accepts_reportable_path_shapes() {
+    for path in ["src/a.js", "/repo/src/a.js", r"C:\repo\src\a.js", "file:///src/a.js"] {
+        let json = coverage_map_json(path, Some(path));
+        let map = parse_coverage_map_validated(&json).expect("reportable key must parse");
+        assert_eq!(map[path].path, path);
+    }
+}
+
+#[test]
+fn validated_map_normalizes_an_empty_inner_path() {
+    for inner_path in [None, Some("")] {
+        let json = coverage_map_json("src/a.js", inner_path);
+        let map = parse_coverage_map_validated(&json).expect("empty inner path must normalize");
+        assert_eq!(map["src/a.js"].path, "src/a.js");
+    }
+}
+
+#[test]
+fn validated_map_rejects_a_conflicting_inner_path() {
+    let json = coverage_map_json("src/a.js", Some("other/a.js"));
+    let error = parse_coverage_map_validated(&json).expect_err("path mismatch must fail");
+
+    assert!(matches!(
+        error,
+        CoverageMapValidationError::PathMismatch {
+            ref outer_path,
+            ref inner_path,
+        } if outer_path == "src/a.js" && inner_path == "other/a.js"
+    ));
+    assert!(error.to_string().contains("src/a.js"));
+    assert!(error.to_string().contains("other/a.js"));
+}
+
+#[test]
+fn validated_map_keeps_json_errors_distinct() {
+    let error = parse_coverage_map_validated("not json").expect_err("invalid JSON must fail");
+    assert!(matches!(error, CoverageMapValidationError::Json(_)));
+    assert!(std::error::Error::source(&error).is_some());
+}
 
 #[test]
 fn null_string_fields_deserialize_as_empty() {

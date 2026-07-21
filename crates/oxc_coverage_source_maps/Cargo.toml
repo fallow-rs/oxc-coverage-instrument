@@ -28,6 +28,7 @@ test = false
 oxc_coverage_types = { workspace = true }
 
 serde_json = { workspace = true }
+srcmap-remapping = { workspace = true }
 srcmap-sourcemap = { workspace = true }
 
 [dev-dependencies]

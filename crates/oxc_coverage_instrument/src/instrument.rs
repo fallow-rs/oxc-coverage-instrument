@@ -73,7 +73,8 @@ pub struct InstrumentOptions {
     /// Explicit parser source type. When unset, infer it from `filename` after
     /// removing any query or fragment suffix.
     pub source_type: Option<InstrumentSourceType>,
-    /// Name of the global coverage variable (default: `"__coverage__"`).
+    /// Safe standalone identifier for the global coverage variable (default:
+    /// `"__coverage__"`). Names inherited from `Object.prototype` are rejected.
     pub coverage_variable: String,
     /// Whether to generate a source map for the instrumented output.
     pub source_map: bool,
@@ -417,6 +418,28 @@ fn is_valid_js_identifier(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
+/// Names inherited by every ordinary JavaScript object. Using one as `gcv`
+/// would reuse or mutate prototype state instead of creating an own coverage
+/// store on the selected global object.
+const OBJECT_PROTOTYPE_NAMES: [&str; 12] = [
+    "__proto__",
+    "constructor",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString",
+    "toString",
+    "valueOf",
+    "__defineGetter__",
+    "__defineSetter__",
+    "__lookupGetter__",
+    "__lookupSetter__",
+];
+
+fn is_safe_coverage_variable(s: &str) -> bool {
+    is_valid_js_identifier(s) && !OBJECT_PROTOTYPE_NAMES.contains(&s)
+}
+
 /// Serialize a `FileCoverage` to JSON.
 ///
 /// `FileCoverage` is composed of `BTreeMap`, `Vec`, `String` and primitive
@@ -435,8 +458,8 @@ fn serialize_coverage_map(coverage_map: &FileCoverage) -> String {
 /// # Errors
 ///
 /// - [`InstrumentError::InvalidCoverageVariable`] if
-///   [`InstrumentOptions::coverage_variable`] is not a valid JavaScript
-///   identifier
+///   [`InstrumentOptions::coverage_variable`] is not a safe standalone
+///   JavaScript identifier
 /// - [`InstrumentError::ParseError`] if `source` cannot be parsed
 /// - [`InstrumentError::TransformError`] if
 ///   [`InstrumentOptions::strip_typescript`] is set and the strip pass reports
@@ -464,6 +487,7 @@ pub fn instrument(
     validate_coverage_variable(options)?;
     let allocator = Allocator::default();
     let mut parsed = parse_program(&allocator, source, filename, options.source_type)?;
+    let prepared_input_source_map = prepare_input_source_map(options);
 
     let (pragmas, unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
     let scoping = prepare_scoping(PrepareScopingInput {
@@ -481,6 +505,7 @@ pub fn instrument(
         source,
         filename,
         options,
+        prepared_input_source_map: prepared_input_source_map.as_ref(),
     })?;
     let InstrumentProgramResult {
         scoping,
@@ -527,7 +552,15 @@ pub fn instrument(
         options,
     })?;
     let source_map = emitted.source_map.as_deref().map(|sm| {
-        finalize_source_map(sm, emitted.preamble_shift, options.input_source_map.as_deref())
+        oxc_coverage_source_maps::finalize_generated_source_map(
+            sm,
+            emitted.preamble_shift.map(|shift| oxc_coverage_source_maps::GeneratedLineShift {
+                first_following_line: shift.first_following_line,
+                line_delta: shift.line_delta,
+            }),
+            prepared_input_source_map.as_ref(),
+            options.input_source_map.as_deref(),
+        )
     });
 
     Ok(InstrumentResult {
@@ -548,6 +581,7 @@ struct InstrumentProgramInput<'src, 'arena, 'a> {
     source: &'src str,
     filename: &'a str,
     options: &'a InstrumentOptions,
+    prepared_input_source_map: Option<&'src oxc_coverage_source_maps::PositionRemapper>,
 }
 
 fn instrument_program_with_pragmas(
@@ -562,6 +596,7 @@ fn instrument_program_with_pragmas(
         source,
         filename,
         options,
+        prepared_input_source_map,
     } = input;
     validate_coverage_variable(options)?;
     if pragmas.ignore_file {
@@ -586,9 +621,14 @@ fn instrument_program_with_pragmas(
         source,
         cov_fn_name: &cov_fn_name,
         options,
+        eager_remapper: options
+            .compose_input_source_map
+            .then_some(prepared_input_source_map)
+            .flatten(),
     });
     let needs_optional_chain_helper = transform.used_optional_chain_helper;
-    let coverage_map = finalize_coverage_map(filename, transform, options);
+    let coverage_map =
+        finalize_coverage_map(filename, transform, options, prepared_input_source_map);
     let (coverage_map_json, preamble) = build_instrument_preamble(
         &coverage_map,
         options,
@@ -622,7 +662,7 @@ fn instrument_program_with_pragmas(
 /// # Errors
 ///
 /// Returns [`InstrumentError::InvalidCoverageVariable`] when the configured
-/// coverage variable is not a valid JavaScript identifier.
+/// coverage variable is not a safe standalone JavaScript identifier.
 ///
 /// # Example
 ///
@@ -661,6 +701,7 @@ pub fn instrument_program<'arena>(
     options: &InstrumentOptions,
 ) -> Result<InstrumentProgramResult, InstrumentError> {
     let (pragmas, unhandled_pragmas) = PragmaMap::from_program(program, source_text);
+    let prepared_input_source_map = prepare_input_source_map(options);
     instrument_program_with_pragmas(InstrumentProgramInput {
         allocator,
         program,
@@ -670,6 +711,7 @@ pub fn instrument_program<'arena>(
         source: source_text,
         filename,
         options,
+        prepared_input_source_map: prepared_input_source_map.as_ref(),
     })
 }
 
@@ -713,7 +755,7 @@ fn symbol_is_coverage_binding(symbol: &str, candidate: &str, suffix: &str) -> bo
 }
 
 fn validate_coverage_variable(options: &InstrumentOptions) -> Result<(), InstrumentError> {
-    if is_valid_js_identifier(&options.coverage_variable) {
+    if is_safe_coverage_variable(&options.coverage_variable) {
         return Ok(());
     }
     Err(InstrumentError::InvalidCoverageVariable(options.coverage_variable.clone()))
@@ -756,13 +798,22 @@ struct CoverageTransformRun<'src, 'arena, 'a> {
     source: &'src str,
     cov_fn_name: &'src str,
     options: &'a InstrumentOptions,
+    eager_remapper: Option<&'src oxc_coverage_source_maps::PositionRemapper>,
 }
 
 fn run_coverage_transform<'src, 'arena>(
     input: CoverageTransformRun<'src, 'arena, '_>,
 ) -> (CoverageTransform<'src, 'arena>, Scoping) {
-    let CoverageTransformRun { allocator, program, scoping, pragmas, source, cov_fn_name, options } =
-        input;
+    let CoverageTransformRun {
+        allocator,
+        program,
+        scoping,
+        pragmas,
+        source,
+        cov_fn_name,
+        options,
+        eager_remapper,
+    } = input;
     let mut transform = CoverageTransform::new(TransformInit {
         allocator,
         source,
@@ -773,7 +824,7 @@ fn run_coverage_transform<'src, 'arena>(
         istanbul_compat: options.compat == Some(CompatProfile::Istanbul),
         ignore_class_methods: options.ignore_class_methods.clone(),
         name_callback_arguments: options.name_callback_arguments,
-        eager_remapper: eager_remapper(options),
+        eager_remapper,
     });
     let state = CoverageState { pragmas };
     let scoping = traverse_mut(&mut transform, allocator, program, scoping, state);
@@ -900,31 +951,22 @@ fn empty_coverage(filename: &str) -> FileCoverage {
     })
 }
 
-fn build_coverage_map(
-    filename: &str,
-    transform: CoverageTransform<'_, '_>,
-    input_source_map: Option<&str>,
-) -> FileCoverage {
-    let mut coverage_map = build_file_coverage(CoverageMaps {
+fn build_coverage_map(filename: &str, transform: CoverageTransform<'_, '_>) -> FileCoverage {
+    build_file_coverage(CoverageMaps {
         path: filename.to_string(),
         statement_locs: transform.statement_map,
         fn_entries: transform.fn_map,
         branch_entries: transform.branch_map,
         logical_branch_ids: transform.logical_branch_ids,
-    });
-    if let Some(input_sm) = input_source_map {
-        coverage_map.input_source_map = serde_json::from_str(input_sm).ok();
-    }
-    coverage_map
+    })
 }
 
-fn eager_remapper(
+fn prepare_input_source_map(
     options: &InstrumentOptions,
 ) -> Option<oxc_coverage_source_maps::PositionRemapper> {
-    if !options.compose_input_source_map {
+    if !options.compose_input_source_map && !options.source_map {
         return None;
     }
-
     options
         .input_source_map
         .as_deref()
@@ -935,10 +977,10 @@ fn finalize_coverage_map(
     filename: &str,
     transform: CoverageTransform<'_, '_>,
     options: &InstrumentOptions,
+    prepared_input_source_map: Option<&oxc_coverage_source_maps::PositionRemapper>,
 ) -> FileCoverage {
     let overlay_conflict = transform.eager_function_overlay_conflict;
-    let mut coverage_map =
-        build_coverage_map(filename, transform, options.input_source_map.as_deref());
+    let mut coverage_map = build_coverage_map(filename, transform);
     if options.function_identity_overlay {
         // Dropped before composition, so the composed result is overlay-free
         // the way the deferred `merge_functions` conflict rule leaves it.
@@ -956,9 +998,14 @@ fn finalize_coverage_map(
     // lazy remap path.
     if options.compose_input_source_map
         && options.input_source_map.is_some()
-        && let Some(composed) = oxc_coverage_source_maps::remap_coverage(&coverage_map)
+        && let Some(composed) =
+            prepared_input_source_map.and_then(|prepared| prepared.remap_coverage(&coverage_map))
     {
         return composed;
+    }
+
+    if let Some(input_sm) = options.input_source_map.as_deref() {
+        coverage_map.input_source_map = serde_json::from_str(input_sm).ok();
     }
 
     coverage_map
@@ -1039,7 +1086,7 @@ pub(crate) fn collect_for_v8_to_istanbul(
     // with the surviving entries.
     let arm_body_byte_spans = collect_arm_body_byte_spans(&transform);
 
-    let coverage_map = build_coverage_map(filename, transform, None);
+    let coverage_map = build_coverage_map(filename, transform);
     Ok(V8CollectResult { coverage_map, arm_body_byte_spans })
 }
 
@@ -1177,64 +1224,6 @@ fn replace_preamble_marker(
     ))
 }
 
-/// If an input source map was provided, compose the generated map with it so
-/// the final map chains all the way back to the original source (e.g., TypeScript).
-///
-/// Composition is delegated to `srcmap-remapping`, which mirrors the semantics
-/// of `@ampproject/remapping` (the prior art `istanbul-lib-source-maps` and
-/// most JS bundlers also follow).
-fn finalize_source_map(
-    output_json: &str,
-    preamble_shift: Option<PreambleShift>,
-    input_source_map: Option<&str>,
-) -> String {
-    // Bridge the codegen source map to srcmap_sourcemap via JSON. Both crates
-    // emit the standard source map v3 format, so the round-trip is lossless.
-    // Bail out to the raw serialization if the parse ever fails.
-    let Ok(mut output_sm) = srcmap_sourcemap::SourceMap::from_json(output_json) else {
-        return output_json.to_string();
-    };
-    if let Some(shift) = preamble_shift {
-        let mappings = output_sm
-            .all_mappings()
-            .iter()
-            .copied()
-            .map(|mut mapping| {
-                if mapping.generated_line >= shift.first_following_line {
-                    mapping.generated_line =
-                        mapping.generated_line.saturating_add(shift.line_delta);
-                }
-                mapping
-            })
-            .collect();
-        output_sm = srcmap_sourcemap::SourceMap::from_parts_with_extensions(
-            output_sm.file.clone(),
-            output_sm.source_root.clone(),
-            output_sm.sources.clone(),
-            output_sm.sources_content.clone(),
-            output_sm.names.clone(),
-            mappings,
-            output_sm.ignore_list.clone(),
-            output_sm.debug_id.clone(),
-            output_sm.scopes.clone(),
-            output_sm.extensions.clone(),
-        );
-    }
-
-    if let Some(input_sm_json) = input_source_map
-        && let Ok(input_sm) = srcmap_sourcemap::SourceMap::from_json(input_sm_json)
-    {
-        // The output map has exactly one source, the instrumented file, so the
-        // input map is returned for any source name; `remap` drops sources it
-        // cannot load. Cloned per call because `remap` may invoke the loader
-        // more than once for a single source name.
-        let composed = srcmap_remapping::remap(&output_sm, |_name: &str| Some(input_sm.clone()));
-        return composed.to_json();
-    }
-
-    output_sm.to_json()
-}
-
 /// Error type for instrumentation failures.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -1243,7 +1232,7 @@ pub enum InstrumentError {
     ParseError(String),
     /// The generated coverage setup could not be placed in the emitted output.
     PreambleError(String),
-    /// The coverage variable name is not a valid JavaScript identifier.
+    /// The coverage variable is not a standalone safe JavaScript identifier.
     InvalidCoverageVariable(String),
     /// The TypeScript strip pass produced diagnostics. Only emitted when
     /// `InstrumentOptions::strip_typescript` is enabled. The vector
@@ -1262,7 +1251,7 @@ impl std::fmt::Display for InstrumentError {
             Self::InvalidCoverageVariable(name) => {
                 write!(
                     f,
-                    "invalid coverage variable: {name:?} is not a valid JavaScript identifier"
+                    "invalid coverage variable: {name:?} must be a standalone JavaScript identifier that is not inherited from Object.prototype"
                 )
             }
         }
