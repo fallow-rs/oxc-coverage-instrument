@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784623351962,
+  "lastUpdate": 1784626366971,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2174,6 +2174,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 92006176,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "6844822650bf3af0431a993617646410d40e7054",
+          "message": "fix(instrument): fold branch entries that collapse under eager compose\n\nStatements and functions that collapse onto one original location share a\ncounter id under composeInputSourceMap since a9bcf24; branches could not,\nbecause the fold key is the remapped arm-location vector (the key\nmerge_branches uses) and the arms were registered one by one after the\numbrella id was already handed out.\n\nReplace the incremental add_branch / add_branch_path family with a single\nregister_branch that receives every candidate arm up front, applies the\nper-arm gate, and only then assigns an id: a branch whose surviving remapped\narm vector matches an earlier one gets that entry's id, so the shared arm\ncounters sum at runtime exactly like the deferred merge sums them. The key\ncarries the resolved source and excludes the umbrella location and branch\ntype, matching merge_branches; outside eager mode registration reduces to the\nold fresh-id path and the output is byte-identical, which the conformance\nsuite, the snapshots and the istanbul diff pin.\n\nTwo behaviors surfaced by the restructure:\n- A branch whose umbrella maps but whose arms all fail to remap was already\n  filtered from the eager map, but it burned its id, leaving the map\n  non-contiguous where the deferred path renumbers. register_branch now\n  drops it before assigning an id, matching the deferred output.\n- The optional-chain helper was emitted only when an optional-chain-typed\n  entry survived. The type-excluding fold can fold a link onto a binary-expr\n  entry, erasing the type while the emitted call remains. The helper gate now\n  tracks link wrapping itself.\n\nThe function fold now also records when the folded pair's identities differ,\nand the overlay is dropped at finalize, matching the conflict rule the\ndeferred merge applies.\n\nValidated per branch construct against the canonicalizing remap, against\nreal babel maps over the benchmark libraries, and end to end through the\nsmoke's execution checks.\n\nFixes #193",
+          "timestamp": "2026-07-21T11:30:26+02:00",
+          "tree_id": "9abffc0861a8316d1a280168bc84a12c36602432",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/6844822650bf3af0431a993617646410d40e7054"
+        },
+        "date": 1784626366006,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92234720,
             "unit": "bytes"
           }
         ]
