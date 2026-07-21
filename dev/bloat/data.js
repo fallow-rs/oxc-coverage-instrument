@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784632231868,
+  "lastUpdate": 1784633254253,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2285,6 +2285,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/6c5b8e370378650cd3a9481bc77f0be4ddc37757"
         },
         "date": 1784632231513,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92259104,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "5205fdf9978cfb7f4c4092993870d0034e301b63",
+          "message": "docs(instrument): point registration docs at the live prune path\n\nadd_statement and add_function cited prune_statements / prune_functions,\nwhich do not exist; the deferred counterpart is the statement and function\nprune inside prune_single_source_unmapped, the name register_branch's doc\nalready uses.",
+          "timestamp": "2026-07-21T13:25:31+02:00",
+          "tree_id": "f345ccdc41577f1187d8c1260b2f9529401d7ead",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/5205fdf9978cfb7f4c4092993870d0034e301b63"
+        },
+        "date": 1784633253725,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
