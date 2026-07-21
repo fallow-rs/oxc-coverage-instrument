@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784613679883,
+  "lastUpdate": 1784619930747,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2082,6 +2082,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/40f43cf3dd9759e61e8543e0efaed01f3f1768c9"
         },
         "date": 1784613678926,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 91196632,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "40e21b97b5b6ebed0fcc8fee24243704fe1630d9",
+          "message": "docs(examples): describe the vitest transform path accurately\n\nThe README and the verify script claimed the adapter auto-detects raw\nTypeScript here, but the config sets stripTypescript: false and a traced run\nshows Vite hands the adapter already-transpiled JavaScript plus an input\nsource map; the .ts keys in coverage-final.json come from remapping through\nthat map, not from the strip path. The text now describes the path the\nexample actually exercises.",
+          "timestamp": "2026-07-21T09:43:21+02:00",
+          "tree_id": "bd713f95fc6c8f7bb5e708a4715238ddcf1c1e43",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/40e21b97b5b6ebed0fcc8fee24243704fe1630d9"
+        },
+        "date": 1784619930393,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
