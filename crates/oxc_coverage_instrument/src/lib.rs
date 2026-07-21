@@ -123,7 +123,8 @@ mod transform;
 mod v8_to_istanbul;
 
 pub use instrument::{
-    DecoratorMode, InstrumentError, InstrumentOptions, InstrumentResult, instrument,
+    DecoratorMode, InstrumentError, InstrumentOptions, InstrumentResult, InstrumentSourceType,
+    instrument,
 };
 pub use oxc_coverage_source_maps::{
     PositionRemapper, RemapOptions, SourceMapStore, remap_coverage, remap_coverage_map,

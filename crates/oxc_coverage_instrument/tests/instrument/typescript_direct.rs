@@ -3,12 +3,51 @@
 //! JavaScript (type annotations removed), and statementMap / branchMap
 //! positions still refer to the original TypeScript source offsets.
 
-use oxc_coverage_instrument::{DecoratorMode, InstrumentError, InstrumentOptions, instrument};
+use oxc_coverage_instrument::{
+    DecoratorMode, InstrumentError, InstrumentOptions, InstrumentSourceType, instrument,
+};
 
 use crate::common::assert_reparses;
 
 fn ts_opts() -> InstrumentOptions {
     InstrumentOptions { source_map: true, strip_typescript: true, ..InstrumentOptions::default() }
+}
+
+#[test]
+fn ts_query_id_uses_extension_before_query_for_source_type() {
+    let result = instrument("const value: number = 1;", "/src/a.ts?raw", &ts_opts())
+        .expect("query-bearing TypeScript id instruments");
+
+    assert!(!result.code.contains(": number"));
+}
+
+#[test]
+fn explicit_ts_source_type_handles_query_id() {
+    let options = InstrumentOptions {
+        source_type: Some(InstrumentSourceType::Ts),
+        strip_typescript: true,
+        ..InstrumentOptions::default()
+    };
+    let result = instrument("const value: number = 1;", "/src/a.ts?raw", &options)
+        .expect("explicit TypeScript source type instruments");
+
+    assert!(!result.code.contains(": number"));
+}
+
+#[test]
+fn filename_source_type_inference_matrix_stays_stable() {
+    for (filename, source, is_typescript) in [
+        ("plain.js", "const value = 1;", false),
+        ("plain.ts", "const value: number = 1;", true),
+        ("plain.mjs", "export const value = 1;", false),
+        ("plain.cts", "const value: number = 1;", true),
+    ] {
+        let result = instrument(source, filename, &ts_opts())
+            .unwrap_or_else(|error| panic!("{filename} inference failed: {error}"));
+        if is_typescript {
+            assert!(!result.code.contains(": number"), "{filename}");
+        }
+    }
 }
 
 #[test]

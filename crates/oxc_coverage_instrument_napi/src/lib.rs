@@ -19,11 +19,46 @@
 use std::{collections::HashMap, fmt};
 
 use napi_derive::napi;
-use oxc_coverage_instrument::{DecoratorMode, RemapOptions as CoreRemapOptions};
+use oxc_coverage_instrument::{
+    DecoratorMode, InstrumentSourceType as CoreInstrumentSourceType,
+    RemapOptions as CoreRemapOptions,
+};
+
+/// Parser source type supplied explicitly by an embedding host.
+#[napi(string_enum = "lowercase")]
+pub enum InstrumentSourceType {
+    /// ECMAScript module JavaScript.
+    Module,
+    /// Classic script JavaScript.
+    Script,
+    /// CommonJS JavaScript.
+    CommonJs,
+    /// JavaScript with JSX syntax.
+    Jsx,
+    /// TypeScript without JSX.
+    Ts,
+    /// TypeScript with JSX syntax.
+    Tsx,
+}
+
+impl From<InstrumentSourceType> for CoreInstrumentSourceType {
+    fn from(source_type: InstrumentSourceType) -> Self {
+        match source_type {
+            InstrumentSourceType::Module => Self::Module,
+            InstrumentSourceType::Script => Self::Script,
+            InstrumentSourceType::CommonJs => Self::CommonJs,
+            InstrumentSourceType::Jsx => Self::Jsx,
+            InstrumentSourceType::Ts => Self::Ts,
+            InstrumentSourceType::Tsx => Self::Tsx,
+        }
+    }
+}
 
 /// Options for the instrument function.
 #[napi(object)]
 pub struct InstrumentOptions {
+    /// Explicit parser source type. Overrides filename inference.
+    pub source_type: Option<InstrumentSourceType>,
     /// Name of the global coverage variable. Defaults to `__coverage__`.
     pub coverage_variable: Option<String>,
     /// Generate a source map for the instrumented output. Defaults to `false`.
@@ -475,6 +510,7 @@ fn core_instrument_options_from(
     let metadata = options.emit_decorator_metadata.unwrap_or(false);
     let decorator_mode = decorator_mode_from_flags(experimental, metadata)?;
     Ok(oxc_coverage_instrument::InstrumentOptions {
+        source_type: options.source_type.map(Into::into),
         coverage_variable: options.coverage_variable.unwrap_or_else(|| "__coverage__".to_string()),
         source_map: options.source_map.unwrap_or(false),
         input_source_map: options.input_source_map,
@@ -525,6 +561,7 @@ mod tests {
 
     fn empty_options() -> InstrumentOptions {
         InstrumentOptions {
+            source_type: None,
             coverage_variable: None,
             source_map: None,
             input_source_map: None,

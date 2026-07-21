@@ -23,9 +23,42 @@ use crate::transform::{
     generate_cov_fn_name, generate_preamble_source,
 };
 
+/// Parser source type supplied explicitly by an embedding host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstrumentSourceType {
+    /// ECMAScript module JavaScript.
+    Module,
+    /// Classic script JavaScript.
+    Script,
+    /// CommonJS JavaScript.
+    CommonJs,
+    /// JavaScript with JSX syntax.
+    Jsx,
+    /// TypeScript without JSX.
+    Ts,
+    /// TypeScript with JSX syntax.
+    Tsx,
+}
+
+impl InstrumentSourceType {
+    const fn into_oxc(self) -> SourceType {
+        match self {
+            Self::Module => SourceType::mjs(),
+            Self::Script => SourceType::script(),
+            Self::CommonJs => SourceType::cjs(),
+            Self::Jsx => SourceType::jsx(),
+            Self::Ts => SourceType::ts(),
+            Self::Tsx => SourceType::tsx(),
+        }
+    }
+}
+
 /// Options for the `instrument` function.
 #[derive(Debug, Clone)]
 pub struct InstrumentOptions {
+    /// Explicit parser source type. When unset, infer it from `filename` after
+    /// removing any query or fragment suffix.
+    pub source_type: Option<InstrumentSourceType>,
     /// Name of the global coverage variable (default: `"__coverage__"`).
     pub coverage_variable: String,
     /// Whether to generate a source map for the instrumented output.
@@ -183,6 +216,7 @@ impl DecoratorMode {
 impl Default for InstrumentOptions {
     fn default() -> Self {
         Self {
+            source_type: None,
             coverage_variable: "__coverage__".to_string(),
             source_map: false,
             input_source_map: None,
@@ -215,6 +249,13 @@ impl Default for InstrumentOptions {
 /// assert!(options.report_logic);
 /// ```
 impl InstrumentOptions {
+    /// Set [`InstrumentOptions::source_type`].
+    #[must_use]
+    pub fn with_source_type(mut self, source_type: Option<InstrumentSourceType>) -> Self {
+        self.source_type = source_type;
+        self
+    }
+
     /// Set [`InstrumentOptions::coverage_variable`].
     #[must_use]
     pub fn with_coverage_variable(mut self, name: String) -> Self {
@@ -375,7 +416,7 @@ pub fn instrument(
 ) -> Result<InstrumentResult, InstrumentError> {
     validate_coverage_variable(options)?;
     let allocator = Allocator::default();
-    let mut parsed = parse_program(&allocator, source, filename)?;
+    let mut parsed = parse_program(&allocator, source, filename, options.source_type)?;
 
     let (pragmas, unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
     if pragmas.ignore_file && !options.strip_typescript {
@@ -655,8 +696,13 @@ fn parse_program<'a>(
     allocator: &'a Allocator,
     source: &'a str,
     filename: &str,
+    source_type: Option<InstrumentSourceType>,
 ) -> Result<ParserReturn<'a>, InstrumentError> {
-    let source_type = SourceType::from_path(filename).unwrap_or_default();
+    let filename = filename.split(['?', '#']).next().unwrap_or(filename);
+    let source_type = source_type.map_or_else(
+        || SourceType::from_path(filename).unwrap_or_default(),
+        InstrumentSourceType::into_oxc,
+    );
     let parsed = Parser::new(allocator, source, source_type).parse();
     // As in `strip_typescript_pass`: gate on error severity, not on any diagnostic.
     if parsed.diagnostics.has_errors() {
@@ -798,7 +844,7 @@ pub(crate) fn collect_for_v8_to_istanbul(
     filename: &str,
 ) -> Result<V8CollectResult, InstrumentError> {
     let allocator = Allocator::default();
-    let mut parsed = parse_program(&allocator, source, filename)?;
+    let mut parsed = parse_program(&allocator, source, filename, None)?;
 
     let (pragmas, _unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
     if pragmas.ignore_file {

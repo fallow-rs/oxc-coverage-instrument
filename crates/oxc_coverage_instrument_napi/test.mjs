@@ -1246,6 +1246,16 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] stripTypescript defaults to false');
 }
 
+// Test: explicit sourceType overrides host id inference
+{
+  const result = instrument('const value: number = 1;\n', '/src/a.ts?raw', {
+    sourceType: 'ts',
+    stripTypescript: true,
+  });
+  assert(!result.code.includes(': number'), 'explicit ts sourceType must parse TypeScript');
+  console.log('  [PASS] explicit sourceType overrides host id inference');
+}
+
 // Test: createOxcInstrumenter auto-detects .ts as raw TypeScript when no inputSourceMap
 {
   const { createOxcInstrumenter } = await import('./vitest.js');
