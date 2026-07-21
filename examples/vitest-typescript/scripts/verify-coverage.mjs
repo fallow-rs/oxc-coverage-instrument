@@ -1,8 +1,8 @@
 // Verifies the Vitest istanbul coverage output points at the original .ts
 // source, not at an intermediate transpiled JS file. The vitest.config.ts in
 // this example wires `coverage.instrumenter` to `createOxcInstrumenter`, which
-// auto-detects raw TypeScript when the filename ends in .ts / .tsx and no
-// inputSourceMap is present.
+// instruments the JavaScript Vite emits and remaps the coverage entries onto
+// the `.ts` source through the accompanying input source map.
 //
 // Asserts:
 //   1. coverage-final.json contains a key whose path ends with math.ts

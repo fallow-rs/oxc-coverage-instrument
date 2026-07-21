@@ -1,11 +1,11 @@
 # Vitest + TypeScript example
 
-End-to-end example showing how to use `oxc-coverage-instrument` as a drop-in Istanbul instrumenter for Vitest with **zero TypeScript pre-transform**. Coverage reports point directly at `.ts` source lines.
+End-to-end example showing how to use `oxc-coverage-instrument` as a drop-in Istanbul instrumenter for Vitest. Vitest transforms TypeScript the way it always does (Vite's transform pipeline strips the types and emits a source map); the adapter instruments that transformed output and the coverage map is keyed back to the `.ts` source through that source map. No separate Babel pass is needed just to collect coverage, and reports point at `.ts` source lines.
 
 ## What this demonstrates
 
 - `vitest.config.ts` wires `coverage.instrumenter` to `createOxcInstrumenter` from `oxc-coverage-instrument/vitest`.
-- The adapter auto-detects raw TypeScript on `.ts` / `.tsx` filenames when no `inputSourceMap` is provided, so no separate Babel / tsc pre-transform step is needed.
+- Vite hands the adapter the already-transpiled JavaScript plus an `inputSourceMap`. With `stripTypescript: false` the adapter skips its own strip pass and instruments that output; the coverage entries are remapped onto the `.ts` source via the input source map, so no separate Babel / tsc pre-transform step is needed just for coverage.
 - `coverage-final.json` is keyed by the `.ts` source path (`src/math.ts`), and `statementMap` / `fnMap` / `branchMap` entries reference `.ts` line numbers.
 
 ## Run
