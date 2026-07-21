@@ -2,6 +2,8 @@
 //! and branch coverage, source maps, coverage-map ingestion and error
 //! handling. Pragma handling lives in `pragma_test.rs`.
 
+use std::{fs, process::Command};
+
 use rustc_hash::FxHashSet;
 
 use oxc_coverage_instrument::{InstrumentOptions, instrument};
@@ -12,6 +14,10 @@ fn default_opts() -> InstrumentOptions {
 
 fn instrument_js(source: &str) -> oxc_coverage_instrument::InstrumentResult {
     instrument(source, "test.js", &default_opts()).unwrap()
+}
+
+fn run_node_eval(code: &str) -> std::process::Output {
+    Command::new("node").arg("--eval").arg(code).output().expect("node must be available")
 }
 
 const ECMASCRIPT_LINE_TERMINATORS: [(&str, &str); 5] =
@@ -513,6 +519,47 @@ fn no_block_statement_child_containers_emit_body_counters() {
 // Source map
 
 #[test]
+fn hashbang_output_executes_as_a_node_file() {
+    let result = instrument(
+        "#!/usr/bin/env node\nconsole.log('hashbang-ok');",
+        "hashbang.cjs",
+        &default_opts(),
+    )
+    .unwrap();
+    let output_path = std::env::temp_dir()
+        .join(format!("oxc-coverage-instrument-hashbang-{}.cjs", std::process::id()));
+    fs::write(&output_path, result.code).expect("write instrumented hashbang fixture");
+    let output = Command::new("node")
+        .arg(&output_path)
+        .output()
+        .expect("node must execute the instrumented fixture");
+    fs::remove_file(&output_path).expect("remove instrumented hashbang fixture");
+
+    assert!(
+        output.status.success(),
+        "instrumented hashbang file failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hashbang-ok");
+}
+
+#[test]
+fn directive_prologue_keeps_classic_script_strict() {
+    let source = r#""use strict";
+try {
+  __oxc_coverage_strict_probe__ = 1;
+  console.log("not-strict");
+} catch (error) {
+  console.log(error.name);
+}"#;
+    let result = instrument(source, "strict.cjs", &default_opts()).unwrap();
+    let output = run_node_eval(&result.code);
+
+    assert!(output.status.success(), "strict-mode probe failed to run");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ReferenceError");
+}
+
+#[test]
 fn source_map_generation() {
     let opts = InstrumentOptions { source_map: true, ..InstrumentOptions::default() };
     let result = instrument("function f() { return 1; }", "test.js", &opts).unwrap();
@@ -531,22 +578,27 @@ fn source_map_disabled_by_default() {
 
 #[test]
 fn source_map_accounts_for_preamble_offset() {
-    let source = "function f() {\n  return 1;\n}";
+    let source = "console.log('mapped');";
     let opts = InstrumentOptions { source_map: true, ..InstrumentOptions::default() };
     let result = instrument(source, "test.js", &opts).unwrap();
     let sm_json = result.source_map.as_ref().unwrap();
     let sm = oxc_sourcemap::SourceMap::from_json_string(sm_json).unwrap();
 
-    // The preamble is 1 line. So the first mapping in the source map should
-    // have a generated line >= 1 (0-indexed), not 0.
-    // This verifies the preamble offset was applied.
     let tokens: Vec<_> = sm.get_tokens().collect();
     assert!(!tokens.is_empty(), "Source map should have at least one mapping");
-    // First token's generated line should be >= 1 (after preamble)
-    let first_gen_line = tokens[0].get_dst_line();
+    let statement_line = result
+        .code
+        .lines()
+        .position(|line| line.contains("console.log"))
+        .expect("instrumented statement is emitted");
+    let statement_line = u32::try_from(statement_line).unwrap();
+    let statement_token = tokens
+        .iter()
+        .find(|token| token.get_dst_line() == statement_line && token.get_src_line() == 0)
+        .expect("first real statement maps to its original line");
     assert!(
-        first_gen_line >= 1,
-        "First mapping should be on line >= 1 (after preamble), got line {first_gen_line}"
+        statement_token.get_dst_line() > 0,
+        "first real statement must be emitted after the preamble"
     );
 }
 
@@ -1140,7 +1192,7 @@ fn preamble_invokes_setup_once_and_counters_use_cached_coverage() {
     let cov_end = result.code[cov_start..].find(' ').unwrap() + cov_start;
     let cov_name = &result.code[cov_start..cov_end];
     assert!(
-        result.code.contains("return actualCoverage; })();"),
+        result.code.contains("return actualCoverage;\n})();"),
         "coverage setup should be invoked once in the preamble"
     );
     assert!(

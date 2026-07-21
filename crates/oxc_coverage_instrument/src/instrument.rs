@@ -3,13 +3,14 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use oxc_allocator::Allocator;
+use oxc_allocator::{Allocator, Vec as ArenaVec};
 use oxc_ast::ast::Program;
+use oxc_ast_visit::VisitMut;
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_coverage_types::{FileCoverage, UnhandledPragma};
 use oxc_parser::{Parser, ParserReturn};
 use oxc_semantic::{Scoping, SemanticBuilder};
-use oxc_span::SourceType;
+use oxc_span::{SPAN, SourceType, Span};
 use oxc_transformer::{
     DecoratorOptions, JsxOptions, TransformOptions, Transformer, TypeScriptOptions,
 };
@@ -388,19 +389,13 @@ pub fn instrument(
         options,
     })?;
     if pragmas.ignore_file {
-        let (code, _) = emit_code(EmitInputs {
-            program: &parsed.program,
-            scoping,
-            source,
-            filename,
-            preamble: "",
-            options,
-        });
+        let (code, _) =
+            emit_code(EmitInputs { program: &parsed.program, scoping, source, filename, options });
         return Ok(empty_coverage_result(filename, &code, unhandled_pragmas));
     }
     let cov_fn_name = generate_cov_fn_name(filename);
 
-    let (transform, scoping) = run_coverage_transform(CoverageTransformRun {
+    let (transform, _scoping) = run_coverage_transform(CoverageTransformRun {
         allocator: &allocator,
         program: &mut parsed.program,
         scoping,
@@ -419,18 +414,13 @@ pub fn instrument(
         &cov_fn_name,
         needs_optional_chain_helper,
     );
+    let scoping = inject_preamble(&allocator, &mut parsed.program, &preamble);
 
-    let (code, raw_source_map) = emit_code(EmitInputs {
-        program: &parsed.program,
-        scoping,
-        source,
-        filename,
-        preamble: &preamble,
-        options,
-    });
+    let (code, raw_source_map) =
+        emit_code(EmitInputs { program: &parsed.program, scoping, source, filename, options });
     let source_map = raw_source_map
         .as_deref()
-        .map(|sm| finalize_source_map(sm, &preamble, options.input_source_map.as_deref()));
+        .map(|sm| finalize_source_map(sm, options.input_source_map.as_deref()));
 
     Ok(InstrumentResult {
         code,
@@ -529,6 +519,40 @@ fn build_instrument_preamble(
         needs_optional_chain_helper,
     });
     (coverage_json, preamble)
+}
+
+fn inject_preamble<'arena>(
+    allocator: &'arena Allocator,
+    program: &mut Program<'arena>,
+    preamble: &str,
+) -> Scoping {
+    let preamble = allocator.alloc_str(preamble);
+    let mut parsed = Parser::new(allocator, preamble, program.source_type).parse();
+    assert!(
+        !parsed.diagnostics.has_errors(),
+        "generated coverage preamble must parse: {:?}",
+        parsed.diagnostics.errors().map(ToString::to_string).collect::<Vec<_>>()
+    );
+
+    ClearSpans.visit_program(&mut parsed.program);
+
+    let mut body = ArenaVec::with_capacity_in(
+        parsed.program.body.len().saturating_add(program.body.len()),
+        &allocator,
+    );
+    body.append(&mut parsed.program.body);
+    body.append(&mut program.body);
+    program.body = body;
+
+    SemanticBuilder::new().build(program).semantic.into_scoping()
+}
+
+struct ClearSpans;
+
+impl VisitMut<'_> for ClearSpans {
+    fn visit_span(&mut self, span: &mut Span) {
+        *span = SPAN;
+    }
 }
 
 struct StripTypescriptInput<'arena, 'a> {
@@ -803,12 +827,11 @@ struct EmitInputs<'a, 'arena> {
     scoping: Scoping,
     source: &'a str,
     filename: &'a str,
-    preamble: &'a str,
     options: &'a InstrumentOptions,
 }
 
 fn emit_code(inputs: EmitInputs<'_, '_>) -> (String, Option<String>) {
-    let EmitInputs { program, scoping, source, filename, preamble, options } = inputs;
+    let EmitInputs { program, scoping, source, filename, options } = inputs;
     let codegen_options = CodegenOptions {
         source_map_path: if options.source_map { Some(PathBuf::from(filename)) } else { None },
         ..CodegenOptions::default()
@@ -818,39 +841,21 @@ fn emit_code(inputs: EmitInputs<'_, '_>) -> (String, Option<String>) {
         .with_source_text(source)
         .with_scoping(Some(scoping))
         .build(program);
-    let code = format!("{preamble}{}", codegen_ret.code);
-    (code, codegen_ret.map.map(|sm| sm.to_json_string()))
+    (codegen_ret.code, codegen_ret.map.map(|sm| sm.to_json_string()))
 }
 
-/// Offset the codegen source map by the preamble line count and, if an input
-/// source map was provided, compose the result with it so the final map chains
-/// all the way back to the original source (e.g., TypeScript).
+/// If an input source map was provided, compose the generated map with it so
+/// the final map chains all the way back to the original source (e.g., TypeScript).
 ///
 /// Composition is delegated to `srcmap-remapping`, which mirrors the semantics
 /// of `@ampproject/remapping` (the prior art `istanbul-lib-source-maps` and
-/// most JS bundlers also follow). Line offsetting uses `srcmap-remapping`'s
-/// `ConcatBuilder`.
-fn finalize_source_map(
-    output_json: &str,
-    preamble: &str,
-    input_source_map: Option<&str>,
-) -> String {
-    let preamble_lines =
-        u32::try_from(preamble.chars().filter(|&c| c == '\n').count()).unwrap_or(u32::MAX);
-
+/// most JS bundlers also follow).
+fn finalize_source_map(output_json: &str, input_source_map: Option<&str>) -> String {
     // Bridge the codegen source map to srcmap_sourcemap via JSON. Both crates
     // emit the standard source map v3 format, so the round-trip is lossless.
     // Bail out to the raw serialization if the parse ever fails.
     let Ok(output_sm) = srcmap_sourcemap::SourceMap::from_json(output_json) else {
         return output_json.to_string();
-    };
-
-    let offset_sm = if preamble_lines > 0 {
-        let mut builder = srcmap_remapping::ConcatBuilder::new(None);
-        builder.add_map(&output_sm, preamble_lines);
-        builder.build()
-    } else {
-        output_sm
     };
 
     if let Some(input_sm_json) = input_source_map
@@ -860,11 +865,11 @@ fn finalize_source_map(
         // input map is returned for any source name; `remap` drops sources it
         // cannot load. Cloned per call because `remap` may invoke the loader
         // more than once for a single source name.
-        let composed = srcmap_remapping::remap(&offset_sm, |_name: &str| Some(input_sm.clone()));
+        let composed = srcmap_remapping::remap(&output_sm, |_name: &str| Some(input_sm.clone()));
         return composed.to_json();
     }
 
-    offset_sm.to_json()
+    output_sm.to_json()
 }
 
 /// Error type for instrumentation failures.

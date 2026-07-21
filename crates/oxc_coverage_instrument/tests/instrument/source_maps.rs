@@ -5,7 +5,7 @@
 //! through its embedded `inputSourceMap` so coverage positions point back at
 //! the original source the developer wrote.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use oxc_coverage_instrument::{
     FileCoverage, InstrumentOptions, RemapOptions, SourceMapStore, instrument, parse_coverage_map,
@@ -1374,9 +1374,9 @@ fn compose_input_source_map_does_not_double_compose_output_source_map() {
     // The coverage map and the output `source_map` are independent artifacts.
     // `compose_input_source_map` rewrites the coverage map, while the output
     // source map (instrumented JS to original source) is composed once by
-    // `finalize_source_map` whatever the flag says. The emitted `source_map` is
-    // therefore byte-identical either way: the flag must not feed the input map
-    // into the source-map chain a second time.
+    // `finalize_source_map` whatever the flag says. AST-emitted coverage setup
+    // can occupy a different number of generated lines when its embedded map
+    // changes, but both maps must still resolve to the same original lines.
     let (_, intermediate, input_sm) = three_line_inputs();
 
     let without_compose = instrument(
@@ -1404,10 +1404,19 @@ fn compose_input_source_map_does_not_double_compose_output_source_map() {
 
     let sm_without = without_compose.source_map.expect("source_map emitted");
     let sm_with = with_compose.source_map.expect("source_map emitted");
-    assert_eq!(
-        sm_with, sm_without,
-        "output source_map must not change when the coverage map is composed eagerly"
-    );
+    let parsed_without = oxc_sourcemap::SourceMap::from_json_string(&sm_without).unwrap();
+    let parsed_with = oxc_sourcemap::SourceMap::from_json_string(&sm_with).unwrap();
+    let source_lines_without = parsed_without
+        .get_source_view_tokens()
+        .filter(|token| token.get_source_id().is_some())
+        .map(|token| token.get_src_line())
+        .collect::<BTreeSet<_>>();
+    let source_lines_with = parsed_with
+        .get_source_view_tokens()
+        .filter(|token| token.get_source_id().is_some())
+        .map(|token| token.get_src_line())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(source_lines_with, source_lines_without);
 
     // And the output source map chains all the way back to the original source
     // (instrumented JS -> src/app.ts), not just to the intermediate JS.

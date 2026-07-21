@@ -8,11 +8,6 @@ use oxc_coverage_instrument::{InstrumentOptions, instrument};
 
 use crate::common::{assert_coverage_map_well_formed, assert_reparses};
 
-/// The instrumented code with the single-line coverage preamble removed.
-fn body_after_preamble(code: &str) -> &str {
-    code.find('\n').map_or(code, |index| &code[index + 1..])
-}
-
 fn read_fixture(name: &str) -> String {
     let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read fixture {path}: {e}"))
@@ -28,7 +23,7 @@ fn instrument_fixture(name: &str) -> oxc_coverage_instrument::InstrumentResult {
 fn react_hooks_fixture() {
     let result = instrument_fixture("react-hooks.jsx");
     assert_coverage_map_well_formed(&result, "react-hooks.jsx");
-    assert_reparses(body_after_preamble(&result.code), "react-hooks.jsx");
+    assert_reparses(&result.code, "react-hooks.jsx");
 
     assert!(
         result.coverage_map.fn_map.len() >= 4,
@@ -49,7 +44,7 @@ fn react_hooks_fixture() {
 fn while_loops_fixture_produces_no_loop_branches() {
     let result = instrument_fixture("while-loops.js");
     assert_coverage_map_well_formed(&result, "while-loops.js");
-    assert_reparses(body_after_preamble(&result.code), "while-loops.js");
+    assert_reparses(&result.code, "while-loops.js");
 
     // istanbul tracks loop coverage through statement counters alone.
     let loop_branches: usize = result
@@ -65,7 +60,7 @@ fn while_loops_fixture_produces_no_loop_branches() {
 fn typescript_advanced_fixture() {
     let result = instrument_fixture("typescript-advanced.ts");
     assert_coverage_map_well_formed(&result, "typescript-advanced.ts");
-    assert_reparses(body_after_preamble(&result.code), "typescript-advanced.ts");
+    assert_reparses(&result.code, "typescript-advanced.ts");
 
     let fn_names: Vec<&str> =
         result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();
@@ -101,7 +96,7 @@ fn edge_cases_fixture_is_ignored_whole_file() {
 fn pragmas_fixture_skips_only_the_pragma_marked_functions() {
     let result = instrument_fixture("pragmas.js");
     assert_coverage_map_well_formed(&result, "pragmas.js");
-    assert_reparses(body_after_preamble(&result.code), "pragmas.js");
+    assert_reparses(&result.code, "pragmas.js");
 
     let fn_names: Vec<&str> =
         result.coverage_map.fn_map.values().map(|f| f.name.as_str()).collect();

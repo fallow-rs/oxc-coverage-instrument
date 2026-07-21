@@ -57,6 +57,7 @@ napi-derive = "3"
 # move together on a bump.
 oxc_allocator = "0.140"
 oxc_ast = "0.140"
+oxc_ast_visit = "0.140"
 oxc_codegen = "0.140"
 oxc_parser = "0.140"
 oxc_semantic = "0.140"

@@ -201,13 +201,10 @@ macro_rules! conformance_test {
             #[test]
             fn output_is_valid_js() {
                 let result = instrument_fixture(concat!($fixture, ".js"));
-                // The preamble occupies the first line; the rest must re-parse.
-                let code =
-                    result.code.find('\n').map(|i| &result.code[i + 1..]).unwrap_or(&result.code);
                 let allocator = oxc_allocator::Allocator::default();
                 let source_type =
                     oxc_span::SourceType::from_path(concat!($fixture, ".js")).unwrap_or_default();
-                let parsed = oxc_parser::Parser::new(&allocator, code, source_type).parse();
+                let parsed = oxc_parser::Parser::new(&allocator, &result.code, source_type).parse();
                 assert!(
                     !parsed.diagnostics.has_errors(),
                     "{}: instrumented code has parse errors: {:?}",
