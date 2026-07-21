@@ -113,6 +113,7 @@ corpus, filtering the divergences documented in the README.
 | `scripts/real-world-parity.mjs` | Count-level parity over the benchmark corpus. |
 | `scripts/v8-inspector-smoke.mjs` | Conversion of real Node inspector coverage. |
 | `scripts/native-vs-wasm-parity.mjs` | Native binding output against the WASM binding, fixture by fixture. |
+| `scripts/compose-eager-smoke.mjs` | Eager compose parity with the deferred remap, plus the mapping-boundary sweep. |
 | `scripts/benchmark-comparison.sh` | Timing comparison against the Istanbul, Babel, and SWC instrumenters. |
 | `scripts/compare-istanbul.mjs` | Reference-output dumper for investigating shape differences. |
 | `scripts/check-version-sync.sh` | Internal version pins and release-workflow coverage. |

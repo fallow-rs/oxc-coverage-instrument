@@ -364,6 +364,13 @@ jobs:
       - name: Run istanbul diff
         run: node scripts/istanbul-diff.mjs | tee istanbul-diff.log
 
+      - name: Run compose smoke
+        # Eager composeInputSourceMap parity: fold controls against the
+        # canonicalizing remap, plus the mapped/unmapped boundary sweep that
+        # executes every instrumented sample. Fails on any divergence from the
+        # deferred path or a dangling counter.
+        run: node scripts/compose-eager-smoke.mjs
+
       - name: Upload diff log
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
