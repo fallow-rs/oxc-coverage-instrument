@@ -52,8 +52,10 @@ used most often:
 ./scripts/check.sh clippy          # all + pedantic + nursery, warnings denied
 ./scripts/check.sh fmt             # cargo fmt --all --check
 ./scripts/check.sh rust-doc        # cargo doc with RUSTDOCFLAGS=-D warnings
+./scripts/check.sh ast-api         # feature tests, doctests, clippy, and rustdoc; separate from defaults
 ./scripts/check.sh typos           # requires typos-cli
 ./scripts/check.sh version-sync    # internal version pins and release topology
+./scripts/check.sh real-world-gates # both pinned production-source parity checks
 ./scripts/check.sh pre-push        # what the pre-push hook runs
 ./scripts/check.sh all-local       # every host-reproducible profile
 ```
@@ -71,9 +73,15 @@ npm install
 npm --prefix crates/oxc_coverage_instrument_napi install
 npm --prefix crates/oxc_coverage_instrument_napi run build:debug
 npm --prefix examples/vitest-typescript install
+node scripts/prepare-real-world-corpus.mjs
 ./scripts/check.sh prepare-package-surface
 ./scripts/check.sh all-local
 ```
+
+`check.sh` verifies the real-world corpus but never downloads it. Corpus updates
+are deliberate: review the upstream source and license, update the exact version,
+URL, SHA-256 digest, filename, and SPDX identifier in
+`scripts/real-world-corpus.json`, then regenerate dated comparison evidence.
 
 ## Node binding
 
@@ -112,6 +120,7 @@ may differ only through extensions documented in the README.
 | `scripts/istanbul-upstream-specs.mjs` | Runtime cases taken from upstream Istanbul specs. |
 | `scripts/real-world-output.mjs` | Runtime behaviour and counter placement on production-like sources. |
 | `scripts/real-world-parity.mjs` | Count-level parity over the benchmark corpus. |
+| `scripts/prepare-real-world-corpus.mjs` | Explicit download and SHA-256 verification of the pinned real-project corpus. |
 | `scripts/v8-inspector-smoke.mjs` | Conversion of real Node inspector coverage. |
 | `scripts/native-vs-wasm-parity.mjs` | Native binding output against the WASM binding, fixture by fixture. |
 | `scripts/compose-eager-smoke.mjs` | Eager compose parity with the deferred remap, plus the mapping-boundary sweep. |

@@ -40,6 +40,10 @@ jobs:
         if: runner.os == 'Linux'
         run: ./scripts/check.sh self-test
 
+      - name: Check experimental AST API
+        if: runner.os == 'Linux'
+        run: ./scripts/check.sh ast-api
+
       - name: Run tests
         run: cargo test --workspace --all-targets
 
@@ -381,6 +385,56 @@ jobs:
           name: coverage-profile-logs
           path: istanbul-diff-*.log
           if-no-files-found: warn
+
+  real-world-parity:
+    # Production bundles complement the fixture corpus with large, parser-heavy
+    # inputs and real Babel source maps. Preparation is explicit and every cache
+    # restore is verified against the checked-in SHA-256 manifest.
+    name: Real-world coverage parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: real-world-parity
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            crates/oxc_coverage_instrument_napi/package-lock.json
+
+      - name: Install conformance dependencies
+        run: npm ci
+
+      - name: Install napi dependencies
+        working-directory: crates/oxc_coverage_instrument_napi
+        run: npm ci
+
+      - name: Build napi binding
+        working-directory: crates/oxc_coverage_instrument_napi
+        run: npx napi build --platform
+
+      - name: Cache pinned real-world corpus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
+        with:
+          path: .bench-tmp/files
+          key: real-world-corpus-${{ runner.os }}-${{ hashFiles('scripts/real-world-corpus.json') }}
+
+      - name: Test corpus contract without network
+        run: node --test scripts/tests/real-world-corpus.test.mjs
+
+      - name: Prepare and verify pinned corpus
+        run: node scripts/prepare-real-world-corpus.mjs
+
+      - name: Run real-world parity gates
+        run: ./scripts/check.sh real-world-gates
 
   vitest-example-binding:
     # Builds the napi binding once for the matrix below. The .node artifact is
@@ -766,6 +820,7 @@ jobs:
       - napi
       - napi-wasm
       - istanbul-diff
+      - real-world-parity
       - vitest-example-binding
       - vitest-typescript-example
       - native-vs-wasm-parity

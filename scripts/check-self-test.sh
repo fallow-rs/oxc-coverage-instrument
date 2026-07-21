@@ -83,6 +83,45 @@ workflow_check_has_self_test_step() {
   ' "$workflow"
 }
 
+workflow_check_has_linux_profile_step() {
+  local workflow="$1"
+  local step_name="$2"
+  local profile="$3"
+
+  awk -v target_name="      - name: $step_name" -v target_run="        run: ./scripts/check.sh $profile" '
+    function finish_step() {
+      if (in_target && has_if && has_run) found = 1
+    }
+    $0 == "  check:" { in_job = 1; next }
+    in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { finish_step(); exit }
+    in_job && $0 ~ /^      - / {
+      finish_step()
+      in_target = ($0 == target_name)
+      has_if = 0
+      has_run = 0
+      next
+    }
+    in_target && $0 == "        if: runner.os == '\''Linux'\''" { has_if = 1 }
+    in_target && $0 == target_run { has_run = 1 }
+    END { finish_step(); exit(found ? 0 : 1) }
+  ' "$workflow"
+}
+
+workflow_real_world_job_is_gated() {
+  local workflow="$1"
+
+  awk '
+    $0 == "  real-world-parity:" { in_job = 1; next }
+    in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
+    in_job && /hashFiles\('\''scripts\/real-world-corpus\.json'\''\)/ { has_cache_key = 1 }
+    in_job && $0 == "        run: node scripts/prepare-real-world-corpus.mjs" {
+      has_prepare = 1
+    }
+    in_job && $0 == "        run: ./scripts/check.sh real-world-gates" { has_gate = 1 }
+    END { exit(has_cache_key && has_prepare && has_gate ? 0 : 1) }
+  ' "$workflow"
+}
+
 workflow_ci_ok_needs_version_sync() {
   local workflow="$1"
 
@@ -501,6 +540,23 @@ assert_equal "$(<"$TMP/fmt-cargo.log")" "$ROOT|fmt --all --check" "external-cwd 
 FAKE_CARGO_LOG="$TMP/pre-push-cargo.log" PATH="$TMP/fake-bin:/usr/bin:/bin" "$CHECK" pre-push >"$TMP/pre-push.log" 2>&1
 assert_contains "$TMP/pre-push.log" "typos is not installed; skipping optional pre-push check"
 
+mkdir -p "$TMP/ast-bin"
+# shellcheck disable=SC2016
+printf '%s\n' '#!/bin/sh' \
+  'printf "%s|%s|%s\n" "$PWD" "${RUSTDOCFLAGS:-}" "$*" >>"$FAKE_AST_CARGO_LOG"' \
+  >"$TMP/ast-bin/cargo"
+chmod +x "$TMP/ast-bin/cargo"
+FAKE_AST_CARGO_LOG="$TMP/ast-cargo.log" PATH="$TMP/ast-bin:/usr/bin:/bin" \
+  "$CHECK" ast-api >"$TMP/ast-api.log" 2>&1
+assert_equal "$(<"$TMP/ast-cargo.log")" "$ROOT||test -p oxc_coverage_instrument --features ast-api --all-targets
+$ROOT||test -p oxc_coverage_instrument --features ast-api --doc
+$ROOT||clippy -p oxc_coverage_instrument --features ast-api --all-targets -- -D warnings
+$ROOT|-D warnings|doc -p oxc_coverage_instrument --features ast-api --no-deps --document-private-items" \
+  "ast-api cargo commands"
+
+bash "$ROOT/scripts/benchmark-comparison.sh" --self-test
+node --test "$ROOT/scripts/tests/real-world-corpus.test.mjs"
+
 fake_napi="$TMP/fake-napi"
 fake_surface_bin="$TMP/fake-surface-bin"
 fake_prepare="$TMP/prepare-package-surface.sh"
@@ -584,6 +640,7 @@ expected_profiles=(
   rust-test
   doc-test
   rust-doc
+  ast-api
   typos
   version-sync
   napi-test
@@ -598,6 +655,9 @@ expected_profiles=(
   shear
   inspector-smoke
   real-world-output
+  real-world-parity
+  compose-real-map-parity
+  real-world-gates
   istanbul-upstream
   vitest-typecheck
   vitest-coverage
@@ -616,6 +676,8 @@ assert_equal "$actual_list" "$expected_list" "profile inventory"
 
 sed -n '/^run_all_local() {$/,/^}$/p' "$CHECK" >"$TMP/all-local-body.log"
 assert_contains "$TMP/all-local-body.log" "run_self_test"
+assert_contains "$TMP/all-local-body.log" "run_ast_api"
+assert_contains "$TMP/all-local-body.log" "run_real_world_gates"
 
 sed -n '/^run_version_sync() {$/,/^}$/p' "$CHECK" >"$TMP/version-sync-body.log"
 assert_contains \
@@ -625,6 +687,15 @@ assert_contains \
 workflow="$ROOT/.github/workflows/ci.yml"
 if ! workflow_check_has_self_test_step "$workflow"; then
   fail "CI check job is missing the Linux-only verification runner self-test step"
+fi
+if ! workflow_check_has_linux_profile_step "$workflow" "Check experimental AST API" "ast-api"; then
+  fail "CI check job is missing the Linux-only ast-api profile"
+fi
+if ! workflow_real_world_job_is_gated "$workflow"; then
+  fail "CI real-world-parity job is missing manifest-keyed preparation or repository gates"
+fi
+if ! workflow_job_has_need "$workflow" ci-ok real-world-parity; then
+  fail "ci-ok.needs is missing real-world-parity"
 fi
 if ! workflow_ci_ok_needs_version_sync "$workflow"; then
   fail "ci-ok.needs is missing version-sync"

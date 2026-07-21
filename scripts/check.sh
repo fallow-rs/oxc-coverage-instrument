@@ -25,6 +25,7 @@ rust-test-fast          primitive    Workspace default tests
 rust-test               primitive    Full workspace targets
 doc-test                primitive    Workspace documentation tests
 rust-doc                primitive    Documentation warnings
+ast-api                 aggregate    Experimental AST API tests, lint, and docs
 typos                   primitive    Repository spelling
 version-sync            primitive    Internal version pins
 napi-test               primitive    Native Node binding tests
@@ -39,6 +40,9 @@ audit                   primitive    RustSec advisory audit
 shear                   primitive    Unused Rust dependencies
 inspector-smoke         primitive    Real Node inspector conversion
 real-world-output       primitive    Production-like emitted behavior
+real-world-parity       primitive    Pinned production-bundle coverage parity
+compose-real-map-parity primitive    Pinned production-map compose parity
+real-world-gates        aggregate    Both pinned real-project parity gates
 istanbul-upstream       primitive    Upstream Istanbul runtime cases
 vitest-typecheck        primitive    Strict Vitest consumer types
 vitest-coverage         primitive    Vitest TypeScript coverage run
@@ -156,6 +160,18 @@ run_rust_doc() {
   RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
 }
 
+run_ast_api() {
+  require_tool cargo "Install Rust using rustup, including the clippy component."
+  echo "[check:ast-api] cargo test -p oxc_coverage_instrument --features ast-api --all-targets"
+  cargo test -p oxc_coverage_instrument --features ast-api --all-targets
+  echo "[check:ast-api] cargo test -p oxc_coverage_instrument --features ast-api --doc"
+  cargo test -p oxc_coverage_instrument --features ast-api --doc
+  echo "[check:ast-api] cargo clippy -p oxc_coverage_instrument --features ast-api --all-targets -- -D warnings"
+  cargo clippy -p oxc_coverage_instrument --features ast-api --all-targets -- -D warnings
+  echo "[check:ast-api] RUSTDOCFLAGS='-D warnings' cargo doc -p oxc_coverage_instrument --features ast-api --no-deps --document-private-items"
+  RUSTDOCFLAGS="-D warnings" cargo doc -p oxc_coverage_instrument --features ast-api --no-deps --document-private-items
+}
+
 run_typos() {
   local optional="${1:-0}"
   if ! command -v typos >/dev/null 2>&1; then
@@ -267,6 +283,31 @@ run_real_world_output() {
   require_native_napi
   echo "[check:real-world-output] node scripts/real-world-output.mjs"
   node scripts/real-world-output.mjs
+}
+
+require_real_world_corpus() {
+  require_tool node "Install Node.js 22."
+  require_dir "$ROOT/node_modules/istanbul-lib-instrument" "Run 'npm install' at the repository root."
+  require_native_napi
+  echo "[check:real-world-corpus] node scripts/prepare-real-world-corpus.mjs --check-only"
+  node scripts/prepare-real-world-corpus.mjs --check-only
+}
+
+run_real_world_parity() {
+  require_real_world_corpus
+  echo "[check:real-world-parity] node scripts/real-world-parity.mjs"
+  node scripts/real-world-parity.mjs
+}
+
+run_compose_real_map_parity() {
+  require_real_world_corpus
+  echo "[check:compose-real-map-parity] node scripts/compose-real-map-parity.mjs"
+  node scripts/compose-real-map-parity.mjs
+}
+
+run_real_world_gates() {
+  run_real_world_parity
+  run_compose_real_map_parity
 }
 
 run_istanbul_upstream() {
@@ -394,6 +435,7 @@ CI_ONLY
 run_all_local() {
   run_self_test
   run_rust
+  run_ast_api
   run_rust_check
   run_rust_test_fast
   run_typos
@@ -407,6 +449,7 @@ run_all_local() {
   run_shear
   run_inspector_smoke
   run_real_world_output
+  run_real_world_gates
   run_istanbul_upstream
   run_vitest_typecheck
   run_vitest_coverage
@@ -430,6 +473,7 @@ case "$profile" in
   rust-test) run_rust_test ;;
   doc-test) run_doc_test ;;
   rust-doc) run_rust_doc ;;
+  ast-api) run_ast_api ;;
   typos) run_typos ;;
   version-sync) run_version_sync ;;
   napi-test) run_napi_test ;;
@@ -444,6 +488,9 @@ case "$profile" in
   shear) run_shear ;;
   inspector-smoke) run_inspector_smoke ;;
   real-world-output) run_real_world_output ;;
+  real-world-parity) run_real_world_parity ;;
+  compose-real-map-parity) run_compose_real_map_parity ;;
+  real-world-gates) run_real_world_gates ;;
   istanbul-upstream) run_istanbul_upstream ;;
   vitest-typecheck) run_vitest_typecheck ;;
   vitest-coverage) run_vitest_coverage ;;

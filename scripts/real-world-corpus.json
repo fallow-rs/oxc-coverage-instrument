@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "projects": [
+    {
+      "name": "react",
+      "version": "18.2.0",
+      "url": "https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js",
+      "sha256": "857364e2b982318417025fb9b4b8355c09f75fa46ba0be93f520f769f6757a78",
+      "filename": "react.development.js",
+      "license": "MIT"
+    },
+    {
+      "name": "lodash",
+      "version": "4.17.21",
+      "url": "https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.js",
+      "sha256": "4c04561befdf653aef017a42ac5addf68ea943cdfca6bdee5ce04e04e8139f54",
+      "filename": "lodash.js",
+      "license": "MIT"
+    },
+    {
+      "name": "vue",
+      "version": "3.3.4",
+      "url": "https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.js",
+      "sha256": "21755031dfd12b4d329ff9923ababc9dca8e61432b1223338cd63dd072326a2d",
+      "filename": "vue.global.js",
+      "license": "MIT"
+    },
+    {
+      "name": "d3",
+      "version": "7.8.5",
+      "url": "https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.js",
+      "sha256": "7b37ed53276b6c5f42d2291d839830bc3862763c5680e23865e5de92732a9358",
+      "filename": "d3.js",
+      "license": "ISC"
+    },
+    {
+      "name": "three",
+      "version": "0.155.0",
+      "url": "https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.js",
+      "sha256": "d41f2340770145e3588429ab172837809bd7b815b308ca6c72e6cc486c717fcc",
+      "filename": "three.js",
+      "license": "MIT"
+    }
+  ]
+}

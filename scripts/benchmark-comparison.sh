@@ -6,6 +6,7 @@
 # Usage:
 #   ./scripts/benchmark-comparison.sh            # run full benchmark
 #   ./scripts/benchmark-comparison.sh --quick     # react + lodash only
+#   ./scripts/benchmark-comparison.sh --self-test # deterministic harness checks
 #
 # Prerequisites (installed automatically on first run):
 #   - cargo build --release of the CLI
@@ -28,44 +29,40 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BENCH_DIR="${ROOT_DIR}/.bench-tmp"
-FILES_DIR="${BENCH_DIR}/files"
 OXC="${ROOT_DIR}/target/release/oxc-coverage-instrument"
 NAPI_DIR="${ROOT_DIR}/crates/oxc_coverage_instrument_napi"
 LIB_DIR="${ROOT_DIR}/crates/oxc_coverage_instrument"
 RUNS=5
 QUICK=false
+SELF_TEST=false
+STATISTIC_LABEL="median"
 
-if [[ "${1:-}" == "--quick" ]]; then
-  QUICK=true
-  RUNS=3
-fi
+case "${1:-}" in
+  --quick)
+    QUICK=true
+    RUNS=3
+    ;;
+  --self-test) SELF_TEST=true ;;
+  "") ;;
+  *) echo "unknown argument: $1" >&2; exit 2 ;;
+esac
 
 # ---------- helpers ----------
 
 BENCH_FILES=()
 
 setup_files() {
-  mkdir -p "$FILES_DIR"
-  local urls=(
-    "https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js|react.development.js"
-    "https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.js|lodash.js"
-  )
-  if [[ "$QUICK" == false ]]; then
-    urls+=(
-      "https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.js|vue.global.js"
-      "https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.js|d3.js"
-      "https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.js|three.js"
-    )
+  local args=(--print-paths)
+  if [[ "$QUICK" == true ]]; then
+    args+=(--limit=2)
   fi
-  for entry in "${urls[@]}"; do
-    local url="${entry%%|*}"
-    local name="${entry##*|}"
-    if [[ ! -f "${FILES_DIR}/${name}" ]]; then
-      echo "  downloading ${name}..." >&2
-      curl -sL "$url" -o "${FILES_DIR}/${name}"
+  local paths
+  paths="$(node "$SCRIPT_DIR/prepare-real-world-corpus.mjs" "${args[@]}")"
+  while IFS= read -r path; do
+    if [[ -n "$path" ]]; then
+      BENCH_FILES+=("$path")
     fi
-    BENCH_FILES+=("${FILES_DIR}/${name}")
-  done
+  done <<< "$paths"
 }
 
 setup_npm() {
@@ -78,15 +75,20 @@ setup_npm() {
 }
 
 build_oxc() {
-  if [[ ! -f "$OXC" ]] || [[ "$LIB_DIR/src/transform.rs" -nt "$OXC" ]]; then
-    echo "  building oxc-coverage-instrument CLI (release)..." >&2
-    cargo build --release -p oxc_coverage_instrument_cli --manifest-path "$ROOT_DIR/Cargo.toml" 2>&1 | tail -1
-  fi
+  echo "  building oxc-coverage-instrument CLI (release)..." >&2
+  cargo build --release -p oxc_coverage_instrument_cli \
+    --manifest-path "$ROOT_DIR/Cargo.toml" 2>&1 | tail -1
 }
 
 build_napi() {
-  local node_bin
-  node_bin=$(ls "${NAPI_DIR}"/coverage-instrument.*.node 2>/dev/null | head -1)
+  local node_bin=""
+  local candidate
+  for candidate in "${NAPI_DIR}"/coverage-instrument.*.node; do
+    if [[ -f "$candidate" ]]; then
+      node_bin="$candidate"
+      break
+    fi
+  done
   local newest_src
   newest_src=$(find "$LIB_DIR/src" "$NAPI_DIR/src" "$NAPI_DIR/Cargo.toml" "$ROOT_DIR/Cargo.toml" \
     -type f -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)
@@ -97,19 +99,144 @@ build_napi() {
   fi
 }
 
-# Precise timing via python (sub-ms accuracy, includes process startup for CLI)
-time_oxc() {
-  local file="$1"
-  python3 -c "
-import subprocess, time
-best = 1e9
-for _ in range($RUNS):
+# Precise timing via Python (sub-ms accuracy, includes process startup for CLI).
+# `check=True` keeps a failed subprocess from becoming an impossibly fast sample.
+measure_command_median() {
+  local runs="$1"
+  shift
+  python3 - "$runs" "$@" <<'PY'
+import statistics
+import subprocess
+import sys
+import time
+
+runs = int(sys.argv[1])
+command = sys.argv[2:]
+samples = []
+for _ in range(runs):
     start = time.perf_counter()
-    subprocess.run(['$OXC', '$file'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    elapsed = (time.perf_counter() - start) * 1000
-    if elapsed < best: best = elapsed
-print(f'{best:.1f}')
-"
+    subprocess.run(
+        command,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    samples.append((time.perf_counter() - start) * 1000)
+print(f"{statistics.median(samples):.1f}")
+PY
+}
+
+median_values() {
+  python3 - "$@" <<'PY'
+import statistics
+import sys
+
+values = [float(value) for value in sys.argv[1:]]
+print(f"{statistics.median(values):.1f}")
+PY
+}
+
+time_oxc() {
+  measure_command_median "$RUNS" "$OXC" "$1"
+}
+
+cpu_model() {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    sysctl -n machdep.cpu.brand_string
+  elif [[ -r /proc/cpuinfo ]]; then
+    awk -F ': ' '/^model name/ { print $2; exit }' /proc/cpuinfo
+  else
+    uname -p
+  fi
+}
+
+file_sha256() {
+  node -e \
+    'const { createHash } = require("node:crypto"); const { readFileSync } = require("node:fs"); console.log(createHash("sha256").update(readFileSync(process.argv[1])).digest("hex"));' \
+    "$1"
+}
+
+corpus_versions() {
+  # JavaScript template variables must expand inside Node, not in this shell.
+  # shellcheck disable=SC2016
+  node -e \
+    'const manifest = require(process.argv[1]); console.log(manifest.projects.map(({ name, version }) => `${name}@${version}`).join(", "));' \
+    "$SCRIPT_DIR/real-world-corpus.json"
+}
+
+benchmark_heading() {
+  echo "Running benchmarks ($RUNS runs each, $STATISTIC_LABEL)..."
+}
+
+environment_metadata() {
+  local repository_state="clean"
+  if [[ -n "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=no)" ]]; then
+    repository_state="dirty"
+  fi
+  echo "## Reproducibility"
+  echo ""
+  echo "- Repository commit: $(git -C "$ROOT_DIR" rev-parse HEAD)"
+  echo "- Repository state: $repository_state"
+  echo "- Machine: $(uname -s) $(uname -m)"
+  echo "- CPU: $(cpu_model)"
+  echo "- Node.js: $(node --version)"
+  echo "- Corpus manifest SHA-256: $(file_sha256 "$SCRIPT_DIR/real-world-corpus.json")"
+  echo "- Corpus versions: $(corpus_versions)"
+}
+
+benchmark_self_test() {
+  local temp
+  temp="$(mktemp -d)"
+  trap 'rm -rf "$temp"' RETURN
+
+  [[ "$(median_values 3 1 2)" == "2.0" ]]
+  [[ "$(median_values 4 1 3 2)" == "2.5" ]]
+  [[ "$(median_values 2 2 2 2)" == "2.0" ]]
+  [[ "$(median_values 1.25 1.75)" == "1.5" ]]
+
+  if measure_command_median 1 /usr/bin/false >/dev/null 2>&1; then
+    echo "benchmark self-test: failed subprocess became a timing sample" >&2
+    return 1
+  fi
+
+  mkdir -p "$temp/bin"
+  # Keep fake-command variables literal so they expand only when the fake runs.
+  # shellcheck disable=SC2016
+  printf '%s\n' \
+    '#!/bin/sh' \
+    'printf "%s\n" "$*" >>"$BENCH_SELF_BUILD_LOG"' \
+    >"$temp/bin/cargo"
+  chmod +x "$temp/bin/cargo"
+  BENCH_SELF_BUILD_LOG="$temp/build.log" PATH="$temp/bin:$PATH" build_oxc >/dev/null
+  BENCH_SELF_BUILD_LOG="$temp/build.log" PATH="$temp/bin:$PATH" build_oxc >/dev/null
+  [[ "$(wc -l <"$temp/build.log" | tr -d ' ')" == "2" ]]
+  grep -Fq -- \
+    "build --release -p oxc_coverage_instrument_cli --manifest-path $ROOT_DIR/Cargo.toml" \
+    "$temp/build.log"
+  benchmark_heading >"$temp/heading.log"
+  grep -Fq -- "($RUNS runs each, median)" "$temp/heading.log"
+  environment_metadata >"$temp/metadata.log"
+  for field in \
+    "Repository commit" \
+    "Repository state" \
+    "Machine" \
+    "CPU" \
+    "Node.js" \
+    "Corpus manifest SHA-256" \
+    "Corpus versions"; do
+    grep -Fq -- "- $field:" "$temp/metadata.log"
+  done
+
+  local BENCH_DIR="$temp/generated"
+  mkdir -p "$BENCH_DIR"
+  write_napi_bench
+  [[ -f "$BENCH_DIR/napi-bench.cjs" ]]
+  node --check "$BENCH_DIR/napi-bench.cjs"
+  echo "benchmark self-test passed"
+}
+
+npm_package_version() {
+  node -e 'console.log(require(process.argv[1]).version)' "$1"
 }
 
 # ---------- benchmark scripts ----------
@@ -185,7 +312,7 @@ EOF
 }
 
 write_napi_bench() {
-  cat > "${BENCH_DIR}/napi-bench.js" << EOF
+  cat > "${BENCH_DIR}/napi-bench.cjs" << EOF
 const { instrument } = require('${NAPI_DIR}');
 const fs = require('fs');
 const path = require('path');
@@ -206,6 +333,11 @@ EOF
 
 # ---------- main ----------
 
+if [[ "$SELF_TEST" == true ]]; then
+  benchmark_self_test
+  exit 0
+fi
+
 echo "Setting up..." >&2
 setup_files
 build_oxc
@@ -219,7 +351,16 @@ write_swc_bench
 write_napi_bench
 
 echo "" >&2
-echo "Running benchmarks ($RUNS runs each, median)..." >&2
+benchmark_heading >&2
+echo ""
+
+environment_metadata
+echo "- oxc npm package: $(npm_package_version "$NAPI_DIR/package.json")"
+echo "- istanbul-lib-instrument: $(npm_package_version "${BENCH_DIR}/istanbul/node_modules/istanbul-lib-instrument/package.json")"
+echo "- @babel/core: $(npm_package_version "${BENCH_DIR}/babel/node_modules/@babel/core/package.json")"
+echo "- babel-plugin-istanbul: $(npm_package_version "${BENCH_DIR}/babel/node_modules/babel-plugin-istanbul/package.json")"
+echo "- @swc/core: $(npm_package_version "${BENCH_DIR}/swc/node_modules/@swc/core/package.json")"
+echo "- swc-plugin-coverage-instrument: $(npm_package_version "${BENCH_DIR}/swc/node_modules/swc-plugin-coverage-instrument/package.json")"
 echo ""
 
 # ---------- Table 1: Node.js tools (apples-to-apples) ----------
@@ -242,7 +383,7 @@ for filepath in "${BENCH_FILES[@]}"; do
     size="$(echo "scale=0; $size_bytes / 1024" | bc) KB"
   fi
 
-  t_napi=$(node "${BENCH_DIR}/napi-bench.js" "$filepath" "$RUNS")
+  t_napi=$(node "${BENCH_DIR}/napi-bench.cjs" "$filepath" "$RUNS")
   t_babel=$(cd "${BENCH_DIR}/babel" && node bench.js "$filepath" "$RUNS" 2>/dev/null)
   t_swc=$(cd "${BENCH_DIR}/swc" && node bench.js "$filepath" "$RUNS")
   t_istanbul=$(cd "${BENCH_DIR}/istanbul" && node bench.js "$filepath" "$RUNS")

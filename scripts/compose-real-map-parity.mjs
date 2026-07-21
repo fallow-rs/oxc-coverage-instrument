@@ -12,35 +12,34 @@
 // `@babel/core` is resolved through istanbul-lib-instrument, which declares it.
 //
 // Usage:
-//   # populate .bench-tmp/files first, e.g. via ./scripts/benchmark-comparison.sh
+//   node scripts/prepare-real-world-corpus.mjs
 //   node scripts/compose-real-map-parity.mjs
-import { existsSync, readFileSync, readdirSync } from 'fs';
-import { createRequire } from 'module';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { loadVerifiedCorpus } from './prepare-real-world-corpus.mjs';
 
 const require = createRequire(import.meta.url);
 const babel = createRequire(require.resolve('istanbul-lib-instrument/package.json'))('@babel/core');
 const { instrument, remapCoverageMap } = require('../crates/oxc_coverage_instrument_napi/index.js');
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const dir = join(__dirname, '..', '.bench-tmp', 'files');
-
-if (!existsSync(dir)) {
-  console.error(`error: ${dir} does not exist`);
-  console.error('populate it by running ./scripts/benchmark-comparison.sh first');
+let projects;
+try {
+  projects = loadVerifiedCorpus();
+} catch (error) {
+  console.error(`error: ${error.message}`);
   process.exit(2);
 }
 
-const files = readdirSync(dir).filter((f) => f.endsWith('.js')).sort();
-if (files.length === 0) {
-  console.error(`error: no .js files under ${dir}`);
-  process.exit(2);
-}
+const firstMismatch = (eager, lazy) => {
+  const keys = [...new Set([...Object.keys(eager), ...Object.keys(lazy)])].sort();
+  return keys.find((key) => JSON.stringify(eager[key]) !== JSON.stringify(lazy[key])) ?? 'none';
+};
 
 let failures = 0;
-for (const file of files) {
-  const source = readFileSync(join(dir, file), 'utf8');
+for (const project of projects) {
+  const { filename: file, name, version, path } = project;
+  const label = `${name}@${version}`;
+  const source = readFileSync(path, 'utf8');
   for (const compact of [false, true]) {
     const out = babel.transformSync(source, {
       filename: file,
@@ -61,14 +60,21 @@ for (const file of files) {
     const lazy = lazyOut[eager.path];
     if (!lazy) {
       failures++;
-      console.log(`${file} compact=${compact}: lazy remap missing path ${eager.path} (got ${Object.keys(lazyOut)})`);
+      console.log(
+        `${label} compact=${compact}: lazy remap missing path ${eager.path} ` +
+          `(got ${Object.keys(lazyOut)[0] ?? 'none'})`,
+      );
       continue;
     }
     for (const dim of ['statementMap', 'fnMap', 'branchMap']) {
       const ok = JSON.stringify(eager[dim]) === JSON.stringify(lazy[dim]);
       if (!ok) failures++;
+      const detail = ok
+        ? 'EQ'
+        : `DIFF eager=${Object.keys(eager[dim]).length} ` +
+          `lazy=${Object.keys(lazy[dim]).length} first=${firstMismatch(eager[dim], lazy[dim])}`;
       console.log(
-        `${file} compact=${compact} ${dim}: ${ok ? 'EQ' : `DIFF eager=${Object.keys(eager[dim]).length} lazy=${Object.keys(lazy[dim]).length}`}`,
+        `${label} compact=${compact} ${dim}: ${detail}`,
       );
     }
   }

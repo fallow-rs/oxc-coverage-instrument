@@ -22,6 +22,24 @@ cargo test -p oxc_coverage_instrument --test instrument conformance_suite::c06_i
 Test the public API (`instrument(source, filename, &InstrumentOptions)` then
 assert on `InstrumentResult`); do not reach into internals.
 
+Changes behind the experimental `ast-api` feature have a separate compile,
+test, lint, doctest, and documentation gate:
+
+```sh
+./scripts/check.sh ast-api
+```
+
+Before changing behavior that can affect production bundles, explicitly
+prepare the pinned, hash-verified corpus and run both real-project gates:
+
+```sh
+node scripts/prepare-real-world-corpus.mjs
+./scripts/check.sh real-world-gates
+```
+
+The check dispatcher never downloads corpus files. Review any manifest update
+for its exact version, immutable URL, license metadata, and SHA-256 digest.
+
 ## Adding a conformance fixture
 
 Conformance fixtures pin coverage-map shape against istanbul's canonical output
