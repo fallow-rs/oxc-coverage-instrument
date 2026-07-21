@@ -26,6 +26,8 @@ use oxc_coverage_instrument::{
 
 /// Parser source type supplied explicitly by an embedding host.
 #[napi(string_enum = "lowercase")]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum InstrumentSourceType {
     /// ECMAScript module JavaScript.
     Module,
@@ -56,6 +58,8 @@ impl From<InstrumentSourceType> for CoreInstrumentSourceType {
 
 /// Options for the instrument function.
 #[napi(object)]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InstrumentOptions {
     /// Explicit parser source type. Overrides filename inference.
     pub source_type: Option<InstrumentSourceType>,
@@ -232,12 +236,21 @@ pub struct InstrumentResult {
 ///   * `coverageVariable` is not a valid JavaScript identifier
 ///   * `source` fails to parse
 ///   * the TypeScript-strip pass reports a diagnostic
-#[napi]
+#[napi(
+    ts_args_type = "source: string, filename: string, options?: InstrumentOptions | undefined | null"
+)]
 pub fn instrument(
     source: String,
     filename: String,
-    options: Option<InstrumentOptions>,
+    options: Option<serde_json::Value>,
 ) -> napi::Result<InstrumentResult> {
+    let options =
+        options.map(serde_json::from_value::<InstrumentOptions>).transpose().map_err(|error| {
+            napi::Error::new(
+                napi::Status::InvalidArg,
+                format!("invalid instrument options: {error}"),
+            )
+        })?;
     let opts = core_instrument_options_from(options)?;
     let result =
         oxc_coverage_instrument::instrument(&source, &filename, &opts).map_err(generic_failure)?;

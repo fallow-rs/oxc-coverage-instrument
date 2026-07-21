@@ -29,6 +29,7 @@ oxc_coverage_instrument = { workspace = true }
 
 napi = { workspace = true }
 napi-derive = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [build-dependencies]

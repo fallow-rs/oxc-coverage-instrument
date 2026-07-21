@@ -1256,6 +1256,19 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] explicit sourceType overrides host id inference');
 }
 
+// Test: unknown instrument option keys fail loudly
+{
+  assert.throws(
+    () => instrument('const value = 1;\n', 'unknown-option.js', { trackOptionalChain: false }),
+    (error) => {
+      assert.match(error.message, /trackOptionalChain/);
+      assert.match(error.message, /trackOptionalChainBranches/);
+      return true;
+    },
+  );
+  console.log('  [PASS] unknown instrument option keys fail loudly');
+}
+
 // Test: createOxcInstrumenter auto-detects .ts as raw TypeScript when no inputSourceMap
 {
   const { createOxcInstrumenter } = await import('./vitest.js');

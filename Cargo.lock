@@ -1119,6 +1119,7 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "oxc_coverage_instrument",
+ "serde",
  "serde_json",
  "srcmap-generator",
 ]
