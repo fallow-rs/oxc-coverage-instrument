@@ -77,19 +77,28 @@ fn load_fixture(filename: &str) -> String {
 
 fn instrument_fixture(filename: &str) -> oxc_coverage_instrument::InstrumentResult {
     let source = load_fixture(filename);
-    instrument(&source, filename, &InstrumentOptions::default())
+    let options = InstrumentOptions {
+        strip_typescript: std::path::Path::new(filename)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("ts")),
+        ..InstrumentOptions::default()
+    };
+    instrument(&source, filename, &options)
         .unwrap_or_else(|e| panic!("Instrumentation failed for {filename}: {e}"))
 }
 
 macro_rules! conformance_test {
     ($test_name:ident, $fixture:literal) => {
+        conformance_test!($test_name, $fixture, ".js");
+    };
+    ($test_name:ident, $fixture:literal, $extension:literal) => {
         mod $test_name {
             use super::*;
 
             #[test]
             fn function_count_matches_istanbul() {
                 let reference = load_reference($fixture);
-                let coverage = instrument_fixture(concat!($fixture, ".js")).coverage_map;
+                let coverage = instrument_fixture(concat!($fixture, $extension)).coverage_map;
 
                 assert_eq!(
                     coverage.fn_map.len(),
@@ -104,7 +113,7 @@ macro_rules! conformance_test {
             #[test]
             fn branch_count_matches_istanbul() {
                 let reference = load_reference($fixture);
-                let coverage = instrument_fixture(concat!($fixture, ".js")).coverage_map;
+                let coverage = instrument_fixture(concat!($fixture, $extension)).coverage_map;
 
                 assert_eq!(
                     coverage.branch_map.len(),
@@ -119,7 +128,7 @@ macro_rules! conformance_test {
             #[test]
             fn branch_types_match_istanbul() {
                 let reference = load_reference($fixture);
-                let coverage = instrument_fixture(concat!($fixture, ".js")).coverage_map;
+                let coverage = instrument_fixture(concat!($fixture, $extension)).coverage_map;
 
                 let mut our_types: Vec<&str> =
                     coverage.branch_map.values().map(|b| b.branch_type.as_str()).collect();
@@ -137,7 +146,7 @@ macro_rules! conformance_test {
             #[test]
             fn branch_location_counts_match_istanbul() {
                 let reference = load_reference($fixture);
-                let coverage = instrument_fixture(concat!($fixture, ".js")).coverage_map;
+                let coverage = instrument_fixture(concat!($fixture, $extension)).coverage_map;
 
                 let our_branches: Vec<usize> =
                     coverage.branch_map.values().map(|b| b.locations.len()).collect();
@@ -153,7 +162,7 @@ macro_rules! conformance_test {
             #[test]
             fn statement_count_matches_istanbul() {
                 let reference = load_reference($fixture);
-                let coverage = instrument_fixture(concat!($fixture, ".js")).coverage_map;
+                let coverage = instrument_fixture(concat!($fixture, $extension)).coverage_map;
 
                 assert_eq!(
                     coverage.statement_map.len(),
@@ -167,7 +176,7 @@ macro_rules! conformance_test {
 
             #[test]
             fn json_structure_valid() {
-                let result = instrument_fixture(concat!($fixture, ".js"));
+                let result = instrument_fixture(concat!($fixture, $extension));
                 let json = serde_json::to_value(&result.coverage_map).unwrap();
 
                 assert!(json["path"].is_string(), "{}: missing path", $fixture);
@@ -200,10 +209,10 @@ macro_rules! conformance_test {
 
             #[test]
             fn output_is_valid_js() {
-                let result = instrument_fixture(concat!($fixture, ".js"));
+                let result = instrument_fixture(concat!($fixture, $extension));
                 let allocator = oxc_allocator::Allocator::default();
-                let source_type =
-                    oxc_span::SourceType::from_path(concat!($fixture, ".js")).unwrap_or_default();
+                let source_type = oxc_span::SourceType::from_path(concat!($fixture, $extension))
+                    .unwrap_or_default();
                 let parsed = oxc_parser::Parser::new(&allocator, &result.code, source_type).parse();
                 assert!(
                     !parsed.diagnostics.has_errors(),
@@ -243,3 +252,8 @@ conformance_test!(c24_nested_functions, "24-nested-functions");
 conformance_test!(c25_variable_declarations, "25-variable-declarations");
 conformance_test!(c26_non_ascii_identifiers, "26-non-ascii-identifiers");
 conformance_test!(c27_pragma_branch_boundaries, "27-pragma-branch-boundaries");
+conformance_test!(c28_hashbang, "28-hashbang");
+conformance_test!(c29_directive_prologue, "29-directive-prologue");
+conformance_test!(c30_coverage_binding_collisions, "30-coverage-binding-collisions");
+conformance_test!(c31_class_fields, "31-class-fields");
+conformance_test!(c32_typescript_stripped, "32-typescript-stripped", ".ts");

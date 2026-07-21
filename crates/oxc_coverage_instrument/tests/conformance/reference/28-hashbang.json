@@ -1,0 +1,25 @@
+{
+  "path": "28-hashbang.js",
+  "statements": 1,
+  "functions": 0,
+  "branches": 0,
+  "statementMap": {
+    "0": {
+      "start": {
+        "line": 2,
+        "column": 0
+      },
+      "end": {
+        "line": 2,
+        "column": 33
+      }
+    }
+  },
+  "fnMap": {},
+  "branchMap": {},
+  "s": {
+    "0": 0
+  },
+  "f": {},
+  "b": {}
+}

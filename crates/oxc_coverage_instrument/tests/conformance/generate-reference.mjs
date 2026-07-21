@@ -19,7 +19,7 @@ const referenceDir = join(__dirname, 'reference');
 mkdirSync(referenceDir, { recursive: true });
 
 const fixtures = readdirSync(fixturesDir)
-  .filter(f => f.endsWith('.js'))
+  .filter((file) => /\.(?:js|ts)$/.test(file))
   .sort();
 
 console.log(`Generating Istanbul reference data for ${fixtures.length} fixtures...\n`);
@@ -29,13 +29,14 @@ let failed = 0;
 
 for (const filename of fixtures) {
   const source = readFileSync(join(fixturesDir, filename), 'utf-8');
-  const name = basename(filename, '.js');
+  const name = basename(filename).replace(/\.[^.]+$/, '');
 
   try {
     const instrumenter = createInstrumenter({
       compact: false,
       esModules: false,
       coverageVariable: '__coverage__',
+      parserPlugins: filename.endsWith('.ts') ? ['typescript'] : [],
     });
     instrumenter.instrumentSync(source, filename);
     const coverage = instrumenter.lastFileCoverage();

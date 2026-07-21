@@ -131,10 +131,11 @@ canonical form per project, typically a workspace-root-relative POSIX path.
 
 Output is checked against `istanbul-lib-instrument` on a shared fixture corpus
 covering every branch type, function form, Unicode columns, pragma boundaries,
-and edge cases. The corpus lives in `tests/conformance/`. The suite asserts that
-statement, function, and branch counts match exactly, that branch types and
-per-branch location counts match, that the JSON field set matches, and that the
-instrumented output re-parses as valid JavaScript.
+hashbangs, directive prologues, binding collisions, class fields, stripped
+TypeScript, and edge cases. The corpus lives in `tests/conformance/`. The suite
+asserts that statement, function, and branch counts match exactly, that branch
+types and per-branch location counts match, that the JSON field set matches, and
+that the instrumented output re-parses as valid JavaScript.
 
 CI also runs a blocking byte-for-byte diff over the same corpus under the strict
 Istanbul profile, without divergence filters. That catches span-level and

@@ -113,17 +113,19 @@ consumer that only needs the default path can depend on that one crate.
 
 Output is checked against `istanbul-lib-instrument` on a shared fixture corpus
 covering every branch type, function form, Unicode columns, pragma boundaries,
-and edge cases. The corpus lives in
+hashbangs, directive prologues, binding collisions, class fields, stripped
+TypeScript, and edge cases. The corpus lives in
 `crates/oxc_coverage_instrument/tests/conformance/`. The suite asserts that
 statement, function, and branch counts match exactly, that branch types and
 per-branch location counts match, that the JSON field set matches, and that the
 instrumented output re-parses as valid JavaScript.
 
-CI also runs a blocking byte-for-byte diff over the same corpus after filtering
-the documented divergences. That catches span-level and counter-shape drift which
-count-only tests miss. The divergences are enumerated in
+CI also runs a blocking byte-for-byte diff over the same corpus under the strict
+Istanbul compatibility profile, without divergence filters. That catches
+span-level and counter-shape drift which count-only tests miss. The default Oxc
+extensions are enumerated in
 [the instrumenter's README](crates/oxc_coverage_instrument/README.md#differences-from-istanbul-lib-instrument),
-and `scripts/istanbul-diff.mjs` is the tool that enforces the filter.
+and `scripts/istanbul-diff.mjs` is the tool that enforces profile parity.
 
 ### Position semantics
 

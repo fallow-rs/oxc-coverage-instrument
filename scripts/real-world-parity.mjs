@@ -5,7 +5,8 @@
 //
 // Any statement or function count divergence fails the run. Branch counts
 // are allowed to exceed istanbul's (documented `??=`/`||=`/`&&=` superset)
-// but never fall below; that would be a regression.
+// but never fall below; that would be a regression. The lodash artifact is
+// also executed before and after instrumentation with an observable API probe.
 //
 // Usage:
 //   # populate .bench-tmp/files first, e.g. via ./scripts/benchmark-comparison.sh
@@ -15,6 +16,7 @@ import { createInstrumenter } from 'istanbul-lib-instrument';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import vm from 'node:vm';
 import { createOxcInstrumenter } from '../crates/oxc_coverage_instrument_napi/vitest.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -38,7 +40,19 @@ const counts = (cov) => ({
   b: Object.keys(cov.branchMap).length,
 });
 
+const executeLodashProbe = (code) => {
+  const module = { exports: {} };
+  const sandbox = { module, exports: module.exports };
+  vm.runInNewContext(code, sandbox, { filename: 'lodash.js' });
+  const lodash = module.exports;
+  if (typeof lodash.chunk !== 'function') {
+    throw new Error('lodash execution probe did not expose chunk()');
+  }
+  return JSON.stringify(lodash.chunk([1, 2, 3], 2));
+};
+
 let diverged = 0;
+let executedRealWorldFile = false;
 for (const name of files) {
   const src = readFileSync(join(dir, name), 'utf8');
   const sizeKB = (src.length / 1024).toFixed(1);
@@ -48,8 +62,19 @@ for (const name of files) {
   const istanbul = counts(istanbulInst.lastFileCoverage());
 
   const oxcInst = createOxcInstrumenter({ coverageVariable: '__coverage__' });
-  oxcInst.instrumentSync(src, name);
+  const instrumented = oxcInst.instrumentSync(src, name);
   const oxc = counts(oxcInst.lastFileCoverage());
+
+  if (name === 'lodash.js') {
+    const originalResult = executeLodashProbe(src);
+    const instrumentedResult = executeLodashProbe(instrumented);
+    if (instrumentedResult !== originalResult) {
+      throw new Error(
+        `lodash execution probe diverged: original=${originalResult} instrumented=${instrumentedResult}`,
+      );
+    }
+    executedRealWorldFile = true;
+  }
 
   const sOk = oxc.s === istanbul.s;
   const fOk = oxc.f === istanbul.f;
@@ -71,6 +96,11 @@ for (const name of files) {
       );
     }
   }
+}
+
+if (!executedRealWorldFile) {
+  console.error('error: lodash.js is required for the real-world execution probe');
+  process.exit(2);
 }
 
 console.log(`\n${diverged === 0 ? 'PASS' : 'FAIL'}: ${diverged} of ${files.length} files diverged`);

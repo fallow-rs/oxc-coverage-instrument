@@ -1,0 +1,63 @@
+{
+  "path": "29-directive-prologue.js",
+  "statements": 2,
+  "functions": 1,
+  "branches": 0,
+  "statementMap": {
+    "0": {
+      "start": {
+        "line": 4,
+        "column": 2
+      },
+      "end": {
+        "line": 4,
+        "column": 14
+      }
+    },
+    "1": {
+      "start": {
+        "line": 7,
+        "column": 0
+      },
+      "end": {
+        "line": 7,
+        "column": 42
+      }
+    }
+  },
+  "fnMap": {
+    "0": {
+      "name": "strictThis",
+      "line": 3,
+      "decl": {
+        "start": {
+          "line": 3,
+          "column": 9
+        },
+        "end": {
+          "line": 3,
+          "column": 19
+        }
+      },
+      "loc": {
+        "start": {
+          "line": 3,
+          "column": 22
+        },
+        "end": {
+          "line": 5,
+          "column": 1
+        }
+      }
+    }
+  },
+  "branchMap": {},
+  "s": {
+    "0": 0,
+    "1": 0
+  },
+  "f": {
+    "0": 0
+  },
+  "b": {}
+}

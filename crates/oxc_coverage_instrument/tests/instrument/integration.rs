@@ -393,6 +393,23 @@ fn class_field_instrumentation_preserves_static_keys() {
 }
 
 #[test]
+fn class_field_instrumentation_preserves_thrown_errors() {
+    let source = r#"class A {
+  field = function () { throw new TypeError("field-failure"); };
+}
+try {
+  new A().field();
+} catch (error) {
+  console.log(`${error.name}:${error.message}`);
+}"#;
+    let original = run_node_eval(source);
+    let instrumented = run_node_eval(&instrument_js(source).code);
+
+    assert!(original.status.success() && instrumented.status.success());
+    assert_eq!(instrumented.stdout, original.stdout);
+}
+
+#[test]
 fn instance_arrow_field_counter_increments() {
     let filename = "instance-arrow-field.cjs";
     let source = "class A { field = () => 1; }\nnew A();";
@@ -619,27 +636,32 @@ fn no_block_statement_child_containers_emit_body_counters() {
 
 #[test]
 fn hashbang_output_executes_as_a_node_file() {
-    let result = instrument(
-        "#!/usr/bin/env node\nconsole.log('hashbang-ok');",
-        "hashbang.cjs",
-        &default_opts(),
-    )
-    .unwrap();
-    let output_path = std::env::temp_dir()
-        .join(format!("oxc-coverage-instrument-hashbang-{}.cjs", std::process::id()));
-    fs::write(&output_path, result.code).expect("write instrumented hashbang fixture");
-    let output = Command::new("node")
-        .arg(&output_path)
+    let source = "#!/usr/bin/env node\nconsole.log('hashbang-ok');";
+    let result = instrument(source, "hashbang.cjs", &default_opts()).unwrap();
+    let temp_dir = std::env::temp_dir();
+    let original_path =
+        temp_dir.join(format!("oxc-coverage-original-hashbang-{}.cjs", std::process::id()));
+    let instrumented_path =
+        temp_dir.join(format!("oxc-coverage-instrumented-hashbang-{}.cjs", std::process::id()));
+    fs::write(&original_path, source).expect("write original hashbang fixture");
+    fs::write(&instrumented_path, result.code).expect("write instrumented hashbang fixture");
+    let original = Command::new("node")
+        .arg(&original_path)
+        .output()
+        .expect("node must execute the original fixture");
+    let instrumented = Command::new("node")
+        .arg(&instrumented_path)
         .output()
         .expect("node must execute the instrumented fixture");
-    fs::remove_file(&output_path).expect("remove instrumented hashbang fixture");
+    fs::remove_file(&original_path).expect("remove original hashbang fixture");
+    fs::remove_file(&instrumented_path).expect("remove instrumented hashbang fixture");
 
     assert!(
-        output.status.success(),
+        original.status.success() && instrumented.status.success(),
         "instrumented hashbang file failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        String::from_utf8_lossy(&instrumented.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hashbang-ok");
+    assert_eq!(instrumented.stdout, original.stdout);
 }
 
 #[test]
@@ -652,10 +674,15 @@ try {
   console.log(error.name);
 }"#;
     let result = instrument(source, "strict.cjs", &default_opts()).unwrap();
-    let output = run_node_eval(&result.code);
+    let original = run_node_eval(source);
+    let instrumented = run_node_eval(&result.code);
 
-    assert!(output.status.success(), "strict-mode probe failed to run");
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ReferenceError");
+    assert!(
+        original.status.success() && instrumented.status.success(),
+        "strict-mode probe failed to run"
+    );
+    assert_eq!(instrumented.stdout, original.stdout);
+    assert_eq!(String::from_utf8_lossy(&instrumented.stdout).trim(), "ReferenceError");
 }
 
 #[test]

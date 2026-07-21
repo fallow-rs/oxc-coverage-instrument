@@ -19,7 +19,12 @@ import { createOxcInstrumenter } from '../crates/oxc_coverage_instrument_napi/vi
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, '..', 'crates', 'oxc_coverage_instrument', 'tests', 'conformance', 'fixtures');
 
-const istanbul = createInstrumenter({ esModules: true, produceSourceMap: false });
+const istanbulJs = createInstrumenter({ esModules: true, produceSourceMap: false });
+const istanbulTs = createInstrumenter({
+  esModules: true,
+  produceSourceMap: false,
+  parserPlugins: ['typescript'],
+});
 const oxc = createOxcInstrumenter({ coverageVariable: '__coverage__', compat: 'istanbul' });
 
 // Normalize both maps into a canonical shape before diffing. Istanbul adds
@@ -70,7 +75,7 @@ const diffKeys = (a, b, path = '') => {
   return diffs;
 };
 
-const fixtures = readdirSync(fixturesDir).filter((f) => f.endsWith('.js')).sort();
+const fixtures = readdirSync(fixturesDir).filter((file) => /\.(?:js|ts)$/.test(file)).sort();
 const cases = fixtures.map((file) => ({
   file,
   source: readFileSync(join(fixturesDir, file), 'utf8'),
@@ -89,6 +94,7 @@ let totalDiffs = 0;
 let fixturesWithDiffs = 0;
 
 for (const { file, source } of cases) {
+  const istanbul = file.endsWith('.ts') ? istanbulTs : istanbulJs;
   istanbul.instrumentSync(source, file);
   const iCov = normalize(istanbul.lastFileCoverage());
 

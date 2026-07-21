@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Runtime compatibility checks copied from upstream istanbul-lib-instrument
-// YAML specs. These cases cover statement-child containers and ignore hints,
-// the area that has repeatedly produced drift.
+// YAML specs. These cases cover strict mode, class fields, default arguments,
+// function-name semantics, try/catch, statement-child containers and ignore
+// hints.
 //
 // Source:
 // https://github.com/istanbuljs/istanbuljs/tree/28ffdbc314596bdcb3007e85d30a62372602b262/packages/istanbul-lib-instrument/test/specs
@@ -21,6 +22,100 @@ const cases = [
         args: [-1],
         out: 1,
         statements: { 0: 1, 1: 1 },
+      },
+    ],
+  },
+  {
+    sourceFile: 'strict.yaml',
+    name: 'function expr using strict',
+    code: '(function () {\n    "use strict";\n    var x = Object.freeze({ foo: 1 });\n    try {\n        x.foo = 2;\n        output = "fail";\n    } catch (ex) {\n        output = "pass";\n    }\n}());\n',
+    tests: [
+      {
+        name: 'covers one statement less',
+        args: [],
+        out: 'pass',
+        statements: { 0: 1, 1: 1, 2: 1, 3: 1, 4: 0, 5: 1 },
+        functions: { 0: 1 },
+      },
+    ],
+  },
+  {
+    sourceFile: 'class-properties.yaml',
+    name: 'class property declaration',
+    code: 'class Foo {\n  bar = 1;\n  uninitialized;\n}\noutput = args === 1 ? new Foo().bar : args\n',
+    tests: [
+      {
+        name: 'covered',
+        args: 1,
+        out: 1,
+        statements: { 0: 1, 1: 1 },
+        branches: { 0: [1, 0] },
+        functions: {},
+      },
+      {
+        name: 'not covered',
+        args: 2,
+        out: 2,
+        statements: { 0: 0, 1: 1 },
+        branches: { 0: [0, 1] },
+        functions: {},
+      },
+    ],
+  },
+  {
+    sourceFile: 'default-args.yaml',
+    name: 'ES6 default arguments',
+    code: 'function add(a = 1, b = 2, c = 3, d = 4) {\n  return a + b + c + d;\n}\noutput = add(args[0], args[1], args[2], args[3])\n',
+    tests: [
+      {
+        name: 'everything specified',
+        args: [10, 20, 30, 40],
+        out: 100,
+        statements: { 0: 1, 1: 1 },
+        functions: { 0: 1 },
+        branches: { 0: [0], 1: [0], 2: [0], 3: [0] },
+      },
+      {
+        name: 'nothing specified',
+        args: [],
+        out: 10,
+        statements: { 0: 1, 1: 1 },
+        functions: { 0: 1 },
+        branches: { 0: [1], 1: [1], 2: [1], 3: [1] },
+      },
+    ],
+  },
+  {
+    sourceFile: 'functions.yaml',
+    name: 'function declaration assignment name (top-level)',
+    code: "const foo = function() {}\nvar bar = function() {}\noutput = foo.name + ' ' + bar.name;\n",
+    tests: [
+      {
+        name: 'properly sets function name',
+        out: 'foo bar',
+        statements: { 0: 1, 1: 1, 2: 1 },
+        functions: { 0: 0, 1: 0 },
+      },
+    ],
+  },
+  {
+    sourceFile: 'try.yaml',
+    name: 'optional catch binding',
+    code: 'try {\n   if (args[0] === "X") { throw "foo"; }\n   output = args[0];\n} catch {\n   output="Y";\n} finally {\n   output += 1;\n}\n',
+    tests: [
+      {
+        name: 'happy path',
+        args: [1],
+        out: 2,
+        branches: { 0: [0, 1] },
+        statements: { 0: 1, 1: 1, 2: 0, 3: 1, 4: 0, 5: 1 },
+      },
+      {
+        name: 'sad path',
+        args: ['X'],
+        out: 'Y1',
+        branches: { 0: [1, 0] },
+        statements: { 0: 1, 1: 1, 2: 1, 3: 0, 4: 1, 5: 1 },
       },
     ],
   },
