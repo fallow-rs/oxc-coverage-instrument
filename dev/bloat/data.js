@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784621283978,
+  "lastUpdate": 1784623351962,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2145,6 +2145,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 91367016,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "5f0983167e5a8039c65ec44e12216d9a5a0a0a28",
+          "message": "fix(source-maps): renumber canonical remap output in numeric id order\n\nThe canonicalizing remap assigned output ids in BTreeMap<String, _> iteration\norder, so incoming ids sorted as strings (0, 1, 10, 11, 2). istanbul-lib-source-maps\nenumerates the incoming object keys, and JavaScript enumerates integer-like keys\nin ascending numeric order, so from eleven entries per kind the two assignments\npaired the same location sets with different ids. Consumers reading entries by\nid across tool boundaries paired counters with the wrong locations.\n\nEvery site that assigns output ids from incoming maps (the fan-out and the\nmerge fold) now visits entries in ascending numeric id order, falling back to\nstring order for keys that do not parse as integers. The single-result remap\nkeeps the caller's ids, unchanged.\n\nVerified byte-equal against istanbul-lib-source-maps on a twelve-entry\nidentity-map repro across all three maps, and against real babel maps over the\nbenchmark libraries, where statement and function maps now match the eager\ncompose output exactly.\n\nFixes #194",
+          "timestamp": "2026-07-21T10:40:38+02:00",
+          "tree_id": "c6a38cc68c8146a9a582a573381e44550e5bb0cb",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/5f0983167e5a8039c65ec44e12216d9a5a0a0a28"
+        },
+        "date": 1784623351633,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92006176,
             "unit": "bytes"
           }
         ]
