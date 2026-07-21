@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784626366971,
+  "lastUpdate": 1784627224617,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2198,6 +2198,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/6844822650bf3af0431a993617646410d40e7054"
         },
         "date": 1784626366006,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92234720,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "318be71b70978384d0be256cccb4415f8a90b111",
+          "message": "style: trim duplicated and narrating comments\n\nThe optional-chain helper rationale lived in three places; the transform\nfield doc keeps it. The overlay-drop and else-arm comments shrink to the\nconstraint the code cannot show, and the smoke CI step comment to two lines.",
+          "timestamp": "2026-07-21T11:44:29+02:00",
+          "tree_id": "da053d9e8a26267615f22c81da9c7dedaf3c6fe5",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/318be71b70978384d0be256cccb4415f8a90b111"
+        },
+        "date": 1784627224142,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
