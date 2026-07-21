@@ -4,12 +4,15 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::Program;
+use oxc_ast::{
+    AstBuilder,
+    ast::{Expression, Program, Statement},
+};
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_coverage_types::{FileCoverage, UnhandledPragma};
 use oxc_parser::{Parser, ParserReturn};
 use oxc_semantic::{Scoping, SemanticBuilder};
-use oxc_span::SourceType;
+use oxc_span::{SPAN, SourceType};
 use oxc_transformer::{
     DecoratorOptions, JsxOptions, TransformOptions, Transformer, TypeScriptOptions,
 };
@@ -494,7 +497,8 @@ pub fn instrument(
             });
         }
         let emitted = emit_code(EmitInputs {
-            program: &parsed.program,
+            allocator: &allocator,
+            program: &mut parsed.program,
             scoping,
             source,
             filename,
@@ -510,7 +514,8 @@ pub fn instrument(
         });
     };
     let emitted = emit_code(EmitInputs {
-        program: &parsed.program,
+        allocator: &allocator,
+        program: &mut parsed.program,
         scoping,
         source,
         filename,
@@ -1053,7 +1058,8 @@ fn collect_arm_body_byte_spans(
 }
 
 struct EmitInputs<'a, 'arena> {
-    program: &'a Program<'arena>,
+    allocator: &'arena Allocator,
+    program: &'a mut Program<'arena>,
     scoping: Scoping,
     source: &'a str,
     filename: &'a str,
@@ -1069,12 +1075,17 @@ struct EmitResult {
 
 #[derive(Clone, Copy)]
 struct PreambleShift {
-    insertion_line: u32,
-    line_count: u32,
+    first_following_line: u32,
+    line_delta: u32,
 }
 
 fn emit_code(inputs: EmitInputs<'_, '_>) -> Result<EmitResult, InstrumentError> {
-    let EmitInputs { program, scoping, source, filename, preamble, options } = inputs;
+    let EmitInputs { allocator, program, scoping, source, filename, preamble, options } = inputs;
+    let preamble_marker = if preamble.is_some() {
+        Some(insert_preamble_marker(allocator, program, source)?)
+    } else {
+        None
+    };
     let codegen_options = CodegenOptions {
         source_map_path: if options.source_map { Some(PathBuf::from(filename)) } else { None },
         ..CodegenOptions::default()
@@ -1088,48 +1099,78 @@ fn emit_code(inputs: EmitInputs<'_, '_>) -> Result<EmitResult, InstrumentError> 
     let Some(preamble) = preamble else {
         return Ok(EmitResult { code: codegen_ret.code, source_map, preamble_shift: None });
     };
-    let insertion_line = u32::try_from(
-        usize::from(program.hashbang.is_some()).saturating_add(program.directives.len()),
+    let marker = preamble_marker.ok_or_else(|| {
+        InstrumentError::PreambleError("coverage setup has no insertion marker".to_string())
+    })?;
+    let (code, preamble_shift) = replace_preamble_marker(&codegen_ret.code, marker, preamble)?;
+    Ok(EmitResult { code, source_map, preamble_shift: Some(preamble_shift) })
+}
+
+const PREAMBLE_MARKER_BASE: &str = "__oxc_coverage_preamble_marker__";
+
+fn insert_preamble_marker<'arena>(
+    allocator: &'arena Allocator,
+    program: &mut Program<'arena>,
+    source: &str,
+) -> Result<&'arena str, InstrumentError> {
+    let mut marker = PREAMBLE_MARKER_BASE.to_string();
+    let mut suffix = 0_u32;
+    while source.contains(&marker) {
+        suffix = suffix.checked_add(1).ok_or_else(|| {
+            InstrumentError::PreambleError("insertion marker suffix exceeds u32".to_string())
+        })?;
+        marker = format!("{PREAMBLE_MARKER_BASE}_{suffix}");
+    }
+    let marker = allocator.alloc_str(&marker);
+    let ast = AstBuilder::new(allocator);
+    let expression = Expression::new_identifier(SPAN, marker, &ast);
+    let statement = Statement::new_expression_statement(SPAN, expression, &ast);
+    // Preserved comments can add output lines before a directive. Making the
+    // marker the first body statement lets codegen place it after every
+    // directive and any comments belonging to that prologue.
+    program.body.insert(0, statement);
+    Ok(marker)
+}
+
+fn replace_preamble_marker(
+    code: &str,
+    marker: &str,
+    preamble: &str,
+) -> Result<(String, PreambleShift), InstrumentError> {
+    let marker_statement = format!("{marker};");
+    let marker_start = code.find(&marker_statement).ok_or_else(|| {
+        InstrumentError::PreambleError("generated output omitted the insertion marker".to_string())
+    })?;
+    let mut marker_end = marker_start.saturating_add(marker_statement.len());
+    if code.as_bytes().get(marker_end) == Some(&b'\n') {
+        marker_end = marker_end.saturating_add(1);
+    }
+    let marker_line = u32::try_from(
+        code[..marker_start].bytes().filter(|byte| *byte == b'\n').count(),
     )
-    .map_err(|_| InstrumentError::PreambleError("directive count exceeds u32".to_string()))?;
-    let line_count = u32::try_from(preamble.bytes().filter(|byte| *byte == b'\n').count())
+    .map_err(|_| InstrumentError::PreambleError("insertion line exceeds u32".to_string()))?;
+    let preamble_lines = u32::try_from(preamble.bytes().filter(|byte| *byte == b'\n').count())
         .map_err(|_| InstrumentError::PreambleError("setup line count exceeds u32".to_string()))?;
-    if line_count == 0 || !preamble.ends_with('\n') {
+    if preamble_lines == 0 || !preamble.ends_with('\n') {
         return Err(InstrumentError::PreambleError(
             "generated coverage setup must end with a newline".to_string(),
         ));
     }
-    let code = insert_preamble(&codegen_ret.code, preamble, insertion_line)?;
-    Ok(EmitResult {
-        code,
-        source_map,
-        preamble_shift: Some(PreambleShift { insertion_line, line_count }),
-    })
-}
-
-fn insert_preamble(
-    code: &str,
-    preamble: &str,
-    insertion_line: u32,
-) -> Result<String, InstrumentError> {
-    let insertion_line = usize::try_from(insertion_line)
-        .map_err(|_| InstrumentError::PreambleError("insertion line exceeds usize".to_string()))?;
-    let insertion_offset = if insertion_line == 0 {
-        0
-    } else {
-        code.match_indices('\n').nth(insertion_line - 1).map(|(offset, _)| offset + 1).ok_or_else(
-            || {
-                InstrumentError::PreambleError(
-                    "generated output ended before the directive prologue".to_string(),
-                )
-            },
-        )?
-    };
-    let mut output = String::with_capacity(code.len().saturating_add(preamble.len()));
-    output.push_str(&code[..insertion_offset]);
+    let mut output = String::with_capacity(
+        code.len()
+            .saturating_sub(marker_end.saturating_sub(marker_start))
+            .saturating_add(preamble.len()),
+    );
+    output.push_str(&code[..marker_start]);
     output.push_str(preamble);
-    output.push_str(&code[insertion_offset..]);
-    Ok(output)
+    output.push_str(&code[marker_end..]);
+    Ok((
+        output,
+        PreambleShift {
+            first_following_line: marker_line.saturating_add(1),
+            line_delta: preamble_lines.saturating_sub(1),
+        },
+    ))
 }
 
 /// If an input source map was provided, compose the generated map with it so
@@ -1155,9 +1196,9 @@ fn finalize_source_map(
             .iter()
             .copied()
             .map(|mut mapping| {
-                if mapping.generated_line >= shift.insertion_line {
+                if mapping.generated_line >= shift.first_following_line {
                     mapping.generated_line =
-                        mapping.generated_line.saturating_add(shift.line_count);
+                        mapping.generated_line.saturating_add(shift.line_delta);
                 }
                 mapping
             })

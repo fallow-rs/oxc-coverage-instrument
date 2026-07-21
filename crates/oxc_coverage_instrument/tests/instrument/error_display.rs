@@ -7,8 +7,8 @@ use oxc_coverage_instrument::{InstrumentError, V8ToIstanbulError};
 
 #[test]
 fn preamble_error_display_includes_placement_diagnostic() {
-    let err = InstrumentError::PreambleError("output ended before insertion".to_string());
-    assert_eq!(err.to_string(), "coverage preamble error: output ended before insertion");
+    let err = InstrumentError::PreambleError("output omitted the insertion marker".to_string());
+    assert_eq!(err.to_string(), "coverage preamble error: output omitted the insertion marker");
 }
 
 #[test]

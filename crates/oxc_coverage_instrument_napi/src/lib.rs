@@ -255,6 +255,7 @@ pub struct InstrumentResult {
 ///   * `coverageVariable` is not a valid JavaScript identifier
 ///   * `source` fails to parse
 ///   * the TypeScript-strip pass reports a diagnostic
+///   * generated output cannot place the coverage setup after directives
 #[napi(
     ts_args_type = "source: string, filename: string, options?: InstrumentOptions | undefined | null"
 )]

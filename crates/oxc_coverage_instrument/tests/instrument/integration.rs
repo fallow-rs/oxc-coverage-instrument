@@ -686,6 +686,25 @@ try {
 }
 
 #[test]
+fn leading_comment_does_not_break_directive_prologue() {
+    let source = r#"/*! retained __oxc_coverage_preamble_marker__; */
+"use strict";
+try {
+  __oxc_coverage_commented_strict_probe__ = 1;
+  console.log("not-strict");
+} catch (error) {
+  console.log(error.name);
+}"#;
+    let result = instrument(source, "commented-strict.cjs", &default_opts()).unwrap();
+    let original = run_node_eval(source);
+    let instrumented = run_node_eval(&result.code);
+
+    assert!(original.status.success() && instrumented.status.success());
+    assert_eq!(instrumented.stdout, original.stdout);
+    assert_eq!(String::from_utf8_lossy(&instrumented.stdout).trim(), "ReferenceError");
+}
+
+#[test]
 fn source_map_generation() {
     let opts = InstrumentOptions { source_map: true, ..InstrumentOptions::default() };
     let result = instrument("function f() { return 1; }", "test.js", &opts).unwrap();
@@ -730,13 +749,15 @@ fn source_map_accounts_for_preamble_offset() {
 
 #[test]
 fn source_map_preserves_mappings_before_preamble_insertion() {
-    let source = "#!/usr/bin/env node\n\"use strict\";\nconsole.log('mapped');";
+    let source =
+        "#!/usr/bin/env node\n/*! retained */\n\"use strict\";\nconsole.log(object?.mapped);";
     let opts = InstrumentOptions { source_map: true, ..InstrumentOptions::default() };
     let result = instrument(source, "test.js", &opts).unwrap();
     let lines: Vec<_> = result.code.lines().collect();
     assert_eq!(lines[0], "#!/usr/bin/env node");
-    assert_eq!(lines[1], "\"use strict\";");
-    assert!(lines[2].starts_with("var cov_"));
+    assert_eq!(lines[1], "/*! retained */");
+    assert_eq!(lines[2], "\"use strict\";");
+    assert!(lines[3].starts_with("var cov_"));
 
     let sm =
         oxc_sourcemap::SourceMap::from_json_string(result.source_map.as_ref().unwrap()).unwrap();
@@ -749,17 +770,30 @@ fn source_map_preserves_mappings_before_preamble_insertion() {
         lines.iter().position(|line| line.contains("console.log")).expect("statement is emitted"),
     )
     .unwrap();
+    let first_counter_line = u32::try_from(
+        lines
+            .iter()
+            .position(|line| line.starts_with("++cov_"))
+            .expect("statement counter is emitted"),
+    )
+    .unwrap();
     assert!(
         tokens
             .iter()
-            .any(|token| token.get_dst_line() == directive_line && token.get_src_line() == 1),
+            .any(|token| token.get_dst_line() == directive_line && token.get_src_line() == 2),
         "directive mapping must stay before the inserted preamble"
     );
     assert!(
         tokens
             .iter()
-            .any(|token| token.get_dst_line() == statement_line && token.get_src_line() == 2),
+            .any(|token| token.get_dst_line() == statement_line && token.get_src_line() == 3),
         "statement mapping must move with the generated statement"
+    );
+    assert!(
+        tokens.iter().all(|token| {
+            token.get_dst_line() < 3 || token.get_dst_line() >= first_counter_line
+        }),
+        "generated coverage setup must not map to original source"
     );
 }
 
