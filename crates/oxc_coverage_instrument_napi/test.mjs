@@ -1953,6 +1953,53 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] createOxcInstrumenter forwards/validates trackOptionalChainBranches');
 }
 
+// Test: tracked optional member calls preserve their receiver (issue #192)
+{
+  const source = `function flatten(oldData) {
+  return oldData?.pages?.flat?.() || [];
+}
+const holder = {
+  value: 7,
+  method(add) { return this.value + add; },
+};
+const methodName = 'method';
+class Base {
+  constructor() { this.value = 11; }
+  method() { return this.value; }
+}
+class Derived extends Base {
+  run() { return super.method?.(); }
+}
+globalThis.__result = {
+  flat: flatten({ pages: [[1, 2], [3, 4]] }),
+  computed: holder[methodName]?.(5),
+  parenthesized: (holder.method)?.(6),
+  superCall: new Derived().run(),
+};`;
+  const result = instrument(source, 'optional-member-call.js');
+  const optionalBranches = Object.values(JSON.parse(result.coverageMap).branchMap).filter(
+    (entry) => entry.type === 'optional-chain',
+  );
+  const sharedGlobal = {};
+
+  assert.equal(
+    optionalBranches.length,
+    2,
+    'member links stay tracked while receiver-bound calls stay native',
+  );
+  assert.doesNotThrow(() => {
+    new Function('globalThis', result.code)(sharedGlobal);
+  }, 'instrumenting a tracked optional member call must preserve its receiver');
+  assert.deepEqual(sharedGlobal.__result, {
+    flat: [1, 2, 3, 4],
+    computed: 12,
+    parenthesized: 13,
+    superCall: 11,
+  });
+
+  console.log('  [PASS] tracked optional member calls preserve their receiver (issue #192)');
+}
+
 // Test: nameCallbackArguments names callback arguments from the callee
 {
   const source = 'arr.map((x) => x + 1);\nnew Promise((resolve) => resolve(1));';

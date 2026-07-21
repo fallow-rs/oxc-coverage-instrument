@@ -175,10 +175,10 @@ pub struct CoverageTransform<'src, 'arena> {
     cov_fn_oc_name: Option<&'arena str>,
     /// When true, adds truthy-value tracking (`bT`) for logical expression operands.
     report_logic: bool,
-    /// When true (the default), each optional-chaining (`?.`) link is wrapped in
-    /// the `cov_fn_oc` helper and registered as an `optional-chain` branch. When
-    /// false the chain is left native (no helper, no branch), matching
-    /// `istanbul-lib-instrument` and avoiding the per-operand call overhead.
+    /// When true (the default), receiver-safe optional-chaining (`?.`) links are
+    /// wrapped in the `cov_fn_oc` helper and registered as `optional-chain`
+    /// branches. Receiver-bound optional calls stay native so their `this`
+    /// binding is preserved. When false every chain is left native.
     track_optional_chain: bool,
     /// Class method names to exclude from coverage instrumentation.
     ignore_class_methods: Vec<String>,
@@ -212,9 +212,9 @@ pub struct TransformInit<'src, 'arena> {
     /// When true, emits the truthy-value tracker (`bT` counters) for logical
     /// expression operands.
     pub report_logic: bool,
-    /// When true (the default), optional-chain (`?.`) links are tracked as
-    /// `optional-chain` branches via the `cov_fn_oc` helper. When false they
-    /// are left native.
+    /// When true (the default), receiver-safe optional-chain (`?.`) links are
+    /// tracked via the `cov_fn_oc` helper. Receiver-bound optional calls and all
+    /// links when false are left native.
     pub track_optional_chain: bool,
     /// Class method and named-function-expression identifiers to skip,
     /// matching Istanbul's `ignoreClassMethods` semantics.
@@ -666,7 +666,14 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         call: &mut CallExpression<'a>,
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
-        if self.track_optional_chain && call.optional && !self.in_ignored_subtree() {
+        // Wrapping `object.method` in `_oc(...)` turns its Reference into a
+        // plain function value, so the following `?.()` would call it without
+        // `object` as `this`. Leave receiver-bound calls native.
+        if self.track_optional_chain
+            && call.optional
+            && call.callee.get_member_expr().is_none()
+            && !self.in_ignored_subtree()
+        {
             self.wrap_optional_chain_link(
                 OptionalChainLinkInput { object: &mut call.callee, link_span: call.span },
                 ctx,

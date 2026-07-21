@@ -39,11 +39,10 @@ const TS_EXTENSION_REGEX = /\.([mc]ts|tsx?)$/i;
  *   Vitest passes its internal `__VITEST_COVERAGE__`; defaults to `__coverage__`.
  * @param {string[]} [options.ignoreClassMethods] Class method names to skip.
  * @param {boolean} [options.reportLogic] Enable truthy-value tracking (bT).
- * @param {boolean} [options.trackOptionalChainBranches] Track each optional
- *   chaining (`?.`) link as a branch (default: true). Set to false to leave
- *   optional chains native (no `_oc` helper, no `optional-chain` branch),
- *   matching `istanbul-lib-instrument` and avoiding the per-operand helper-call
- *   overhead in `?.`-dense hot paths.
+ * @param {boolean} [options.trackOptionalChainBranches] Track receiver-safe
+ *   optional chaining (`?.`) links as branches (default: true). Receiver-bound
+ *   optional calls stay native to preserve `this`. Set to false to leave all
+ *   optional chains native, matching `istanbul-lib-instrument`.
  * @param {boolean} [options.stripTypescript] Run the TypeScript-strip pass
  *   before instrumentation. When omitted (default), the adapter auto-detects:
  *   it strips when the filename matches `/\.([mc]ts|tsx?)$/i` AND no

@@ -48,7 +48,8 @@ pub struct InstrumentOptions {
     /// Track truthy-value counts (`bT`) for logical expression operands.
     /// Defaults to `false`.
     pub report_logic: Option<bool>,
-    /// Track each optional-chaining (`?.`) link as a branch.
+    /// Track receiver-safe optional-chaining (`?.`) links as branches.
+    /// Receiver-bound optional calls stay native to preserve `this`.
     ///
     /// When `false`, optional chains are left native: no `_oc` helper is emitted
     /// and no `optional-chain` branches are registered. This matches

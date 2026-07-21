@@ -12,10 +12,10 @@ export interface OxcInstrumenterOptions {
   /** When true, adds truthy-value tracking (bT) for logical expressions. */
   reportLogic?: boolean;
   /**
-   * Track each optional chaining (`?.`) link as a branch. Defaults to true.
-   * Set to false to leave optional chains native with no `_oc` helper or
-   * `optional-chain` branch, matching `istanbul-lib-instrument` and avoiding
-   * per-operand helper calls in `?.`-dense hot paths.
+   * Track receiver-safe optional chaining (`?.`) links as branches. Defaults
+   * to true. Receiver-bound optional calls stay native to preserve `this`.
+   * Set to false to leave every optional chain native, matching
+   * `istanbul-lib-instrument`.
    */
   trackOptionalChainBranches?: boolean;
   /**

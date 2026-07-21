@@ -47,11 +47,11 @@ pub struct InstrumentOptions {
     /// This enables nyc-style logic coverage that tracks not just which branch was
     /// taken, but whether each operand evaluated to a truthy value.
     pub report_logic: bool,
-    /// When true (the default), each optional-chaining (`?.`) link is tracked as
-    /// an `optional-chain` branch: its operand is wrapped in a `cov_fn_oc`
-    /// helper call that records whether the value was nullish. This is more
-    /// complete than `istanbul-lib-instrument`, which does not track `?.` as a
-    /// branch.
+    /// When true (the default), receiver-safe optional-chaining (`?.`) links are
+    /// tracked as `optional-chain` branches: their operands are wrapped in a
+    /// `cov_fn_oc` helper that records whether the value was nullish.
+    /// Receiver-bound optional calls such as `object.method?.()` stay native so
+    /// instrumentation cannot detach the method from its `this` value.
     ///
     /// Set to false to leave optional chains native: no `cov_fn_oc` helper is
     /// emitted and no `optional-chain` branch is registered. This matches

@@ -253,6 +253,20 @@ fn optional_call_tracked_as_branch() {
 }
 
 #[test]
+fn optional_member_call_preserves_receiver_reference() {
+    let r = instrument_js("function f(value) { return value?.items?.flat?.(); }");
+    let entry_count =
+        r.coverage_map.branch_map.values().filter(|e| e.branch_type == "optional-chain").count();
+
+    assert_eq!(entry_count, 2, "member links stay tracked while the bound call stays native");
+    assert!(
+        r.code.contains("?.flat?.()"),
+        "the method reference must remain the optional call callee:\n{}",
+        r.code
+    );
+}
+
+#[test]
 fn track_optional_chain_false_leaves_chain_native() {
     // With tracking off, member, computed and call optional links emit no
     // `optional-chain` branch and no `_oc` helper, matching

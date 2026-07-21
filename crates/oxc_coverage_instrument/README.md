@@ -203,12 +203,13 @@ when `/* istanbul ignore if */` drops the consequent of a no-else `if`.
 
 ### 5. Optional-chain short-circuits tracked as branches
 
-Each `?.` link appears in `branchMap` as an `optional-chain` entry with two
-arms: arm 0 when the observed value is `null` or `undefined` and the link
-short-circuits, arm 1 when it continues. `istanbul-lib-instrument` does not
-track these. Reporters that walk `branchMap` by shape pick the entries up
-automatically; reporters that hard-code the Istanbul type names need to learn
-the label.
+Receiver-safe `?.` links appear in `branchMap` as `optional-chain` entries with
+two arms: arm 0 when the observed value is `null` or `undefined` and the link
+short-circuits, arm 1 when it continues. Receiver-bound optional calls such as
+`object.method?.()` stay native so instrumentation preserves their `this`
+binding. `istanbul-lib-instrument` does not track optional chains. Reporters
+that walk `branchMap` by shape pick the entries up automatically; reporters
+that hard-code the Istanbul type names need to learn the label.
 
 Set `track_optional_chain: false` to opt out. Optional chains are then left
 native, with no `_oc` helper and no `optional-chain` branches, which matches
