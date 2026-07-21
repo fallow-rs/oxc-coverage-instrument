@@ -339,11 +339,9 @@ fn source_map_store_passes_through_when_no_map_available() {
     assert!(remapped.contains_key("plain.js"), "passthrough preserves key");
 }
 
-// ---------------------------------------------------------------------------
 // Eager composition: `InstrumentOptions::compose_input_source_map` folds the
 // embedded `inputSourceMap` into the coverage map at instrument time instead
 // of leaving it for a downstream `remap_coverage` / `remapCoverageMap`.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn compose_input_source_map_rewrites_path_and_positions() {

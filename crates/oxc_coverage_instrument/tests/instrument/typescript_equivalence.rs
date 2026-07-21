@@ -8,7 +8,7 @@
 //! executable statements live on the same line numbers in both inputs.
 //!
 //! Statement IDs typically differ between the two paths (synthesis
-//! order is not stable across the strip pass), so we compare the
+//! order is not stable across the strip pass), so this compares the
 //! sorted set of line numbers, not IDs.
 
 use std::collections::BTreeSet;

@@ -29,7 +29,7 @@ pub struct InstrumentOptions {
     pub coverage_variable: String,
     /// Whether to generate a source map for the instrumented output.
     pub source_map: bool,
-    /// Input source map JSON string from a prior transformation (e.g., TypeScript → JS).
+    /// Input source map JSON string from a prior transformation (e.g., TypeScript -> JS).
     /// When provided, this is stored on the `FileCoverage` as `inputSourceMap` so
     /// downstream tools (nyc, istanbul-reports) can chain back to the original source.
     pub input_source_map: Option<String>,
@@ -454,7 +454,7 @@ fn prepare_scoping(input: PrepareScopingInput<'_, '_>) -> Result<Scoping, Instru
     // `with_enum_eval` pre-computes TypeScript enum member values into `Scoping`.
     // Since oxc 0.140 the transformer asserts on it when lowering an `enum`, so
     // this is required on the scoping handed to `strip_typescript_pass` below.
-    // The V8-collect path builds its own scoping for our traverse pass only, and
+    // The V8-collect path builds its own scoping for the traverse pass only, and
     // never reaches the transformer, so it does not pay for enum evaluation.
     let scoping =
         SemanticBuilder::new().with_enum_eval(true).build(program).semantic.into_scoping();

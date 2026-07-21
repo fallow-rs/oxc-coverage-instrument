@@ -16,9 +16,7 @@ fn code_without_preamble(code: &str) -> &str {
     code.find('\n').map_or(code, |i| &code[i + 1..])
 }
 
-// ---------------------------------------------------------------------------
 // Coverage map snapshots
-// ---------------------------------------------------------------------------
 
 #[test]
 fn snapshot_simple_function_coverage_map() {
@@ -75,9 +73,7 @@ fn snapshot_for_loop_coverage_map() {
     assert_json_snapshot!("for_loop_coverage_map", result.coverage_map);
 }
 
-// ---------------------------------------------------------------------------
 // Instrumented code snapshots
-// ---------------------------------------------------------------------------
 
 #[test]
 fn snapshot_simple_function_code() {

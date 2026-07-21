@@ -17,9 +17,7 @@ fn instrument_js(source: &str) -> oxc_coverage_instrument::InstrumentResult {
 const ECMASCRIPT_LINE_TERMINATORS: [(&str, &str); 5] =
     [("LF", "\n"), ("CRLF", "\r\n"), ("CR", "\r"), ("LS", "\u{2028}"), ("PS", "\u{2029}")];
 
-// ---------------------------------------------------------------------------
 // Statement coverage
-// ---------------------------------------------------------------------------
 
 #[test]
 fn statement_simple_variable_declaration() {
@@ -124,9 +122,7 @@ fn pending_statement_counters_preserve_source_order() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // Function coverage
-// ---------------------------------------------------------------------------
 
 #[test]
 fn function_declaration() {
@@ -184,9 +180,7 @@ fn multiple_functions() {
     assert_eq!(result.coverage_map.fn_map.len(), 4);
 }
 
-// ---------------------------------------------------------------------------
 // Branch coverage: if/else
-// ---------------------------------------------------------------------------
 
 #[test]
 fn branch_if_else() {
@@ -367,9 +361,7 @@ fn fn_name_inference_matrix_outside_class_methods() {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Branch coverage: ternary
-// ---------------------------------------------------------------------------
 
 #[test]
 fn branch_ternary() {
@@ -381,9 +373,7 @@ fn branch_ternary() {
     assert!(result.code.contains(".b[0][1]"));
 }
 
-// ---------------------------------------------------------------------------
 // Branch coverage: switch
-// ---------------------------------------------------------------------------
 
 #[test]
 fn branch_switch() {
@@ -395,9 +385,7 @@ fn branch_switch() {
     assert_eq!(result.coverage_map.branch_map["0"].locations.len(), 3);
 }
 
-// ---------------------------------------------------------------------------
 // Branch coverage: logical expressions
-// ---------------------------------------------------------------------------
 
 #[test]
 fn branch_logical_and() {
@@ -422,9 +410,7 @@ fn branch_nullish_coalescing() {
     assert!(result.code.contains(".b[0][1]"));
 }
 
-// ---------------------------------------------------------------------------
 // Branch coverage: logical assignment
-// ---------------------------------------------------------------------------
 
 #[test]
 fn branch_nullish_assignment() {
@@ -455,9 +441,7 @@ fn branch_logical_and_assignment() {
     assert_eq!(binary_branch_count, 1);
 }
 
-// ---------------------------------------------------------------------------
 // Loops: no branch entries (matching Istanbul)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn loops_do_not_create_branch_entries() {
@@ -526,9 +510,7 @@ fn no_block_statement_child_containers_emit_body_counters() {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Source map
-// ---------------------------------------------------------------------------
 
 #[test]
 fn source_map_generation() {
@@ -568,9 +550,7 @@ fn source_map_accounts_for_preamble_offset() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // Error handling
-// ---------------------------------------------------------------------------
 
 #[test]
 fn parse_error_returns_err() {
@@ -580,9 +560,7 @@ fn parse_error_returns_err() {
     assert!(err.to_string().contains("parse error"));
 }
 
-// ---------------------------------------------------------------------------
 // Istanbul format compliance
-// ---------------------------------------------------------------------------
 
 #[test]
 fn coverage_map_has_required_fields() {
@@ -632,9 +610,7 @@ fn positions_are_1_based_line_0_based_column() {
     assert_eq!((loc.start.line, loc.start.column), (1, 10));
 }
 
-// ---------------------------------------------------------------------------
 // Coverage variable name
-// ---------------------------------------------------------------------------
 
 #[test]
 fn custom_coverage_variable() {
@@ -646,9 +622,7 @@ fn custom_coverage_variable() {
     assert!(result.code.contains("__custom_cov__"));
 }
 
-// ---------------------------------------------------------------------------
 // Deterministic output
-// ---------------------------------------------------------------------------
 
 #[test]
 fn deterministic_cov_function_name() {
@@ -677,9 +651,7 @@ fn deterministic_cov_function_name() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // Edge cases
-// ---------------------------------------------------------------------------
 
 #[test]
 fn empty_source() {
@@ -750,9 +722,7 @@ fn coverage_map_json_roundtrip() {
     assert_eq!(parsed["path"], "test.js");
 }
 
-// ---------------------------------------------------------------------------
 // Nested arrows
-// ---------------------------------------------------------------------------
 
 #[test]
 fn nested_arrow_functions_both_get_counters() {
@@ -770,9 +740,7 @@ fn deeply_nested_arrows() {
     assert_eq!(result.coverage_map.f.len(), 3);
 }
 
-// ---------------------------------------------------------------------------
 // Input source map
-// ---------------------------------------------------------------------------
 
 #[test]
 fn input_source_map_stored_on_coverage() {
@@ -901,9 +869,7 @@ fn input_source_map_invalid_json_ignored() {
     assert!(json.get("inputSourceMap").is_none());
 }
 
-// ---------------------------------------------------------------------------
 // Coverage variable validation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn invalid_coverage_variable_returns_error() {
@@ -927,9 +893,7 @@ fn valid_coverage_variable_with_dollar() {
     assert!(result.unwrap().code.contains("$coverage"));
 }
 
-// ---------------------------------------------------------------------------
 // Async function handling
-// ---------------------------------------------------------------------------
 
 #[test]
 fn async_function_declaration() {
@@ -949,9 +913,7 @@ fn async_arrow_function() {
     assert_eq!(result.coverage_map.fn_map["0"].name, "f");
 }
 
-// ---------------------------------------------------------------------------
 // Destructuring defaults (AssignmentPattern branch)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn destructuring_default_creates_branch() {
@@ -974,21 +936,17 @@ fn default_parameter_wraps_initializer_with_branch_counter() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // Computed method keys
-// ---------------------------------------------------------------------------
 
 #[test]
 fn computed_method_key_uses_anonymous_name() {
     let result = instrument_js("class C { [Symbol.iterator]() { return this; } }");
     assert_eq!(result.coverage_map.fn_map.len(), 1);
-    // Computed key → anonymous name
+    // Computed key -> anonymous name
     assert!(result.coverage_map.fn_map["0"].name.contains("anonymous"));
 }
 
-// ---------------------------------------------------------------------------
 // Switch fall-through
-// ---------------------------------------------------------------------------
 
 #[test]
 fn switch_fall_through_cases() {
@@ -1002,9 +960,7 @@ fn switch_fall_through_cases() {
     assert_eq!(switch_branches[0].locations.len(), 3);
 }
 
-// ---------------------------------------------------------------------------
 // Unknown file extension fallback
-// ---------------------------------------------------------------------------
 
 #[test]
 fn unknown_extension_treated_as_js() {
@@ -1013,9 +969,7 @@ fn unknown_extension_treated_as_js() {
     assert_eq!(result.unwrap().coverage_map.fn_map.len(), 1);
 }
 
-// ---------------------------------------------------------------------------
 // Source map + ignore file
-// ---------------------------------------------------------------------------
 
 #[test]
 fn source_map_with_ignore_file() {
@@ -1027,9 +981,7 @@ fn source_map_with_ignore_file() {
     assert!(result.source_map.is_none());
 }
 
-// ---------------------------------------------------------------------------
 // Multiple parse errors joined
-// ---------------------------------------------------------------------------
 
 #[test]
 fn multiple_parse_errors_joined() {
@@ -1039,9 +991,7 @@ fn multiple_parse_errors_joined() {
     assert!(msg.contains("parse error"));
 }
 
-// ---------------------------------------------------------------------------
 // Coverage map ingestion (parse_coverage_map / FileCoverage::from_json)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn parse_coverage_map_roundtrip() {
@@ -1160,9 +1110,7 @@ fn parse_coverage_map_missing_string_fields() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // Source map composition fallback (invalid input source map)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn source_map_with_invalid_input_still_works() {
@@ -1201,9 +1149,7 @@ fn preamble_invokes_setup_once_and_counters_use_cached_coverage() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Gap analysis: constructs that Istanbul instruments but we might miss
-// ---------------------------------------------------------------------------
+// Gap analysis: constructs that Istanbul instruments but this crate might miss
 
 #[test]
 fn gap_object_method_gets_function_counter() {
@@ -1260,9 +1206,7 @@ fn class_property_initializer_wraps_value() {
     assert!(result.code.contains(".s["), "Should contain statement counters in class body");
 }
 
-// ---------------------------------------------------------------------------
 // ignoreClassMethods
-// ---------------------------------------------------------------------------
 
 #[test]
 fn ignore_class_methods_skips_function_counter() {
@@ -1347,9 +1291,7 @@ fn ignore_class_methods_string_literal_key() {
     assert_eq!(result.coverage_map.fn_map["0"].name, "update");
 }
 
-// ---------------------------------------------------------------------------
 // reportLogic (bT tracking)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn report_logic_adds_bt_field() {
@@ -1427,9 +1369,7 @@ fn report_logic_nullish_coalescing() {
     assert_eq!(b_t.len(), 1, "Nullish coalescing should have bT entry");
 }
 
-// ---------------------------------------------------------------------------
 // Counter hoisting for exports
-// ---------------------------------------------------------------------------
 
 #[test]
 fn export_function_has_no_statement_counter() {
@@ -1612,9 +1552,7 @@ fn report_logic_json_roundtrip() {
     assert!(parsed.b_t.is_some());
 }
 
-// ---------------------------------------------------------------------------
 // Non-ASCII column handling (Istanbul parity: UTF-16 code units, not bytes)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn non_ascii_columns_are_utf16_code_units() {
@@ -1643,9 +1581,7 @@ fn emoji_columns_count_as_two_utf16_units() {
     assert_eq!(stmt1.end.column, 27);
 }
 
-// ---------------------------------------------------------------------------
 // Pragma whitespace tolerance (Istanbul parity)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn private_class_method_does_not_add_function_counter() {
@@ -1692,9 +1628,7 @@ fn private_accessors_in_parameter_defaults_do_not_steal_enclosing_function_count
     }
 }
 
-// ---------------------------------------------------------------------------
 // Source map composition: partial input maps
-// ---------------------------------------------------------------------------
 
 #[test]
 fn source_map_composition_with_partial_input_map() {
@@ -1746,12 +1680,3 @@ fn source_map_composition_preserves_input_names() {
     assert!(names.contains(&"foo"), "names should include 'foo', got {names:?}");
     assert!(names.contains(&"bar"), "names should include 'bar', got {names:?}");
 }
-
-// ---------------------------------------------------------------------------
-// Error `Display` impls: one case per enum arm, so a format string cannot drift.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Pragma parser edge cases: unmatched block pragmas, unsupported tool names,
-// and comments between the pragma and the node it annotates.
-// ---------------------------------------------------------------------------

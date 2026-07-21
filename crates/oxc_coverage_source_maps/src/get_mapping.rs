@@ -209,7 +209,7 @@ fn original_position_for_lub(sm: &SourceMap, line: u32, column: u32) -> Option<O
     sm.original_position_for_with_bias(line, column, Bias::LeastUpperBound)
 }
 
-// --- direct per-position lookup (line-0 sentinel + no-drop fallback) ---------
+// direct per-position lookup (line-0 sentinel + no-drop fallback)
 
 /// Direct per-position remap. Used for the `line: 0` "unknown" sentinel, which
 /// `getMapping` has no notion of, and in no-drop mode for entries `getMapping`

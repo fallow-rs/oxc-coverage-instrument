@@ -562,7 +562,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         self.instrument_logical_expression(expr, ctx);
     }
 
-    // Note: istanbul does not treat `for` / `while` / `do-while` as branches.
+    // Istanbul does not treat `for` / `while` / `do-while` as branches.
     // Loop coverage comes from the statement counters in the body alone.
 
     fn exit_with_statement(

@@ -206,7 +206,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         }
     }
 
-    /// Note: the caller must drive the iterator to completion. `extract_if` is
+    /// The caller must drive the iterator to completion. `extract_if` is
     /// lazy, so dropping it early leaves matching items in `pending_insertions`.
     fn drain_pending_insertions_for_target(
         &mut self,

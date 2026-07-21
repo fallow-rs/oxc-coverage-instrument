@@ -36,7 +36,7 @@ pub enum IgnoreType {
 /// Lookup table of coverage ignore directives, keyed by the start offset
 /// of the token the comment is attached to.
 pub struct PragmaMap {
-    /// Maps token start offset → ignore type.
+    /// Maps token start offset -> ignore type.
     ignores: BTreeMap<u32, IgnoreType>,
     /// Ranges ignored by `ignore start` / `ignore stop` block pragmas.
     ignored_ranges: Vec<(u32, u32)>,

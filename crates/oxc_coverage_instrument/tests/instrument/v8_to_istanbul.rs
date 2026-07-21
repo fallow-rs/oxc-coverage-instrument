@@ -91,7 +91,7 @@ fn unexecuted_block_overrides_outer_count() {
     // adopt count 0, not 1.
     let source = "function f() {\n  if (false) {\n    const y = 2;\n  }\n}\nf();\n";
     let module_end = byte_len(source);
-    // Locate the `if` body block; for the test we just need a range tightly
+    // Locate the `if` body block; the test only needs a range tightly
     // around the `const y = 2;` statement.
     let inner_start = byte_offset_of(source, "    const y");
     let inner_end = byte_offset_of(source, "  }");

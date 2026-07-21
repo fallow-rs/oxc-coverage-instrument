@@ -2,7 +2,7 @@
 //!
 //! Prerequisites: run
 //! `node crates/oxc_coverage_instrument/tests/conformance/generate-reference.mjs` to generate
-//! reference data from Istanbul. The Rust tests then compare our output against
+//! reference data from Istanbul. The Rust tests then compare the instrumented output against
 //! the canonical Istanbul output for shared fixtures.
 //!
 //! Each fixture is compared on function count, branch count, branch types,
