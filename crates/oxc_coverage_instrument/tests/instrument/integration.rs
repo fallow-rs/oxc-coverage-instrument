@@ -1441,14 +1441,15 @@ fn preamble_refreshes_stale_coverage_by_hash() {
 }
 
 #[test]
-fn preamble_invokes_setup_once_and_counters_use_cached_coverage() {
+fn runtime_setup_invokes_once_and_counters_use_cached_coverage() {
     let result = instrument_js("function f() { return 1; }");
     let cov_start = result.code.find("var cov_").unwrap() + 4;
     let cov_end = result.code[cov_start..].find(' ').unwrap() + cov_start;
     let cov_name = &result.code[cov_start..cov_end];
+    let compact_code = result.code.split_whitespace().collect::<String>();
     assert!(
-        result.code.contains("return actualCoverage; })();"),
-        "coverage setup should be invoked once in the preamble"
+        compact_code.contains("returnactualCoverage;})();"),
+        "coverage setup should be invoked once"
     );
     assert!(
         !result.code.contains(&format!("{cov_name}().")),
@@ -1466,6 +1467,18 @@ fn top_level_coverage_binding_collision_is_uniquified() {
 
     assert!(result.code.starts_with(&format!("var {base}_1 =")));
     assert_runtime_counted(&output);
+}
+
+#[test]
+fn runtime_setup_locals_do_not_capture_user_root_bindings() {
+    let source = "let path=1,hash=2,gcv=3,coverageData=4,coverage=5,actualCoverage=6,val=7,id=8,idx=9; console.log(JSON.stringify([path,hash,gcv,coverageData,coverage,actualCoverage,val,id,idx]));";
+    let options = InstrumentOptions { report_logic: true, ..default_opts() };
+    let result = instrument(source, "setup-local-collisions.js", &options).unwrap();
+
+    let output = run_node_eval(&result.code);
+
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "[1,2,3,4,5,6,7,8,9]");
 }
 
 #[test]

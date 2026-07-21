@@ -55,7 +55,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // `function foo()` gives the `foo` identifier span, a class method
         // `bar() {}` gives the key span (recorded by `register_method_definition`
         // before this hook runs), and an anonymous `function ()` gives a
-        // one-character marker where the name would have been.
+        // one-character synthetic location where the name would have been.
         let decl_span = if let Some(id) = &func.id {
             id.span
         } else if let Some(span) = self.pending_method_decl.take() {

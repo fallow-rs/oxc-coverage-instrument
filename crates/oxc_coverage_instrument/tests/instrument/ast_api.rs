@@ -1,12 +1,40 @@
 use oxc_allocator::Allocator;
+use oxc_ast::ast::{BindingIdentifier, IdentifierReference};
+use oxc_ast_visit::{Visit, walk::walk_program};
 use oxc_codegen::Codegen;
 use oxc_coverage_instrument::{InstrumentError, InstrumentOptions, instrument, instrument_program};
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
+use oxc_syntax::reference::ReferenceId;
+
+#[derive(Default)]
+struct GeneratedSemanticAudit {
+    bindings_without_symbol: Vec<String>,
+    references_without_id: Vec<String>,
+    references: Vec<(String, ReferenceId)>,
+}
+
+impl<'a> Visit<'a> for GeneratedSemanticAudit {
+    fn visit_binding_identifier(&mut self, identifier: &BindingIdentifier<'a>) {
+        if identifier.span.is_empty() && identifier.symbol_id.get().is_none() {
+            self.bindings_without_symbol.push(identifier.name.to_string());
+        }
+    }
+
+    fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'a>) {
+        if identifier.span.is_empty() {
+            if let Some(reference_id) = identifier.reference_id.get() {
+                self.references.push((identifier.name.to_string(), reference_id));
+            } else {
+                self.references_without_id.push(identifier.name.to_string());
+            }
+        }
+    }
+}
 
 #[test]
-fn ast_api_matches_source_api_without_inserting_the_preamble() {
+fn ast_api_matches_source_api_with_ast_native_runtime_setup() {
     let source = "function answer() { return 42; } answer();";
     let filename = "ast-api.js";
     let options = InstrumentOptions::default();
@@ -21,15 +49,49 @@ fn ast_api_matches_source_api_without_inserting_the_preamble() {
     let source_result = instrument(source, filename, &options).expect("instrument source");
 
     assert_eq!(result.coverage_map_json, source_result.coverage_map_json);
-    assert!(result.preamble.as_deref().is_some_and(|preamble| preamble.contains("coverageData")));
+    assert!(result.runtime_setup_inserted);
 
     let code = Codegen::new().with_scoping(Some(result.scoping)).build(&parsed.program).code;
     assert!(code.contains(".s["));
-    assert!(!code.contains("coverageData"));
+    assert!(code.contains("coverageData"));
 }
 
 #[test]
-fn ast_api_reports_an_ignored_file_without_a_preamble() {
+fn ast_native_runtime_setup_registers_generated_semantic_ids() {
+    let source = "const value = left && right; object?.property;";
+    let allocator = Allocator::default();
+    let mut parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
+    assert!(!parsed.diagnostics.has_errors());
+    let scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
+    let options = InstrumentOptions { report_logic: true, ..InstrumentOptions::default() };
+
+    let result = instrument_program(
+        &allocator,
+        &mut parsed.program,
+        scoping,
+        source,
+        "semantic-setup.js",
+        &options,
+    )
+    .expect("instrument program");
+
+    let mut audit = GeneratedSemanticAudit::default();
+    walk_program(&mut audit, &parsed.program);
+    assert!(audit.bindings_without_symbol.is_empty(), "{:?}", audit.bindings_without_symbol);
+    assert!(audit.references_without_id.is_empty(), "{:?}", audit.references_without_id);
+    for (name, reference_id) in audit.references {
+        if !matches!(name.as_str(), "Array" | "Object" | "global" | "globalThis" | "self") {
+            assert!(
+                result.scoping.get_reference(reference_id).symbol_id().is_some(),
+                "generated reference {name} is unresolved",
+            );
+        }
+    }
+    assert!(result.runtime_setup_inserted);
+}
+
+#[test]
+fn ast_api_reports_an_ignored_file_without_runtime_setup() {
     let source = "/* istanbul ignore file */\nfunction ignored() { return 1; }";
     let filename = "ignored.js";
     let allocator = Allocator::default();
@@ -47,7 +109,7 @@ fn ast_api_reports_an_ignored_file_without_a_preamble() {
     )
     .expect("instrument ignored program");
 
-    assert!(result.preamble.is_none());
+    assert!(!result.runtime_setup_inserted);
     assert!(result.coverage_map.statement_map.is_empty());
     assert!(result.coverage_map.fn_map.is_empty());
     assert!(result.coverage_map.branch_map.is_empty());

@@ -34,8 +34,7 @@ fn generated_counter_references_are_bound_in_returned_scoping() {
         pragmas,
         transform: TransformInit {
             allocator: &allocator,
-            source,
-            cov_fn_name: "cov_semantic_test",
+            cov_fn_name: "cov_semantic_test".to_string(),
             report_logic: true,
             track_optional_chain: true,
             ignore_class_methods: Vec::new(),
@@ -43,7 +42,8 @@ fn generated_counter_references_are_bound_in_returned_scoping() {
             istanbul_compat: false,
             registration_policy: None,
         },
-    });
+    })
+    .expect("valid transform input");
 
     let mut audit = GeneratedReferenceAudit { references: Vec::new() };
     walk_program(&mut audit, &parsed.program);

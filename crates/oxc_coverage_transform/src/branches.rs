@@ -17,7 +17,7 @@ use super::counters::{
 };
 use super::coverage_map::{PendingArm, PendingBranch, is_synthetic_span};
 use super::ignore::{enclosing_destructure_property_pragma, is_ignored_case};
-use super::{CoverageState, CoverageTransform, ensure_root_binding};
+use super::{BranchKind, CoverageState, CoverageTransform, ensure_root_binding};
 
 pub(super) struct OptionalChainLinkInput<'arena, 'a> {
     pub(super) object: &'a mut Expression<'arena>,
@@ -81,7 +81,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // traversal still recurses; the pragma-arm bookkeeping above and
         // `pop_ignored_if_arms`'s pop stay balanced either way.
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "if",
+            kind: BranchKind::If,
             umbrella_span: stmt.span,
             gate_arms: true,
             arms,
@@ -152,7 +152,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         }
 
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "cond-expr",
+            kind: BranchKind::Conditional,
             umbrella_span: expr.span,
             gate_arms: true,
             arms,
@@ -200,7 +200,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
             }
         }
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "switch",
+            kind: BranchKind::Switch,
             umbrella_span: stmt.span,
             gate_arms: true,
             arms,
@@ -253,7 +253,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
             }
             let init_span = init.span();
             let Some(reg) = self.register_branch(PendingBranch {
-                branch_type: "default-arg",
+                kind: BranchKind::DefaultArgument,
                 umbrella_span: param.span,
                 gate_arms: true,
                 arms: vec![PendingArm::new(init_span)],
@@ -305,7 +305,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // `default-arg` too.
         let right_span = pattern.right.span();
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "default-arg",
+            kind: BranchKind::DefaultArgument,
             umbrella_span: pattern.span,
             gate_arms: true,
             arms: vec![PendingArm::new(right_span)],
@@ -335,7 +335,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // insertion at slot 0 and the right is hard-wired to slot 1, so both
         // arms must be registered together or not at all.
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "binary-expr",
+            kind: BranchKind::Binary,
             umbrella_span: expr.span,
             gate_arms: false,
             arms: vec![PendingArm::new(left_span), PendingArm::new(right_span)],
@@ -425,7 +425,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // arm 1 is the link's full span.
         let anchor = Span::new(link_span.start, link_span.start);
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "optional-chain",
+            kind: BranchKind::OptionalChain,
             umbrella_span: link_span,
             gate_arms: false,
             arms: vec![PendingArm::new(anchor), PendingArm::new(link_span)],

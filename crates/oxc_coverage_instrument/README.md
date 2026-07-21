@@ -72,14 +72,13 @@ for (path, coverage) in &map {
 Enable the `ast-api` crate feature to instrument a `Program` and `Scoping`
 already owned by an Oxc host. `instrument_program` injects counters into that
 AST and returns the updated scoping, coverage map, serialized map, unhandled
-pragmas, and setup preamble. It does not parse or generate code.
+pragmas, and an AST-native runtime setup. It does not parse or generate code.
 
 The host owns the surrounding pipeline. TypeScript and JSX must already be in
 the intended transform state, and parser or output options do not run those
-phases inside this entry point. The returned preamble is source metadata, not an
-AST fragment. Insert or emit it after the hashbang and directive prologue, then
-rebuild semantic state so its declaration is connected to the injected counter
-references.
+phases inside this entry point. Setup nodes are inserted after the separately
+stored hashbang and directive prologue. The returned `Scoping` already includes
+every generated declaration, reference, and child scope.
 
 ```toml
 [dependencies]
@@ -87,10 +86,10 @@ oxc_coverage_instrument = { version = "0.11", features = ["ast-api"] }
 ```
 
 The source-to-source `instrument` function uses the same internal AST pass and
-continues to own parsing, optional TypeScript lowering, preamble insertion,
-codegen, and output source-map generation. It inserts the emitted setup after
-the hashbang and directive prologue, then shifts only the following generated
-source-map lines. The setup does not require another parse or semantic pass.
+continues to own parsing, optional TypeScript lowering, runtime setup insertion,
+codegen, and output source-map generation. Synthetic setup spans let codegen
+place original mappings correctly without another parse, semantic pass, or
+post-codegen source-map shift.
 
 ### Composing the input source map eagerly
 

@@ -46,7 +46,7 @@
 //! instrumentation instead of embedding it for downstream composition.
 //!
 //! The resulting [`FileCoverage`] (and the `coverageData` literal baked into
-//! the instrumented code's preamble, hence the runtime coverage variable)
+//! the instrumented code's runtime setup, hence the runtime coverage variable)
 //! carries original-source positions, is re-keyed by the original source
 //! `path`, and has no `inputSourceMap` field. A subsequent [`remap_coverage`]
 //! / `remapCoverageMap` on the result is a no-op. This trades the
@@ -121,7 +121,9 @@
 
 mod coverage_builder;
 mod instrument;
+mod ordered_value;
 mod preamble;
+mod runtime_setup;
 mod v8_to_istanbul;
 
 pub use instrument::{

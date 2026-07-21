@@ -19,7 +19,7 @@
 //! }
 //! ```
 //!
-//! Output, below the preamble that defines `cov_1abc`:
+//! Output, below the host setup that defines `cov_1abc`:
 //!
 //! ```js
 //! function f(x) {
@@ -55,13 +55,14 @@
 //! - `statements.rs`: statement-counter placement, including the hoists that
 //!   keep `Function.name` inference intact.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, error::Error, fmt};
 
 use oxc_allocator::{Allocator, Vec as ArenaVec};
 use oxc_ast::ast::*;
 use oxc_semantic::Scoping;
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::symbol::SymbolFlags;
+use oxc_syntax::{identifier::is_identifier_name, keyword::is_reserved_keyword};
 use oxc_traverse::{BoundIdentifier, Traverse, TraverseCtx, traverse_mut};
 
 mod branches;
@@ -83,32 +84,26 @@ use ignore::{
     is_ignored_case, jsx_attribute_ignored, jsx_child_ignored, jsx_spread_attribute_ignored,
 };
 pub use metadata::{
-    BranchRecord, CoverageMetadata, FunctionRecord, RegistrationPolicy, TransformLocation,
-    TransformPosition,
+    BranchKind, BranchRecord, CoverageMetadata, FunctionRecord, RegistrationKey, RegistrationPolicy,
 };
 use names::{AssignmentTargetName, assignment_target_name};
 pub use pragma::{IgnoreType, PragmaMap, UnhandledDirective};
-pub use source_text::line_column;
+pub use source_text::{line_column, line_starts};
 
 /// State carried through the traverse for coverage instrumentation.
-pub struct CoverageState {
+struct CoverageState {
     /// Pragma map for istanbul/v8 ignore directives.
     pub pragmas: PragmaMap,
 }
 
 /// Collects coverage metadata and injects counter expressions via AST mutation.
-pub struct CoverageTransform<'src, 'arena> {
-    source: &'src str,
-    line_offsets: Vec<u32>,
-    /// True when the source is pure ASCII so columns can be reported as
-    /// `offset - line_start` without walking chars for UTF-16 width.
-    source_is_ascii: bool,
+struct CoverageTransform<'policy, 'arena> {
     /// Function records indexed by sequential counter id.
-    pub fn_map: Vec<FunctionRecord>,
+    fn_map: Vec<FunctionRecord>,
     /// Statement locations indexed by sequential id.
-    pub statement_map: Vec<TransformLocation>,
+    statement_map: Vec<Span>,
     /// Branch entries indexed by sequential id.
-    pub branch_map: Vec<BranchRecord>,
+    branch_map: Vec<BranchRecord>,
     /// Body byte spans parallel to `branch_map[i].locations[j]`. For most
     /// branch shapes the body span equals the location span; the exception is
     /// if-arm 0, where `locations[0]` records the whole `IfStatement` span
@@ -118,7 +113,7 @@ pub struct CoverageTransform<'src, 'arena> {
     /// has no range tight to istanbul's whole-IfStatement convention. Slots
     /// with `(0, 0)` represent unknown bodies (e.g. synthetic else-arms) and
     /// are skipped by callers.
-    pub branch_arm_body_byte_spans: Vec<Vec<(u32, u32)>>,
+    branch_arm_body_spans: Vec<Vec<Option<Span>>>,
     /// Name inherited from a parent node (variable declarator, method definition).
     pending_name: Option<String>,
     /// `decl` span inherited from a class `MethodDefinition`. A method's inner
@@ -194,26 +189,26 @@ pub struct CoverageTransform<'src, 'arena> {
     /// Whether transform details should match `istanbul-lib-instrument`.
     istanbul_compat: bool,
     /// Branch IDs of logical expression branches (for building the `bT` map).
-    pub logical_branch_ids: Vec<usize>,
+    logical_branch_ids: Vec<usize>,
     /// Set once any optional-chain link has been wrapped in the `cov_fn_oc`
-    /// helper, so the preamble emits that helper. Read instead of scanning the
+    /// helper, so the host emits that helper. Read instead of scanning the
     /// branch map for an `optional-chain` type, because an eager fold can
     /// collapse an `optional-chain` entry onto a differently-typed one (the
     /// fold key excludes `branch_type`) while the emitted `_oc` call remains.
-    pub used_optional_chain_helper: bool,
+    used_optional_chain_helper: bool,
     /// Eager-compose gate. When `Some`, a coverage point whose positions do not
     /// remap through the input source map is not instrumented at all: no map
     /// entry is registered and no counter is emitted, so the runtime coverage
     /// object and the emitted counters agree. `None` for every non-eager
     /// caller, where gating is a strict no-op.
-    eager_remapper: Option<&'src dyn RegistrationPolicy>,
+    registration_policy: Option<&'policy dyn RegistrationPolicy>,
     /// Statement ids already handed out per remapped location, so statements
     /// that collapse onto one original location under the eager gate share a
     /// counter. Empty outside eager mode.
-    eager_statement_ids: BTreeMap<coverage_map::EagerMergeKey, usize>,
+    eager_statement_ids: BTreeMap<RegistrationKey, usize>,
     /// Function ids already handed out per remapped `decl` location; the
     /// function counterpart of `eager_statement_ids`.
-    eager_function_ids: BTreeMap<coverage_map::EagerMergeKey, usize>,
+    eager_function_ids: BTreeMap<RegistrationKey, usize>,
     /// Branch ids already handed out per remapped surviving-arm vector, so
     /// branches that collapse onto one original arm vector under the eager gate
     /// share a counter. Empty outside eager mode. Mirrors `eager_statement_ids`
@@ -222,19 +217,16 @@ pub struct CoverageTransform<'src, 'arena> {
     /// Set when an eager function fold merges two functions whose identities
     /// differ, so `finalize` drops the `x_fallow_functionMap` overlay the way
     /// the deferred merge does. Never set outside eager mode.
-    pub eager_function_overlay_conflict: bool,
+    eager_function_overlay_conflict: bool,
 }
 
-/// Inputs to [`CoverageTransform::new`], grouped so the constructor stays at
-/// a single parameter even as new options accrete.
-pub struct TransformInit<'src, 'arena> {
+/// Coverage behavior supplied to [`transform_program`].
+pub struct TransformInit<'policy, 'arena> {
     /// Bump allocator owning the AST being traversed.
     pub allocator: &'arena Allocator,
-    /// The source text; used for line-offset precomputation and span lookups.
-    pub source: &'src str,
-    /// Per-file IIFE function name (e.g. `cov_<hash>`); copied into the arena
-    /// so AST identifiers can refer to it for the lifetime of the traversal.
-    pub cov_fn_name: &'src str,
+    /// Requested per-file coverage binding name (e.g. `cov_<hash>`). The
+    /// kernel validates and collision-resolves it before mutating the AST.
+    pub cov_fn_name: String,
     /// When true, emits the truthy-value tracker (`bT` counters) for logical
     /// expression operands.
     pub report_logic: bool,
@@ -254,11 +246,11 @@ pub struct TransformInit<'src, 'arena> {
     /// Eager-compose position-remap gate. `Some` only when
     /// `compose_input_source_map` is on and a usable input map is present;
     /// `None` for every other caller, where gating is a strict no-op.
-    pub registration_policy: Option<&'src dyn RegistrationPolicy>,
+    pub registration_policy: Option<&'policy dyn RegistrationPolicy>,
 }
 
 /// Inputs for one host-owned AST transform pass.
-pub struct TransformProgramInput<'src, 'arena, 'program> {
+pub struct TransformProgramInput<'policy, 'arena, 'program> {
     /// Program mutated in place.
     pub program: &'program mut Program<'arena>,
     /// Semantic state matching `program` before instrumentation.
@@ -266,25 +258,89 @@ pub struct TransformProgramInput<'src, 'arena, 'program> {
     /// Parsed ignore directives for the program.
     pub pragmas: PragmaMap,
     /// Transform construction inputs and policy.
-    pub transform: TransformInit<'src, 'arena>,
+    pub transform: TransformInit<'policy, 'arena>,
 }
 
-/// Result of one AST-only coverage transform pass.
+/// Generated binding names required by a host-owned runtime setup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratedNames {
+    /// Collision-safe coverage object binding.
+    pub coverage: String,
+    /// Truthy-value helper, when logical truthiness tracking is enabled.
+    pub truthy_helper: Option<String>,
+    /// Optional-chain helper, when at least one optional-chain link was wrapped.
+    pub optional_chain_helper: Option<String>,
+}
+
+/// Semantic result of one AST-only coverage transform pass.
+#[derive(Debug)]
+pub enum TransformOutcome {
+    /// The program carried a file-level coverage-ignore directive.
+    Ignored,
+    /// Counters were injected and metadata was collected.
+    Instrumented { metadata: CoverageMetadata, names: GeneratedNames },
+}
+
+/// Result of one host-owned AST transform pass.
+#[derive(Debug)]
 pub struct TransformOutput {
     /// Semantic state updated by `oxc_traverse` during counter injection.
     pub scoping: Scoping,
-    /// Neutral counter metadata consumed by satellite adapters.
-    pub metadata: CoverageMetadata,
+    /// Whether the file was ignored or instrumented.
+    pub outcome: TransformOutcome,
 }
 
+/// Invalid input rejected before the AST is mutated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransformError {
+    /// The requested coverage name cannot be emitted as a JavaScript binding.
+    InvalidCoverageBindingName(String),
+}
+
+impl fmt::Display for TransformError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidCoverageBindingName(name) => {
+                write!(formatter, "invalid JavaScript coverage binding name: {name:?}")
+            }
+        }
+    }
+}
+
+impl Error for TransformError {}
+
 /// Mutate a host-owned program and return neutral coverage metadata.
-pub fn transform_program(input: TransformProgramInput<'_, '_, '_>) -> TransformOutput {
-    let TransformProgramInput { program, scoping, pragmas, transform } = input;
+///
+/// # Errors
+///
+/// Returns [`TransformError::InvalidCoverageBindingName`] when the requested
+/// coverage binding is not a valid non-reserved JavaScript identifier.
+pub fn transform_program(
+    input: TransformProgramInput<'_, '_, '_>,
+) -> Result<TransformOutput, TransformError> {
+    let TransformProgramInput { program, scoping, pragmas, mut transform } = input;
+    if pragmas.ignore_file {
+        return Ok(TransformOutput { scoping, outcome: TransformOutcome::Ignored });
+    }
+    if !is_identifier_name(&transform.cov_fn_name) || is_reserved_keyword(&transform.cov_fn_name) {
+        return Err(TransformError::InvalidCoverageBindingName(transform.cov_fn_name));
+    }
+    transform.cov_fn_name = resolve_cov_fn_name(&transform.cov_fn_name, &scoping);
+    let coverage_name = transform.cov_fn_name.clone();
+    let report_logic = transform.report_logic;
     let allocator = transform.allocator;
     let mut coverage_transform = CoverageTransform::new(transform);
     let state = CoverageState { pragmas };
     let scoping = traverse_mut(&mut coverage_transform, allocator, program, scoping, state);
-    TransformOutput { scoping, metadata: coverage_transform.finish() }
+    let metadata = coverage_transform.finish();
+    let names = GeneratedNames {
+        truthy_helper: report_logic.then(|| format!("{coverage_name}_bt")),
+        optional_chain_helper: metadata
+            .used_optional_chain_helper
+            .then(|| format!("{coverage_name}_oc")),
+        coverage: coverage_name,
+    };
+    Ok(TransformOutput { scoping, outcome: TransformOutcome::Instrumented { metadata, names } })
 }
 
 const COVERAGE_BINDING_SUFFIXES: [&str; 4] = ["", "_bt", "_oc", "_temp"];
@@ -331,11 +387,10 @@ fn symbol_is_coverage_binding(symbol: &str, candidate: &str, suffix: &str) -> bo
         && symbol.ends_with(suffix)
 }
 
-impl<'src, 'arena> CoverageTransform<'src, 'arena> {
-    pub fn new(init: TransformInit<'src, 'arena>) -> Self {
+impl<'policy, 'arena> CoverageTransform<'policy, 'arena> {
+    fn new(init: TransformInit<'policy, 'arena>) -> Self {
         let TransformInit {
             allocator,
-            source,
             cov_fn_name,
             report_logic,
             track_optional_chain,
@@ -344,15 +399,12 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             istanbul_compat,
             registration_policy,
         } = init;
-        let cov_fn_name = allocator.alloc_str(cov_fn_name);
+        let cov_fn_name = allocator.alloc_str(&cov_fn_name);
         Self {
-            source,
-            line_offsets: source_text::line_starts(source),
-            source_is_ascii: source.is_ascii(),
             fn_map: Vec::new(),
             statement_map: Vec::new(),
             branch_map: Vec::new(),
-            branch_arm_body_byte_spans: Vec::new(),
+            branch_arm_body_spans: Vec::new(),
             pending_name: None,
             pending_method_decl: None,
             pending_insertions: Vec::new(),
@@ -377,7 +429,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             istanbul_compat,
             logical_branch_ids: Vec::new(),
             used_optional_chain_helper: false,
-            eager_remapper: registration_policy,
+            registration_policy,
             eager_statement_ids: BTreeMap::new(),
             eager_function_ids: BTreeMap::new(),
             eager_branch_ids: BTreeMap::new(),
@@ -386,12 +438,12 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
     }
 
     /// Consume the traversal state into the neutral adapter boundary.
-    pub fn finish(self) -> CoverageMetadata {
+    fn finish(self) -> CoverageMetadata {
         CoverageMetadata {
             statements: self.statement_map,
             functions: self.fn_map,
             branches: self.branch_map,
-            branch_arm_body_byte_spans: self.branch_arm_body_byte_spans,
+            branch_arm_body_spans: self.branch_arm_body_spans,
             logical_branch_ids: self.logical_branch_ids,
             used_optional_chain_helper: self.used_optional_chain_helper,
             function_overlay_conflict: self.eager_function_overlay_conflict,

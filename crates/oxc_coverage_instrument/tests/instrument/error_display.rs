@@ -6,12 +6,6 @@
 use oxc_coverage_instrument::{InstrumentError, V8ToIstanbulError};
 
 #[test]
-fn preamble_error_display_includes_placement_diagnostic() {
-    let err = InstrumentError::PreambleError("output omitted the insertion marker".to_string());
-    assert_eq!(err.to_string(), "coverage preamble error: output omitted the insertion marker");
-}
-
-#[test]
 fn transform_error_display_format() {
     let err = InstrumentError::TransformError(vec![
         "unsupported syntax at line 5".to_string(),
@@ -29,6 +23,18 @@ fn transform_error_single_diagnostic_displays_without_separator() {
     let err = InstrumentError::TransformError(vec!["only one diagnostic".to_string()]);
     let rendered = format!("{err}");
     assert_eq!(rendered, "transform error: only one diagnostic");
+}
+
+#[test]
+fn coverage_transform_error_display_format() {
+    let err = InstrumentError::CoverageTransformError("invalid binding".to_string());
+    assert_eq!(err.to_string(), "coverage transform error: invalid binding");
+}
+
+#[test]
+fn runtime_setup_error_display_format() {
+    let err = InstrumentError::RuntimeSetupError("unsupported value".to_string());
+    assert_eq!(err.to_string(), "runtime setup error: unsupported value");
 }
 
 #[test]

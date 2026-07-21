@@ -24,14 +24,17 @@ transformer facade. Oxc maintainers should choose the final name and placement.
 | Statement, function, and branch records | neutral records | Istanbul conversion |
 | Scope-safe generated bindings | yes | no duplicate implementation |
 | Parse, lower, semantic build, and codegen | host pipeline | standalone convenience API |
+| Runtime setup AST | shared contract or host adapter | proven adapter implementation |
 | Input and output source-map composition | no | yes |
 | V8 range conversion | no | yes |
 | Reports and report tree | no | yes |
 | CLI, N-API, WASI, and Vitest adapter | no | yes |
 | Fallow function identities | no | optional post-transform overlay |
 
-Reporters, remapping, V8 conversion, runtime bindings, and Fallow-specific
-identities should not move into Oxc core.
+Reporters, remapping, V8 conversion, Istanbul serialization, and Fallow-specific
+identities should not move into Oxc core. Runtime setup is the one unresolved
+boundary: Oxc must either own a neutral setup builder or expose enough generated
+binding metadata for a host adapter to add setup in the same pass.
 
 ## Proposed host contract
 
@@ -39,7 +42,7 @@ The host supplies:
 
 - an `Allocator` that owns every inserted node,
 - a mutable `Program`, after any syntax lowering required by the host,
-- the matching `Scoping`, source text, and source type,
+- the matching `Scoping` and a parsed pragma map,
 - typed transform options,
 - an optional registration policy for generated-to-original mapping, drop,
   arm filtering, canonical counter identity, and collision policy.
@@ -51,15 +54,18 @@ The transform mutates the program and returns:
 - generated helper names and optional helper usage,
 - handled and unhandled ignore-directive information.
 
-The program must contain both counter expressions and runtime setup when the
-call returns. Setup follows the directive prologue. A host must not insert
-source text, reparse generated code, or rebuild semantic state.
+The raw prototype kernel returns counter mutation, metadata, generated names,
+and updated scoping. The satellite `instrument_program` adapter then adds the
+runtime setup as AST and registers its scopes, symbols, and references directly.
+Its final program therefore contains counters and setup without source-text
+insertion, generated-code parsing, or semantic rebuilding.
 
 The kernel owns symbols, references, child scopes, helper name reservation, and
-all nodes that it inserts. The host owns the root program, allocator, comments,
-source text, original spans, and transform scheduling. Generated setup nodes use
-Oxc's established generated-span convention. Original coverage locations remain
-Oxc spans until the satellite converts them to Istanbul UTF-16 positions.
+all counter nodes. The setup adapter currently owns the equivalent invariants
+for setup nodes. The host owns the root program, allocator, comments, source
+text, original spans, and transform scheduling. Generated nodes use Oxc's
+established generated-span convention. Original coverage locations remain Oxc
+spans until the satellite converts them to Istanbul UTF-16 positions.
 
 ## Options
 
@@ -87,12 +93,11 @@ branch-arm filtering, fallback, and fold behavior consistent across policies.
 
 ## Neutral metadata
 
-The prototype returns ordered, neutral position records with typed functions
-and branches. It contains no Istanbul maps, `serde_json::Value`, source-map
-JSON, hashes, or reporter types. Before upstreaming, maintainers should decide
-whether the stable boundary carries Oxc spans or UTF-16 positions. The
-satellite adapter builds `FileCoverage`, performs optional remapping, and adds
-the Fallow overlay.
+The prototype returns ordered Oxc byte spans with typed functions and branches.
+It contains no Istanbul maps, `serde_json::Value`, source-map JSON, hashes, or
+reporter types. UTF-16 conversion now happens only in the satellite adapter,
+which builds `FileCoverage`, performs optional remapping, and adds the Fallow
+overlay.
 
 Counter order and record order are observable compatibility constraints. The
 first adapter must prove strict Istanbul output and default-profile documented
@@ -113,15 +118,37 @@ set and keeps end-to-end conformance as its compatibility gate.
 ## Adoption sequence
 
 1. Oxc maintainers accept placement, naming, host ownership, and the minimal API.
-2. Extract the traversal mechanically behind neutral records, without redesigning setup.
-3. Make setup insertion AST-native with valid scoping and remove text replacement.
-4. Prove transform-only performance, dependency isolation, and conformance.
+2. Extract the traversal mechanically behind neutral Oxc-span records. Proven locally.
+3. Make setup insertion AST-native with valid scoping and remove text replacement. Proven locally.
+4. Prove transform-only performance, dependency isolation, and conformance. Gated locally and in CI.
 5. Port the kernel to Oxc and test this workspace against that exact revision.
 6. Replace the temporary local implementation and remove duplicate traversal code.
 
 The first upstream API should be the smallest surface Rolldown needs. Standalone
 parsing, code generation, compatibility helpers, and package ownership are not
 prerequisites for direct Vitest integration.
+
+## Rolldown placement constraint
+
+The currently inspected Rolldown `transform_ast` hook receives an `EcmaAst`
+before semantic construction and TypeScript lowering. This prototype requires
+a lowered `Program` plus its matching `Scoping`. It is therefore not a drop-in
+hook implementation. Upstream work must first prove one of these placements:
+
+1. schedule coverage after lowering at a point that can hand over `Scoping`, or
+2. let coverage participate in the host's semantic-building transform phase.
+
+Adding a second parser or semantic build inside the hook would defeat the
+integration goal and is not an acceptable fallback.
+
+## Prototype packaging constraint
+
+The published instrument crate currently depends on the unpublished local
+`oxc_coverage_transform` crate. This branch is intentionally not releaseable:
+`cargo package` must fail until the kernel is replaced by an accepted upstream
+crate, vendored back into the published crate, or otherwise given a valid
+publication topology. The Oxc extraction branch must not merge into the release
+line while that constraint remains.
 
 ## Decisions requested from Oxc maintainers
 

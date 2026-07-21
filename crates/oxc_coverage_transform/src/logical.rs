@@ -12,7 +12,7 @@ use crate::pragma::{IgnoreType, PragmaMap};
 
 use super::counters::{CounterKind, dummy_expr, index_literal, prepend_counter};
 use super::coverage_map::{PendingArm, PendingBranch, is_synthetic_span};
-use super::{CoverageState, CoverageTransform, root_bound_identifier};
+use super::{BranchKind, CoverageState, CoverageTransform, root_bound_identifier};
 
 impl<'arena> CoverageTransform<'_, 'arena> {
     /// Register the `binary-expr` branch for a logical chain and wrap each
@@ -53,7 +53,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
                 // registered, or the umbrella is skipped and none are.
                 let arms = leaf_spans.into_iter().map(PendingArm::new).collect();
                 let Some(reg) = self.register_branch(PendingBranch {
-                    branch_type: "binary-expr",
+                    kind: BranchKind::Binary,
                     umbrella_span: expr.span,
                     gate_arms: false,
                     arms,
