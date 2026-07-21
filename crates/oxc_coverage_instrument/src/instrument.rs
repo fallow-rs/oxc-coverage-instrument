@@ -27,6 +27,7 @@ use crate::transform::{
 
 /// Parser source type supplied explicitly by an embedding host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InstrumentSourceType {
     /// ECMAScript module JavaScript.
     Module,
@@ -57,6 +58,7 @@ impl InstrumentSourceType {
 
 /// Preset for matching another instrumenter's observable coverage shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CompatProfile {
     /// Match `istanbul-lib-instrument` wherever the typed coverage model can
     /// represent its output safely.
@@ -392,6 +394,8 @@ pub struct InstrumentResult {
 /// hashbang and directive prologue, then update semantic state for that new
 /// declaration. `scoping` describes the counter-mutated program before that
 /// host-owned insertion.
+#[derive(Debug)]
+#[non_exhaustive]
 pub struct InstrumentProgramResult {
     /// Semantic scoping returned by `oxc_traverse` after counter injection.
     pub scoping: Scoping,
