@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784619930747,
+  "lastUpdate": 1784621283978,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2116,6 +2116,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 91196632,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "a9bcf248f971075f3e2ff2d51e9606fcb7712163",
+          "message": "fix(instrument): share counter ids for points that collapse under eager compose\n\nThe canonicalizing remap (remapCoverageMap) folds coverage entries whose\nremapped locations coincide, matching istanbul-lib-source-maps. The eager\ncompose path could not fold after the fact: its counter ids are already baked\ninto the emitted code, so it kept one entry per generated span and diverged\nfrom the deferred path whenever getMapping range widening collapsed distinct\ngenerated spans onto one original location, for example a declaration and the\narrow body it contains on a line with a single mapping segment.\n\nMove the fold to id assignment, the same place the eager drop gate already\nlives: PositionRemapper::remap_location exposes the getMapping-resolved\nsource and location, and the transform hands a statement or function whose\nremapped key matches an earlier one that entry's id instead of a fresh one.\nThe shared counter then sums the hits the deferred merge would sum, and the\nbaked map and emitted counters stay consistent by construction. Keyed the way\nmerge_file_coverage folds: statements by remapped location, functions by\nremapped decl.\n\nReal babel maps over the benchmark libraries produce byte-identical eager\noutput before and after, so the change only activates where the paths\ndisagreed. Branch entries fold by their remapped arm-location vector, which\nis not known when the branch umbrella id is handed out; folding those needs\nthe arm locations up front and is left for a follow-up.\n\nThe compose-eager-smoke control now checks all three maps against the\ncanonicalizing remap.",
+          "timestamp": "2026-07-21T10:06:13+02:00",
+          "tree_id": "5f4929fa08bb3e8919918f8c7bbcf83558c7aa9e",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/a9bcf248f971075f3e2ff2d51e9606fcb7712163"
+        },
+        "date": 1784621283629,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 91367016,
             "unit": "bytes"
           }
         ]
