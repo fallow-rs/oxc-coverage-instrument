@@ -27,6 +27,13 @@ const coverageMap = JSON.parse(result.coverageMap);  // Istanbul format
 result.sourceMap;                                    // source map JSON, when enabled
 ```
 
+Pass `{ compat: 'istanbul' }` when replacing an existing
+`istanbul-lib-instrument` instance without changing coverage denominators or
+metadata shape. The profile disables Oxc's logical-assignment and optional-chain
+branches, uses Istanbul's anonymous function names and method spans, and emits
+its empty synthetic `else` locations. Without the profile, existing Oxc
+extensions remain enabled.
+
 ## Key Features
 
 ### Vitest

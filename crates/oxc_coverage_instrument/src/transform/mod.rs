@@ -187,6 +187,8 @@ pub struct CoverageTransform<'src, 'arena> {
     /// When true, an anonymous function/arrow that is a direct call/`new`
     /// argument is named from the callee instead of `(anonymous_N)`.
     name_callback_arguments: bool,
+    /// Whether transform details should match `istanbul-lib-instrument`.
+    istanbul_compat: bool,
     /// Branch IDs of logical expression branches (for building the `bT` map).
     pub logical_branch_ids: Vec<usize>,
     /// Set once any optional-chain link has been wrapped in the `cov_fn_oc`
@@ -243,6 +245,8 @@ pub struct TransformInit<'src, 'arena> {
     /// call/`new` argument from the callee (`arr.map(cb)` -> `"map"`). Opt-in;
     /// Istanbul leaves these `(anonymous_N)`.
     pub name_callback_arguments: bool,
+    /// Whether transform details should match `istanbul-lib-instrument`.
+    pub istanbul_compat: bool,
     /// Eager-compose position-remap gate. `Some` only when
     /// `compose_input_source_map` is on and a usable input map is present;
     /// `None` for every other caller, where gating is a strict no-op.
@@ -259,6 +263,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             track_optional_chain,
             ignore_class_methods,
             name_callback_arguments,
+            istanbul_compat,
             eager_remapper,
         } = init;
         let cov_fn_name = allocator.alloc_str(cov_fn_name);
@@ -291,6 +296,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             track_optional_chain,
             ignore_class_methods,
             name_callback_arguments,
+            istanbul_compat,
             logical_branch_ids: Vec::new(),
             used_optional_chain_helper: false,
             eager_remapper,

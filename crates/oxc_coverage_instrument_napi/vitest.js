@@ -35,6 +35,7 @@ const TS_EXTENSION_REGEX = /\.([mc]ts|tsx?)$/i;
  * These are forwarded to the native instrumenter automatically.
  *
  * @param {object} [options]
+ * @param {'istanbul'} [options.compat] Use the strict Istanbul coverage shape.
  * @param {string} [options.coverageVariable] Global variable for coverage data.
  *   Vitest passes its internal `__VITEST_COVERAGE__`; defaults to `__coverage__`.
  * @param {string[]} [options.ignoreClassMethods] Class method names to skip.
@@ -89,6 +90,12 @@ const TS_EXTENSION_REGEX = /\.([mc]ts|tsx?)$/i;
  */
 function createOxcInstrumenter(options) {
   options = options || {};
+  const compat = options.compat;
+  if (compat !== undefined && compat !== 'istanbul') {
+    throw new TypeError(
+      `oxc-coverage-instrument: createOxcInstrumenter({ compat }) must be 'istanbul' or undefined, got ${JSON.stringify(compat)}`,
+    );
+  }
   const coverageVariable = options.coverageVariable || '__coverage__';
   const ignoreClassMethods = options.ignoreClassMethods || [];
   const reportLogic = options.reportLogic || false;
@@ -104,7 +111,7 @@ function createOxcInstrumenter(options) {
       `oxc-coverage-instrument: createOxcInstrumenter({ trackOptionalChainBranches }) must be a boolean or undefined, got ${typeof options.trackOptionalChainBranches}`,
     );
   }
-  const trackOptionalChainBranches = trackOptionalChainBranchesRaw ?? true;
+  const trackOptionalChainBranches = trackOptionalChainBranchesRaw ?? compat !== 'istanbul';
   const functionIdentityOverlay = options.functionIdentityOverlay || false;
   if (typeof functionIdentityOverlay !== 'boolean') {
     throw new TypeError(
@@ -181,6 +188,7 @@ function createOxcInstrumenter(options) {
           ? TS_EXTENSION_REGEX.test(filename) && !inputSourceMap
           : stripTypescriptOverride;
       const result = instrument(code, filename, {
+        compat,
         coverageVariable,
         sourceMap: true,
         inputSourceMap: inputSourceMap ? JSON.stringify(inputSourceMap) : undefined,

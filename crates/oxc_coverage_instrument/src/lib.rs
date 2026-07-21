@@ -32,8 +32,10 @@
 //!
 //! ## Options
 //!
-//! [`InstrumentOptions`] defaults to Istanbul-compatible behaviour. The fields
-//! whose semantics do not fit on a single line are expanded below.
+//! [`InstrumentOptions`] defaults to the extended Oxc coverage shape described
+//! in the README. Set [`InstrumentOptions::compat`] to
+//! [`CompatProfile::Istanbul`] for strict `istanbul-lib-instrument` parity.
+//! The fields whose semantics do not fit on a single line are expanded below.
 //!
 //! ### Composing an input source map
 //!
@@ -123,8 +125,8 @@ mod transform;
 mod v8_to_istanbul;
 
 pub use instrument::{
-    DecoratorMode, InstrumentError, InstrumentOptions, InstrumentResult, InstrumentSourceType,
-    instrument,
+    CompatProfile, DecoratorMode, InstrumentError, InstrumentOptions, InstrumentResult,
+    InstrumentSourceType, instrument,
 };
 pub use oxc_coverage_source_maps::{
     PositionRemapper, RemapOptions, SourceMapStore, remap_coverage, remap_coverage_map,

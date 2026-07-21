@@ -5,6 +5,7 @@
 
 mod callback_argument_names;
 mod common;
+mod compat_profile;
 mod conformance;
 mod conformance_suite;
 mod error_display;

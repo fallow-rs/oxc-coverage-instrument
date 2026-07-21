@@ -12,13 +12,17 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         func: &Function,
         ctx: &TraverseCtx<'arena, CoverageState>,
     ) -> String {
-        if let Some(name) = self.pending_name.take() {
+        let pending_name = self.pending_name.take();
+        if !self.istanbul_compat
+            && let Some(name) = pending_name
+        {
             return name;
         }
         if let Some(id) = &func.id {
             return id.name.to_string();
         }
-        if self.name_callback_arguments
+        if !self.istanbul_compat
+            && self.name_callback_arguments
             && let Some(name) = callback_argument_name(ctx)
         {
             return name;

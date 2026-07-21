@@ -20,9 +20,26 @@ use std::{collections::HashMap, fmt};
 
 use napi_derive::napi;
 use oxc_coverage_instrument::{
-    DecoratorMode, InstrumentSourceType as CoreInstrumentSourceType,
-    RemapOptions as CoreRemapOptions,
+    CompatProfile as CoreCompatProfile, DecoratorMode,
+    InstrumentSourceType as CoreInstrumentSourceType, RemapOptions as CoreRemapOptions,
 };
+
+/// Compatibility preset for the generated coverage shape.
+#[napi(string_enum = "lowercase")]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompatProfile {
+    /// Match `istanbul-lib-instrument` wherever the typed model permits it.
+    Istanbul,
+}
+
+impl From<CompatProfile> for CoreCompatProfile {
+    fn from(profile: CompatProfile) -> Self {
+        match profile {
+            CompatProfile::Istanbul => Self::Istanbul,
+        }
+    }
+}
 
 /// Parser source type supplied explicitly by an embedding host.
 #[napi(string_enum = "lowercase")]
@@ -61,6 +78,8 @@ impl From<InstrumentSourceType> for CoreInstrumentSourceType {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InstrumentOptions {
+    /// Compatibility preset. Use `istanbul` for strict Istanbul output shape.
+    pub compat: Option<CompatProfile>,
     /// Explicit parser source type. Overrides filename inference.
     pub source_type: Option<InstrumentSourceType>,
     /// Name of the global coverage variable. Defaults to `__coverage__`.
@@ -523,6 +542,7 @@ fn core_instrument_options_from(
     let metadata = options.emit_decorator_metadata.unwrap_or(false);
     let decorator_mode = decorator_mode_from_flags(experimental, metadata)?;
     Ok(oxc_coverage_instrument::InstrumentOptions {
+        compat: options.compat.map(Into::into),
         source_type: options.source_type.map(Into::into),
         coverage_variable: options.coverage_variable.unwrap_or_else(|| "__coverage__".to_string()),
         source_map: options.source_map.unwrap_or(false),
@@ -543,7 +563,7 @@ fn core_instrument_options_from(
 mod tests {
     use std::collections::HashMap;
 
-    use oxc_coverage_instrument::DecoratorMode;
+    use oxc_coverage_instrument::{CompatProfile as CoreCompatProfile, DecoratorMode};
 
     use super::{
         InstrumentOptions, RemapOptions, core_instrument_options_from, core_remap_options_from,
@@ -574,6 +594,7 @@ mod tests {
 
     fn empty_options() -> InstrumentOptions {
         InstrumentOptions {
+            compat: None,
             source_type: None,
             coverage_variable: None,
             source_map: None,
@@ -727,6 +748,7 @@ mod tests {
     #[test]
     fn core_options_fill_defaults() {
         let opts = core_instrument_options_from(None).expect("default options");
+        assert_eq!(opts.compat, None);
         assert_eq!(opts.coverage_variable, "__coverage__");
         assert!(!opts.source_map);
         assert!(!opts.compose_input_source_map);
@@ -742,6 +764,7 @@ mod tests {
     #[test]
     fn core_options_map_js_flags() {
         let mut input = empty_options();
+        input.compat = Some(super::CompatProfile::Istanbul);
         input.coverage_variable = Some("__cov".to_string());
         input.source_map = Some(true);
         input.input_source_map = Some(r#"{"version":3}"#.to_string());
@@ -756,6 +779,7 @@ mod tests {
         input.name_callback_arguments = Some(true);
 
         let opts = core_instrument_options_from(Some(input)).expect("mapped options");
+        assert_eq!(opts.compat, Some(CoreCompatProfile::Istanbul));
         assert_eq!(opts.coverage_variable, "__cov");
         assert!(opts.source_map);
         assert_eq!(opts.input_source_map.as_deref(), Some(r#"{"version":3}"#));

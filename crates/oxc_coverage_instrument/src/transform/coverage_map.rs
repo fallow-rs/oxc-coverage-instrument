@@ -44,24 +44,29 @@ pub(super) struct BranchKey {
     arms: Vec<(u32, u32, u32, u32)>,
 }
 
-/// One branch arm collected before the umbrella id is chosen. `location_span`
-/// is the istanbul-reported range; `body_span` is the v8 side-table range,
-/// equal to `location_span` for every arm except if-arm 0 and the else-arm.
+/// One branch arm collected before the umbrella id is chosen. A missing
+/// `location_span` becomes Istanbul's empty synthetic location. `body_span` is
+/// the v8 side-table range and can differ from the reported location.
 pub(super) struct PendingArm {
-    pub(super) location_span: Span,
+    pub(super) location_span: Option<Span>,
     pub(super) body_span: Span,
 }
 
 impl PendingArm {
     /// Arm whose reported location and v8 body span coincide, the common case.
     pub(super) const fn new(span: Span) -> Self {
-        Self { location_span: span, body_span: span }
+        Self { location_span: Some(span), body_span: span }
     }
 
     /// Arm whose istanbul-reported location and v8 body span differ (if-arm 0
     /// and the else-arm).
     pub(super) const fn with_body(location_span: Span, body_span: Span) -> Self {
-        Self { location_span, body_span }
+        Self { location_span: Some(location_span), body_span }
+    }
+
+    /// Synthetic arm whose Istanbul-compatible reported location is empty.
+    pub(super) const fn empty_with_body(body_span: Span) -> Self {
+        Self { location_span: None, body_span }
     }
 }
 
@@ -261,8 +266,14 @@ impl CoverageTransform<'_, '_> {
         let mut surviving_locs = Vec::new();
         let mut body_spans = Vec::new();
         for arm in &arms {
-            let loc = self.span_to_location(arm.location_span);
-            if gate_arms && !self.location_maps(&loc) {
+            let loc = arm.location_span.map_or_else(
+                || Location {
+                    start: Position { line: 0, column: 0 },
+                    end: Position { line: 0, column: 0 },
+                },
+                |span| self.span_to_location(span),
+            );
+            if gate_arms && arm.location_span.is_some() && !self.location_maps(&loc) {
                 path_indices.push(None);
                 continue;
             }

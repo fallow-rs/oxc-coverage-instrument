@@ -1269,6 +1269,39 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] unknown instrument option keys fail loudly');
 }
 
+// Test: Istanbul compatibility profile switches every representable divergence
+{
+  const result = instrument(
+    'let x; x ??= 1; const f = function () {}; class C { method() {} } const o = { execute() {} }; const y = o?.value; if (y) work();',
+    'compat.js',
+    { compat: 'istanbul' },
+  );
+  const coverage = JSON.parse(result.coverageMap);
+  const functions = Object.values(coverage.fnMap);
+
+  assert.deepEqual(
+    functions.map((entry) => entry.name),
+    ['(anonymous_0)', '(anonymous_1)', '(anonymous_2)'],
+  );
+  assert(functions.slice(1).every((entry) => entry.decl.end.column === entry.decl.start.column + 1));
+  assert(!Object.values(coverage.branchMap).some((entry) => entry.type === 'binary-expr'));
+  assert(!Object.values(coverage.branchMap).some((entry) => entry.type === 'optional-chain'));
+  const ifEntry = Object.values(coverage.branchMap).find((entry) => entry.type === 'if');
+  assert.deepEqual(ifEntry.locations[1], { start: {}, end: {} });
+  console.log('  [PASS] Istanbul compatibility profile switches coverage shape');
+}
+
+// Test: compatibility profiles reject unknown values
+{
+  assert.throws(
+    () => instrument('const value = 1;', 'compat.js', { compat: 'other' }),
+    /unknown variant `other`.*`istanbul`/,
+  );
+  const { createOxcInstrumenter } = await import('./vitest.js');
+  assert.throws(() => createOxcInstrumenter({ compat: 'other' }), /compat.*'istanbul'/);
+  console.log('  [PASS] compatibility profiles reject unknown values');
+}
+
 // Test: createOxcInstrumenter auto-detects .ts as raw TypeScript when no inputSourceMap
 {
   const { createOxcInstrumenter } = await import('./vitest.js');

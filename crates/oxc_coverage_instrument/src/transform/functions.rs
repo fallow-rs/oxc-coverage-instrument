@@ -107,11 +107,16 @@ impl<'arena> CoverageTransform<'_, 'arena> {
             return;
         }
 
-        let name = self
-            .pending_name
-            .take()
-            .or_else(|| self.name_callback_arguments.then(|| callback_argument_name(ctx)).flatten())
-            .unwrap_or_else(|| format!("(anonymous_{})", self.fn_map.len()));
+        let pending_name = self.pending_name.take();
+        let name = if self.istanbul_compat {
+            format!("(anonymous_{})", self.fn_map.len())
+        } else {
+            pending_name
+                .or_else(|| {
+                    self.name_callback_arguments.then(|| callback_argument_name(ctx)).flatten()
+                })
+                .unwrap_or_else(|| format!("(anonymous_{})", self.fn_map.len()))
+        };
         let fn_id = self.add_function(
             name,
             Span::new(arrow.span.start, arrow.span.start + 1),
@@ -211,7 +216,11 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         self.pending_name = Some(method_label(method.kind, name));
         // `decl` for a method is the key's span (`bar` in `class C { bar(x) {} }`),
         // the same rule istanbul applies to named function declarations.
-        self.pending_method_decl = Some(key_span);
+        self.pending_method_decl = Some(if self.istanbul_compat {
+            Span::new(key_span.start, key_span.start.saturating_add(1))
+        } else {
+            key_span
+        });
     }
 
     /// Attach the statement counter for a class property initializer.
@@ -269,6 +278,13 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // `skip_next` itself.
         let has_ignore_next = key_has_ignore_next && (is_method_like || !is_function_valued);
         self.push_prop_ignore_frame(has_ignore_next);
+
+        if self.istanbul_compat && is_method_like && !has_ignore_next && !self.in_ignored_subtree()
+        {
+            let key_span = prop.key.span();
+            self.pending_method_decl =
+                Some(Span::new(key_span.start, key_span.start.saturating_add(1)));
+        }
 
         // Carry the property's key name into the inner function or arrow so
         // `fnMap[N].name` reads as the source does instead of

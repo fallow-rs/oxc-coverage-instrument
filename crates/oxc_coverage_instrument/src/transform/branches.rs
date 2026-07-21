@@ -63,13 +63,17 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         }
         let mut else_arm = None;
         if pragma != Some(IgnoreType::Else) {
-            let arm_span = match &stmt.alternate {
-                Some(alt) if !is_synthetic_span(alt.span()) => alt.span(),
-                _ => Span::new(synthetic_anchor, synthetic_anchor),
-            };
+            let real_alternate =
+                stmt.alternate.as_ref().map(GetSpan::span).filter(|span| !is_synthetic_span(*span));
+            let arm_span =
+                real_alternate.unwrap_or_else(|| Span::new(synthetic_anchor, synthetic_anchor));
             let v8_body_span = Span::new(synthetic_anchor, arm_span.end);
             else_arm = Some(arms.len());
-            arms.push(PendingArm::with_body(arm_span, v8_body_span));
+            if self.istanbul_compat && real_alternate.is_none() {
+                arms.push(PendingArm::empty_with_body(v8_body_span));
+            } else {
+                arms.push(PendingArm::with_body(arm_span, v8_body_span));
+            }
         }
 
         // Skipping the umbrella skips every counter under this branch, but the
@@ -321,7 +325,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         expr: &mut AssignmentExpression<'arena>,
         ctx: &TraverseCtx<'arena, CoverageState>,
     ) {
-        if !is_logical_assignment_operator(expr.operator) {
+        if self.istanbul_compat || !is_logical_assignment_operator(expr.operator) {
             return;
         }
         let left_span = expr.left.span();

@@ -136,9 +136,9 @@ statement, function, and branch counts match exactly, that branch types and
 per-branch location counts match, that the JSON field set matches, and that the
 instrumented output re-parses as valid JavaScript.
 
-CI also runs a blocking byte-for-byte diff over the same corpus after filtering
-the divergences documented below. That catches span-level and counter-shape drift
-which count-only tests miss.
+CI also runs a blocking byte-for-byte diff over the same corpus under the strict
+Istanbul profile, without divergence filters. That catches span-level and
+counter-shape drift which count-only tests miss.
 
 All `start.column` and `end.column` values in `statementMap`, `fnMap`,
 `branchMap`, and `unhandledPragmas` are UTF-16 code units (JavaScript string
@@ -146,6 +146,20 @@ indices), matching Babel and `istanbul-lib-instrument`. Sources containing
 non-ASCII characters (`π`, accented identifiers, emoji) produce the same column
 numbers as the reference tool, pinned by the `26-non-ascii-identifiers.js`
 fixture.
+
+### Strict Istanbul compatibility profile
+
+Set `compat: Some(CompatProfile::Istanbul)` in Rust or `compat: 'istanbul'` in
+Node.js when the coverage shape must match `istanbul-lib-instrument` exactly.
+The profile disables logical-assignment and optional-chain branches, uses
+`(anonymous_N)` for inferred function names, truncates class and object method
+declaration spans to the first key character, and emits Istanbul's empty
+synthetic `else` locations. Explicitly named functions keep their names.
+
+The profile is authoritative over the individual extension options. In
+particular, optional-chain tracking and callback-argument name inference remain
+off under the profile. With no profile, all existing Oxc defaults and the
+extensions below remain unchanged.
 
 ## Differences from istanbul-lib-instrument
 
@@ -157,6 +171,8 @@ operand matches the operator's polarity. This instrumenter emits one
 `binary-expr` branch entry per logical assignment with two locations, left
 always reached and right conditional. `istanbul-lib-instrument` has no
 `AssignmentExpression` visitor entry and emits no branches for these operators.
+
+The strict Istanbul profile disables these entries.
 
 Pinned by `conformance_test.rs::logical_assignment_is_intentional_branch_superset`.
 
@@ -184,6 +200,8 @@ class method, this instrumenter uses the name the JavaScript runtime assigns to
 
 Pinned by `conformance_test.rs::fn_name_inference_is_intentional_superset`.
 
+The strict Istanbul profile uses `(anonymous_N)` instead.
+
 ### 3. Full method-key spans in `fnMap[*].decl`
 
 For class and object methods, the whole method key is the declaration span.
@@ -191,6 +209,8 @@ For class and object methods, the whole method key is the declaration span.
 character, so `class C { bar() {} }` gives `bar` here and `b` there. The
 byte-diff check still pins the method declaration start, the line, the body
 `loc`, and every non-method declaration span.
+
+The strict Istanbul profile uses the truncated span.
 
 ### 4. Real coordinates for synthetic `else` arms
 
@@ -200,6 +220,8 @@ real zero-width `Location` at the consequent's end. Reporters that read
 `loc.start.line` on every arm crash on the empty form; real coordinates make the
 slot safe to walk without special-casing. The same applies to the surviving arm
 when `/* istanbul ignore if */` drops the consequent of a no-else `if`.
+
+The strict Istanbul profile emits the empty Istanbul location.
 
 ### 5. Optional-chain short-circuits tracked as branches
 
@@ -216,6 +238,8 @@ native, with no `_oc` helper and no `optional-chain` branches, which matches
 `istanbul-lib-instrument` byte for byte on `?.` and removes the per-operand
 helper call in optional-chain-dense code. Statement, function, and other branch
 coverage are unaffected. Defaults to `true`.
+
+The strict Istanbul profile always leaves optional chains native.
 
 ### 6. Callback-argument names from the callee (off by default)
 

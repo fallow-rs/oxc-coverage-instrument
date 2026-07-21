@@ -53,9 +53,19 @@ impl InstrumentSourceType {
     }
 }
 
+/// Preset for matching another instrumenter's observable coverage shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompatProfile {
+    /// Match `istanbul-lib-instrument` wherever the typed coverage model can
+    /// represent its output safely.
+    Istanbul,
+}
+
 /// Options for the `instrument` function.
 #[derive(Debug, Clone)]
 pub struct InstrumentOptions {
+    /// Optional compatibility preset. Defaults to the native Oxc behavior.
+    pub compat: Option<CompatProfile>,
     /// Explicit parser source type. When unset, infer it from `filename` after
     /// removing any query or fragment suffix.
     pub source_type: Option<InstrumentSourceType>,
@@ -216,6 +226,7 @@ impl DecoratorMode {
 impl Default for InstrumentOptions {
     fn default() -> Self {
         Self {
+            compat: None,
             source_type: None,
             coverage_variable: "__coverage__".to_string(),
             source_map: false,
@@ -249,6 +260,13 @@ impl Default for InstrumentOptions {
 /// assert!(options.report_logic);
 /// ```
 impl InstrumentOptions {
+    /// Set [`InstrumentOptions::compat`].
+    #[must_use]
+    pub fn with_compat(mut self, compat: Option<CompatProfile>) -> Self {
+        self.compat = compat;
+        self
+    }
+
     /// Set [`InstrumentOptions::source_type`].
     #[must_use]
     pub fn with_source_type(mut self, source_type: Option<InstrumentSourceType>) -> Self {
@@ -562,7 +580,9 @@ fn run_coverage_transform<'src, 'arena>(
         source,
         cov_fn_name,
         report_logic: options.report_logic,
-        track_optional_chain: options.track_optional_chain,
+        track_optional_chain: options.track_optional_chain
+            && options.compat != Some(CompatProfile::Istanbul),
+        istanbul_compat: options.compat == Some(CompatProfile::Istanbul),
         ignore_class_methods: options.ignore_class_methods.clone(),
         name_callback_arguments: options.name_callback_arguments,
         eager_remapper: eager_remapper(options),
@@ -863,6 +883,7 @@ pub(crate) fn collect_for_v8_to_istanbul(
         // against, so optional-chain branches stay tracked (the default); this
         // path emits no runtime helper, only the maps.
         track_optional_chain: true,
+        istanbul_compat: false,
         ignore_class_methods: Vec::new(),
         // V8-collect builds only the position maps that V8 UTF-16 ranges
         // intersect against; the fnMap names never reach a consumer here, so

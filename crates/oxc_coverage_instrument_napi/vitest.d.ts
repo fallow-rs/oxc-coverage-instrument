@@ -5,6 +5,8 @@
  * `InstrumenterOptions` with `coverageVariable` and `ignoreClassMethods`.
  */
 export interface OxcInstrumenterOptions {
+  /** Match the `istanbul-lib-instrument` coverage shape. */
+  compat?: 'istanbul';
   /** Global variable name for coverage data (Vitest passes `__VITEST_COVERAGE__`). */
   coverageVariable?: string;
   /** Class method names to exclude from coverage instrumentation. */
