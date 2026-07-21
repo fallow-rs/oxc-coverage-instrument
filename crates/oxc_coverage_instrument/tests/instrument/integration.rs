@@ -1762,6 +1762,15 @@ fn class_method_decl_is_identifier_span() {
     assert!(f.decl.end.column > f.decl.start.column);
 }
 
+#[test]
+fn object_method_decl_is_identifier_span() {
+    let result = instrument_js("const object = { execute() {} };");
+    let f = &result.coverage_map.fn_map["0"];
+    assert_eq!(f.name, "execute");
+    assert_eq!(f.decl.start.column, 17);
+    assert_eq!(f.decl.end.column, 24);
+}
+
 /// `fnMap[*].decl` parity with istanbul-lib-instrument, which sets `decl` to
 /// the identifier span for a named function.
 #[test]

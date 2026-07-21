@@ -279,11 +279,13 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         let has_ignore_next = key_has_ignore_next && (is_method_like || !is_function_valued);
         self.push_prop_ignore_frame(has_ignore_next);
 
-        if self.istanbul_compat && is_method_like && !has_ignore_next && !self.in_ignored_subtree()
-        {
+        if is_method_like && !has_ignore_next && !self.in_ignored_subtree() {
             let key_span = prop.key.span();
-            self.pending_method_decl =
-                Some(Span::new(key_span.start, key_span.start.saturating_add(1)));
+            self.pending_method_decl = Some(if self.istanbul_compat {
+                Span::new(key_span.start, key_span.start.saturating_add(1))
+            } else {
+                key_span
+            });
         }
 
         // Carry the property's key name into the inner function or arrow so
