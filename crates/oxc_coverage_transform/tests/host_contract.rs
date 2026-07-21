@@ -27,7 +27,6 @@ fn transform<'arena>(
             ignore_class_methods: Vec::new(),
             name_callback_arguments: false,
             istanbul_compat: false,
-            registration_policy: None,
         },
     })
 }

@@ -1,3 +1,5 @@
+use std::{fmt::Write as _, path::Path, process::Command};
+
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{BindingIdentifier, IdentifierReference};
 use oxc_ast_visit::{Visit, walk::walk_program};
@@ -7,6 +9,7 @@ use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 use oxc_syntax::reference::ReferenceId;
+use oxc_transformer::{TransformOptions, Transformer};
 
 #[derive(Default)]
 struct GeneratedSemanticAudit {
@@ -88,6 +91,46 @@ fn ast_native_runtime_setup_registers_generated_semantic_ids() {
         }
     }
     assert!(result.runtime_setup_inserted);
+}
+
+#[test]
+fn ast_api_survives_a_downstream_oxc_transform_and_executes() {
+    let source = r#""use strict";
+const path = "user";
+const emoji = "🙂";
+function answer(value) { return value?.result ?? 0; }
+console.log(path, emoji, answer({ result: 42 }));"#;
+    let filename = "host-pipeline.cjs";
+    let allocator = Allocator::default();
+    let mut parsed = Parser::new(&allocator, source, SourceType::cjs()).parse();
+    assert!(!parsed.diagnostics.has_errors());
+    let scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
+
+    let result = instrument_program(
+        &allocator,
+        &mut parsed.program,
+        scoping,
+        source,
+        filename,
+        &InstrumentOptions::default(),
+    )
+    .expect("instrument host program");
+    let transform = Transformer::new(&allocator, Path::new(filename), &TransformOptions::default())
+        .build_with_scoping(result.scoping, &mut parsed.program);
+    assert!(!transform.diagnostics.has_errors(), "{:?}", transform.diagnostics);
+
+    let mut code = Codegen::new().with_scoping(Some(transform.scoping)).build(&parsed.program).code;
+    write!(code, "\nconsole.log(JSON.stringify(globalThis.__coverage__[{filename:?}].s));")
+        .expect("writing to a String cannot fail");
+    let output =
+        Command::new("node").arg("--eval").arg(code).output().expect("node must be available");
+
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.lines().any(|line| line == "user 🙂 42"));
+    let counts: serde_json::Value =
+        serde_json::from_str(stdout.lines().last().expect("coverage counts")).unwrap();
+    assert!(counts.as_object().unwrap().values().any(|count| count.as_u64().unwrap_or(0) > 0));
 }
 
 #[test]

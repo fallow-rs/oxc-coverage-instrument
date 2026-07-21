@@ -62,6 +62,9 @@ the [Node.js package README](crates/oxc_coverage_instrument_napi/README.md).
 
 ## Documentation
 
+- [Oxc kernel proposal](docs/OXC_KERNEL_PROPOSAL.md) for the provisional
+  transform boundary, host contract, adoption constraints, and open maintainer
+  decisions. This applies only to the separate prototype branch.
 - [ARCHITECTURE.md](ARCHITECTURE.md) for the pipeline, the crate map, and the
   cross-cutting concerns, including how to run the benchmark comparison.
 - [`oxc_coverage_instrument`](crates/oxc_coverage_instrument/README.md) replaces

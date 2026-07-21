@@ -42,7 +42,6 @@ fn bench_ast_kernel(c: &mut Criterion) {
                             ignore_class_methods: Vec::new(),
                             name_callback_arguments: false,
                             istanbul_compat: false,
-                            registration_policy: None,
                         },
                     })
                     .expect("valid benchmark transform");

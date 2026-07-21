@@ -40,7 +40,6 @@ fn generated_counter_references_are_bound_in_returned_scoping() {
             ignore_class_methods: Vec::new(),
             name_callback_arguments: false,
             istanbul_compat: false,
-            registration_policy: None,
         },
     })
     .expect("valid transform input");

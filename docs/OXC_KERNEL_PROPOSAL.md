@@ -43,9 +43,7 @@ The host supplies:
 - an `Allocator` that owns every inserted node,
 - a mutable `Program`, after any syntax lowering required by the host,
 - the matching `Scoping` and a parsed pragma map,
-- typed transform options,
-- an optional registration policy for generated-to-original mapping, drop,
-  arm filtering, canonical counter identity, and collision policy.
+- typed transform options.
 
 The transform mutates the program and returns:
 
@@ -86,10 +84,22 @@ Satellite policy stays outside the kernel:
 - parser, lowering, and codegen options,
 - report, binding, and package configuration.
 
-The registration policy is intentionally an interface, not a dependency on
-this workspace's source-map crate. The satellite adapter currently supplies
-keep/drop and canonical remap decisions; the kernel keeps counter allocation,
-branch-arm filtering, fallback, and fold behavior consistent across policies.
+The default `transform_program` API has no source-map registration policy. The
+prototype retains a hidden compatibility extension because the satellite's
+eager composition mode must decide keep/drop and canonical counter identities
+before counter ids are embedded in the AST. That extension is not proposed for
+the first upstream API. It should remain satellite-only or be redesigned only
+after a real host integration proves that the kernel must own it.
+
+## Prototype status and upstream target
+
+| Concern | Current prototype | Recommended first upstream surface | Status |
+|:--|:--|:--|:--|
+| Coverage metadata | ordered Oxc spans and typed records | same | settled locally |
+| Runtime setup | satellite AST adapter with complete scoping | generated names plus a shared builder or host adapter | maintainer decision |
+| Registration policy | hidden satellite compatibility extension | omit | revisit only with integration evidence |
+| Host placement | lowered `Program` plus matching `Scoping` | exact post-lowering Rolldown insertion point | integration proof required |
+| Repository ownership | broader suite remains separate | upstream only the kernel | separate governance decision |
 
 ## Neutral metadata
 
@@ -115,6 +125,35 @@ types are version-coupled. Once upstream, the kernel follows Oxc's internal
 versioning and release policy. The satellite updates the grouped Oxc dependency
 set and keeps end-to-end conformance as its compatibility gate.
 
+## Repository ownership
+
+Moving the AST kernel into Oxc and transferring this repository to the Oxc
+organization are separate decisions. The technical recommendation is to
+upstream only the minimal transform first. This broader workspace remains the
+satellite, conformance authority, distribution surface, and reporter suite
+unless Oxc maintainers separately choose to own that maintenance and release
+scope.
+
+The kernel proposal therefore does not imply ownership transfer of the CLI,
+N-API and WASI packages, source-map and V8 conversion, coverage types, or
+reporters.
+
+## Performance evidence and non-claim
+
+The transform-only benchmark excludes parsing and semantic construction and is
+now a working CodSpeed shard. It can catch kernel regressions, but it does not
+prove the end-to-end benefit Boshen described for Rolldown and Vitest.
+
+The AST-native setup on this prototype branch is also not a standalone package
+speedup over the optimized setup path on `main`. It exists here to prove a
+semantically complete host-owned AST contract. No package performance claim
+should be made from this branch.
+
+Before upstreaming, benchmark the same real-world modules through both complete
+pipelines: the released standalone adapter, and an exact Rolldown integration
+that reuses its existing parse, lowering, semantic, and codegen phases. Report
+the coverage traversal separately from the phases the host avoids duplicating.
+
 ## Adoption sequence
 
 1. Oxc maintainers accept placement, naming, host ownership, and the minimal API.
@@ -122,7 +161,8 @@ set and keeps end-to-end conformance as its compatibility gate.
 3. Make setup insertion AST-native with valid scoping and remove text replacement. Proven locally.
 4. Prove transform-only performance, dependency isolation, and conformance. Gated locally and in CI.
 5. Port the kernel to Oxc and test this workspace against that exact revision.
-6. Replace the temporary local implementation and remove duplicate traversal code.
+6. Prove the end-to-end Rolldown and Vitest integration benefit on real modules.
+7. Replace the temporary local implementation and remove duplicate traversal code.
 
 The first upstream API should be the smallest surface Rolldown needs. Standalone
 parsing, code generation, compatibility helpers, and package ownership are not
@@ -153,6 +193,7 @@ line while that constraint remains.
 ## Decisions requested from Oxc maintainers
 
 - crate or module placement and final name,
+- whether repository ownership is considered separately from kernel ownership,
 - whether setup insertion belongs in the kernel,
 - ownership transfer rules for `Scoping`, symbols, and references,
 - generated-span and comment conventions,

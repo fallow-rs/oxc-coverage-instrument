@@ -189,3 +189,9 @@ CodSpeed runs the Rust benchmarks under `crates/*/benches/` on every push to
 The provisional transform crate has its own shard. Its setup phase clones the
 input program and builds semantic state outside measurement; the measured
 routine contains only coverage traversal and AST mutation.
+
+That shard is a regression gate for the kernel, not proof of a Rolldown or
+Vitest speedup. The integration claim must compare complete pipelines on the
+same real-world modules and account for the parse, lowering, semantic, and
+codegen phases the host can reuse. The AST-native prototype setup is a host
+contract proof, not a claimed standalone throughput improvement.

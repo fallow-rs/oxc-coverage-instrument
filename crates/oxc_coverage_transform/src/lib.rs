@@ -221,7 +221,7 @@ struct CoverageTransform<'policy, 'arena> {
 }
 
 /// Coverage behavior supplied to [`transform_program`].
-pub struct TransformInit<'policy, 'arena> {
+pub struct TransformInit<'arena> {
     /// Bump allocator owning the AST being traversed.
     pub allocator: &'arena Allocator,
     /// Requested per-file coverage binding name (e.g. `cov_<hash>`). The
@@ -243,22 +243,18 @@ pub struct TransformInit<'policy, 'arena> {
     pub name_callback_arguments: bool,
     /// Whether transform details should match `istanbul-lib-instrument`.
     pub istanbul_compat: bool,
-    /// Eager-compose position-remap gate. `Some` only when
-    /// `compose_input_source_map` is on and a usable input map is present;
-    /// `None` for every other caller, where gating is a strict no-op.
-    pub registration_policy: Option<&'policy dyn RegistrationPolicy>,
 }
 
 /// Inputs for one host-owned AST transform pass.
-pub struct TransformProgramInput<'policy, 'arena, 'program> {
+pub struct TransformProgramInput<'arena, 'program> {
     /// Program mutated in place.
     pub program: &'program mut Program<'arena>,
     /// Semantic state matching `program` before instrumentation.
     pub scoping: Scoping,
     /// Parsed ignore directives for the program.
     pub pragmas: PragmaMap,
-    /// Transform construction inputs and policy.
-    pub transform: TransformInit<'policy, 'arena>,
+    /// Transform construction inputs.
+    pub transform: TransformInit<'arena>,
 }
 
 /// Generated binding names required by a host-owned runtime setup.
@@ -316,7 +312,19 @@ impl Error for TransformError {}
 /// Returns [`TransformError::InvalidCoverageBindingName`] when the requested
 /// coverage binding is not a valid non-reserved JavaScript identifier.
 pub fn transform_program(
-    input: TransformProgramInput<'_, '_, '_>,
+    input: TransformProgramInput<'_, '_>,
+) -> Result<TransformOutput, TransformError> {
+    transform_program_with_registration_policy(input, None)
+}
+
+/// Compatibility bridge for the satellite package's eager source-map adapter.
+///
+/// This is not part of the proposed first Oxc host API. A host that does not
+/// need eager source-map folding should call [`transform_program`].
+#[doc(hidden)]
+pub fn transform_program_with_registration_policy(
+    input: TransformProgramInput<'_, '_>,
+    registration_policy: Option<&dyn RegistrationPolicy>,
 ) -> Result<TransformOutput, TransformError> {
     let TransformProgramInput { program, scoping, pragmas, mut transform } = input;
     if pragmas.ignore_file {
@@ -329,7 +337,7 @@ pub fn transform_program(
     let coverage_name = transform.cov_fn_name.clone();
     let report_logic = transform.report_logic;
     let allocator = transform.allocator;
-    let mut coverage_transform = CoverageTransform::new(transform);
+    let mut coverage_transform = CoverageTransform::new(transform, registration_policy);
     let state = CoverageState { pragmas };
     let scoping = traverse_mut(&mut coverage_transform, allocator, program, scoping, state);
     let metadata = coverage_transform.finish();
@@ -388,7 +396,10 @@ fn symbol_is_coverage_binding(symbol: &str, candidate: &str, suffix: &str) -> bo
 }
 
 impl<'policy, 'arena> CoverageTransform<'policy, 'arena> {
-    fn new(init: TransformInit<'policy, 'arena>) -> Self {
+    fn new(
+        init: TransformInit<'arena>,
+        registration_policy: Option<&'policy dyn RegistrationPolicy>,
+    ) -> Self {
         let TransformInit {
             allocator,
             cov_fn_name,
@@ -397,7 +408,6 @@ impl<'policy, 'arena> CoverageTransform<'policy, 'arena> {
             ignore_class_methods,
             name_callback_arguments,
             istanbul_compat,
-            registration_policy,
         } = init;
         let cov_fn_name = allocator.alloc_str(&cov_fn_name);
         Self {

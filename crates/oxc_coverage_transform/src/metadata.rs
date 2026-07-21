@@ -65,6 +65,7 @@ pub struct CoverageMetadata {
 /// Stable identity used only while an adapter folds generated coverage
 /// points onto one canonical source-map location.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[doc(hidden)]
 pub struct RegistrationKey {
     pub source: u32,
     pub start_line: u32,
@@ -78,6 +79,7 @@ pub struct RegistrationKey {
 /// The first Oxc-host path can omit this policy and receive every source span.
 /// It exists here only because eager source-map composition must decide which
 /// counters survive before their ids are embedded in the AST.
+#[doc(hidden)]
 pub trait RegistrationPolicy {
     /// Whether a generated span should receive a counter.
     fn span_maps(&self, span: Span) -> bool;

@@ -12,6 +12,7 @@ use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_coverage_transform::{
     BranchRecord, CoverageMetadata, FunctionRecord, PragmaMap, RegistrationKey, RegistrationPolicy,
     TransformInit, TransformOutcome, TransformProgramInput, UnhandledDirective, transform_program,
+    transform_program_with_registration_policy,
 };
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position, UnhandledPragma};
 use oxc_parser::{Parser, ParserReturn};
@@ -584,27 +585,29 @@ fn instrument_program_with_pragmas(
     let cov_fn_base = generate_cov_fn_name(filename);
     let registration_adapter = prepared_input_source_map
         .map(|remapper| SourceMapRegistrationAdapter { remapper, locator: &locator });
-    let output = transform_program(TransformProgramInput {
-        program,
-        scoping,
-        pragmas,
-        transform: TransformInit {
-            allocator,
-            cov_fn_name: cov_fn_base,
-            report_logic: options.report_logic,
-            track_optional_chain: options.track_optional_chain
-                && options.compat != Some(CompatProfile::Istanbul),
-            istanbul_compat: options.compat == Some(CompatProfile::Istanbul),
-            ignore_class_methods: options.ignore_class_methods.clone(),
-            name_callback_arguments: options.name_callback_arguments,
-            registration_policy: options
-                .compose_input_source_map
-                .then(|| {
-                    registration_adapter.as_ref().map(|adapter| adapter as &dyn RegistrationPolicy)
-                })
-                .flatten(),
+    let output = transform_program_with_registration_policy(
+        TransformProgramInput {
+            program,
+            scoping,
+            pragmas,
+            transform: TransformInit {
+                allocator,
+                cov_fn_name: cov_fn_base,
+                report_logic: options.report_logic,
+                track_optional_chain: options.track_optional_chain
+                    && options.compat != Some(CompatProfile::Istanbul),
+                istanbul_compat: options.compat == Some(CompatProfile::Istanbul),
+                ignore_class_methods: options.ignore_class_methods.clone(),
+                name_callback_arguments: options.name_callback_arguments,
+            },
         },
-    })
+        options
+            .compose_input_source_map
+            .then(|| {
+                registration_adapter.as_ref().map(|adapter| adapter as &dyn RegistrationPolicy)
+            })
+            .flatten(),
+    )
     .map_err(|error| InstrumentError::CoverageTransformError(error.to_string()))?;
     let TransformOutcome::Instrumented { metadata, names } = output.outcome else {
         let coverage_map = empty_coverage(filename);
@@ -1087,7 +1090,6 @@ pub(crate) fn collect_for_v8_to_istanbul(
             istanbul_compat: false,
             ignore_class_methods: Vec::new(),
             name_callback_arguments: false,
-            registration_policy: None,
         },
     })
     .map_err(|error| InstrumentError::CoverageTransformError(error.to_string()))?;
