@@ -715,6 +715,56 @@ fn compose_branch_partial_arm_gate_keeps_contiguous_index() {
 }
 
 #[test]
+fn compose_keeps_unmapped_umbrella_branch_with_mapped_arms() {
+    // The #195 repro: the switch head sits on an unmapped line while every
+    // case sits on a mapped one. The deferred prune keeps such a branch and
+    // reassigns its `loc` from the first surviving arm; the eager gate must
+    // not reject on the umbrella alone, and must emit the arm counters.
+    let generated = "let a = 1, b = 0;\nswitch (a) {\n  case 1:\n    b = 1; break;\n  default:\n    b = 9; break;\n}\nglobalThis.r = b;\n";
+    let total_lines = generated.lines().count();
+    let input_sm = line_anchored_partial_map(&[1, 3, 4, 5, 6, 7, 8], total_lines, generated);
+    let (eager, lazy) = eager_and_lazy_for_map(generated, input_sm);
+    let lazy = lazy.expect("the mapped cases keep the branch alive");
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.branch_map).unwrap(),
+        serde_json::to_value(&lazy.branch_map).unwrap(),
+        "eager branchMap must equal the canonicalizing remap (loc from the first surviving arm)"
+    );
+    assert_eq!(eager.coverage_map.branch_map.len(), 1, "the switch survives on its mapped cases");
+    assert_eq!(
+        eager.coverage_map.branch_map["0"].locations.len(),
+        2,
+        "both mapped case arms survive"
+    );
+    assert!(eager.code.contains(".b[0]"), "the kept branch's arm counters are emitted");
+}
+
+#[test]
+fn compose_drops_branch_when_umbrella_and_arms_all_fail() {
+    // Umbrella and every case on unmapped lines: the deferred path drops the
+    // branch entirely, so the arm fallback must not resurrect it. The mapped
+    // ternary registering after it renumbers to id 0.
+    let generated = "let a = 1, b = 0;\nswitch (a) {\n  case 1:\n    b = 1; break;\n  default:\n    b = 9; break;\n}\nconst t = a > 0 ? 'p' : 'n';\nglobalThis.r = b + t.length;\n";
+    let total_lines = generated.lines().count();
+    let input_sm = line_anchored_partial_map(&[1, 8, 9], total_lines, generated);
+    let (eager, lazy) = eager_and_lazy_for_map(generated, input_sm);
+    let lazy = lazy.expect("the mapped ternary keeps a branch alive");
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.branch_map).unwrap(),
+        serde_json::to_value(&lazy.branch_map).unwrap(),
+        "eager branchMap must equal the canonicalizing remap after the full drop"
+    );
+    let keys: Vec<&String> = eager.coverage_map.branch_map.keys().collect();
+    assert_eq!(keys, vec!["0"], "the surviving ternary renumbers to a contiguous id 0");
+    assert_eq!(
+        eager.coverage_map.branch_map["0"].branch_type, "cond-expr",
+        "the fully unmapped switch is dropped; only the ternary remains"
+    );
+}
+
+#[test]
 fn compose_drops_all_arms_unmapped_branch_and_renumbers() {
     // A multi-line switch whose umbrella (line 2 and its
     // closing brace on line 7) maps but whose case lines are all unmapped: the

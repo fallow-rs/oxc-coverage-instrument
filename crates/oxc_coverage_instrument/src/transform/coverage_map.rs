@@ -238,10 +238,13 @@ impl CoverageTransform<'_, '_> {
 
     /// Register a branch whose arms are already collected, returning the
     /// umbrella id and the surviving slot per input arm. `None` when the branch
-    /// is not instrumented at all: the umbrella `loc` fails to remap (the
-    /// `prune_branches` outer-loc rule), or, in eager mode, no arm survives the
-    /// per-arm gate. The single source of the gate, the fold and the dedup for
-    /// every branch type.
+    /// is not instrumented at all, which only happens in eager mode: no arm
+    /// survives the per-arm gate, or the umbrella `loc` fails to remap and no
+    /// arm remaps either. An umbrella that fails while an arm still remaps
+    /// keeps the branch and takes that arm's location as its `loc`, the
+    /// fallback `prune_single_source_unmapped` and `fan_out_branches` apply on
+    /// the deferred path. The single source of the gate, the fold and the
+    /// dedup for every branch type.
     ///
     /// Outside eager mode this always allocates a fresh id, keeps every arm and
     /// pushes one entry, so it is byte-identical to the former `add_branch` plus
@@ -253,9 +256,6 @@ impl CoverageTransform<'_, '_> {
     pub(super) fn register_branch(&mut self, pending: PendingBranch) -> Option<BranchRegistration> {
         let PendingBranch { branch_type, umbrella_span, gate_arms, arms } = pending;
         let umbrella = self.span_to_location(umbrella_span);
-        if !self.location_maps(&umbrella) {
-            return None;
-        }
         let mut path_indices = Vec::with_capacity(arms.len());
         let mut surviving_locs = Vec::new();
         let mut body_spans = Vec::new();
@@ -279,6 +279,16 @@ impl CoverageTransform<'_, '_> {
         if self.eager_remapper.is_some() && surviving_locs.is_empty() {
             return None;
         }
+        // The deferred path rejects on the umbrella only when no arm remaps
+        // either; otherwise it keeps the branch and reassigns `loc` from the
+        // first surviving arm (`prune_single_source_unmapped` /
+        // `fan_out_branches`). Storing that arm's generated location here makes
+        // the finalize remap resolve it to the same original position.
+        let entry_loc = if self.location_maps(&umbrella) {
+            umbrella
+        } else {
+            surviving_locs.iter().find(|loc| self.location_maps(loc)).cloned()?
+        };
         let key = self.eager_branch_key(&surviving_locs);
         if let Some(key) = &key
             && let Some(&branch_id) = self.eager_branch_ids.get(key)
@@ -289,9 +299,9 @@ impl CoverageTransform<'_, '_> {
         if let Some(key) = key {
             self.eager_branch_ids.insert(key, branch_id);
         }
-        let line = umbrella.start.line;
+        let line = entry_loc.start.line;
         self.branch_map.push(BranchEntry {
-            loc: umbrella,
+            loc: entry_loc,
             line,
             branch_type: branch_type.to_string(),
             locations: surviving_locs,
