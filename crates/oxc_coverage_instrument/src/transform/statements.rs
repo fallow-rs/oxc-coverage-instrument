@@ -12,12 +12,11 @@ use oxc_traverse::TraverseCtx;
 use crate::pragma::IgnoreType;
 
 use super::counters::{
-    ClassFieldHoist, CounterKind, CounterType, PendingInsertion, build_counter_stmt,
-    prepend_counter,
+    CounterKind, CounterType, PendingInsertion, build_counter_stmt, prepend_counter,
 };
 use super::coverage_map::is_synthetic_span;
 use super::ignore::mark_ignored_declarator_fn;
-use super::names::{declarator_function_name, property_key_to_name};
+use super::names::declarator_function_name;
 use super::{CoverageState, CoverageTransform};
 
 impl<'arena> CoverageTransform<'_, 'arena> {
@@ -186,23 +185,6 @@ impl<'arena> CoverageTransform<'_, 'arena> {
                 counter_id: stmt_id,
                 counter_type: CounterType::Statement,
             });
-        }
-    }
-
-    pub(super) fn try_hoist_named_property_initializer(
-        &mut self,
-        prop: &PropertyDefinition<'_>,
-        span: Span,
-    ) {
-        if let Some(name) = property_key_to_name(&prop.key) {
-            self.pending_name = Some(name);
-        }
-        if let Some(stmt_id) = self.add_statement(span) {
-            let target_start = prop.span.start;
-            let is_static = prop.r#static;
-            if let Some(top) = self.pending_class_field_hoists.last_mut() {
-                top.push(ClassFieldHoist { target_start, counter_id: stmt_id, is_static });
-            }
         }
     }
 

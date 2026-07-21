@@ -1,21 +1,15 @@
 //! `fnMap` entry registration for functions, arrows, methods and class
-//! members, plus the name inheritance and class-field counter hoisting that
-//! keep `Function.name` intact.
+//! members, plus name inheritance for function-valued properties.
 
-use std::collections::BTreeMap;
 use std::mem;
 
-use oxc_allocator::Vec as ArenaVec;
 use oxc_ast::ast::*;
 use oxc_span::{GetSpan, SPAN, Span};
 use oxc_traverse::TraverseCtx;
 
 use crate::pragma::IgnoreType;
 
-use super::counters::{
-    ClassFieldHoist, CounterKind, build_class_field_counter, build_counter_stmt, dummy_expr,
-    prepend_counter,
-};
+use super::counters::{CounterKind, build_counter_stmt, dummy_expr, prepend_counter};
 use super::coverage_map::is_synthetic_span;
 use super::ignore::{MethodPragmaInput, method_ignored_by_pragma};
 use super::names::{callback_argument_name, method_label, property_key_to_name};
@@ -220,8 +214,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         self.pending_method_decl = Some(key_span);
     }
 
-    /// Attach the statement counter for a class property initializer, hoisting
-    /// it to a sibling field when the initializer needs its inferred name.
+    /// Attach the statement counter for a class property initializer.
     pub(super) fn instrument_property_definition(
         &mut self,
         prop: &mut PropertyDefinition<'arena>,
@@ -246,21 +239,6 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         let Some(value) = prop.value.as_mut() else { return };
         let span = value.span();
         if is_synthetic_span(span) {
-            return;
-        }
-
-        let is_named_initializer = matches!(
-            value,
-            Expression::FunctionExpression(_)
-                | Expression::ArrowFunctionExpression(_)
-                | Expression::ClassExpression(_)
-        );
-        if is_named_initializer && !self.pending_class_field_hoists.is_empty() {
-            // `class Foo { field = function () {} }`: the counter goes into a
-            // synthetic sibling field so the initializer stays a bare
-            // function/class expression and NamedEvaluation can still bind
-            // `Function.name`.
-            self.try_hoist_named_property_initializer(prop, span);
             return;
         }
 
@@ -306,36 +284,6 @@ impl<'arena> CoverageTransform<'_, 'arena> {
                 };
                 self.pending_name = Some(label);
             }
-        }
-    }
-
-    /// Emit the hoisted class-field counters as synthetic sibling fields.
-    pub(super) fn insert_class_field_counters(
-        &mut self,
-        body: &mut ClassBody<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
-    ) {
-        let Some(hoists) = self.pending_class_field_hoists.pop() else { return };
-        if hoists.is_empty() {
-            return;
-        }
-        let cov_fn = self.cov_fn_name;
-        // Each synthetic counter field is inserted immediately before the
-        // `PropertyDefinition` it belongs to, so a static counter lands next to
-        // a static field and an instance counter next to an instance field and
-        // runtime evaluation order is unchanged.
-        let mut by_target: BTreeMap<u32, &ClassFieldHoist> = BTreeMap::new();
-        for hoist in &hoists {
-            by_target.insert(hoist.target_start, hoist);
-        }
-        let original = mem::replace(&mut body.body, ArenaVec::new_in(ctx));
-        for element in original {
-            if let ClassElement::PropertyDefinition(prop) = &element
-                && let Some(hoist) = by_target.get(&prop.span.start)
-            {
-                body.body.push(build_class_field_counter(cov_fn, hoist, ctx));
-            }
-            body.body.push(element);
         }
     }
 }

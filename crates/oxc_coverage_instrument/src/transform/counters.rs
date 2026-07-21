@@ -29,19 +29,6 @@ pub(super) struct PendingInsertion {
     pub(super) counter_type: CounterType,
 }
 
-/// A class-field initializer counter, to be emitted as a synthetic sibling
-/// field so the initializer keeps its `Function.name` inference.
-pub(super) struct ClassFieldHoist {
-    /// `span.start` of the original `PropertyDefinition`, used to find the
-    /// matching slot in `ClassBody::body` during `exit_class_body`.
-    pub(super) target_start: u32,
-    /// Index into the statement map.
-    pub(super) counter_id: usize,
-    /// Whether the synthetic field must be `static`, matching the field it
-    /// counts, so evaluation order is unchanged.
-    pub(super) is_static: bool,
-}
-
 /// A counter slot in the coverage map. Bundles `cov_fn_name` with the per-slot
 /// indices so the AST builders take one value instead of threading three or
 /// four primitives through every call site.
@@ -173,33 +160,6 @@ pub(super) fn index_literal<'a>(
 /// Placeholder expression for `mem::replace`, never reachable in the output.
 pub(super) fn dummy_expr<'a>(ctx: &TraverseCtx<'a, CoverageState>) -> Expression<'a> {
     Expression::new_numeric_literal(SPAN, 0.0, None, oxc_syntax::number::NumberBase::Decimal, ctx)
-}
-
-pub(super) fn build_class_field_counter<'a>(
-    cov_fn: &'a str,
-    hoist: &ClassFieldHoist,
-    ctx: &TraverseCtx<'a, CoverageState>,
-) -> ClassElement<'a> {
-    let counter = build_counter_expr(CounterKind::stmt(cov_fn, hoist.counter_id), ctx);
-    let key_name = alloc_str(&format!("__cov_{}_init_{}", cov_fn, hoist.counter_id), ctx);
-    let key = PropertyKey::StaticIdentifier(IdentifierName::boxed(SPAN, key_name, ctx));
-    ClassElement::new_property_definition(
-        SPAN,
-        PropertyDefinitionType::PropertyDefinition,
-        ArenaVec::new_in(ctx),
-        key,
-        None::<TSTypeAnnotation>,
-        Some(counter),
-        false,
-        hoist.is_static,
-        false,
-        false,
-        false,
-        false,
-        false,
-        None,
-        ctx,
-    )
 }
 
 /// Inject a branch counter into a statement, wrapping in a block if necessary.

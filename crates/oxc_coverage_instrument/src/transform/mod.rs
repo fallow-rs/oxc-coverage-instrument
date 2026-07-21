@@ -76,7 +76,7 @@ mod preamble;
 mod statements;
 
 use branches::OptionalChainLinkInput;
-use counters::{ClassFieldHoist, PendingInsertion};
+use counters::PendingInsertion;
 use coverage_map::is_synthetic_span;
 use ignore::{
     is_ignored_case, jsx_attribute_ignored, jsx_child_ignored, jsx_spread_attribute_ignored,
@@ -195,10 +195,6 @@ pub struct CoverageTransform<'src, 'arena> {
     /// collapse an `optional-chain` entry onto a differently-typed one (the
     /// fold key excludes `branch_type`) while the emitted `_oc` call remains.
     pub used_optional_chain_helper: bool,
-    /// Per-class stack of class-field counters to hoist as synthetic
-    /// sibling fields, so `field = function () {}` keeps Function.name
-    /// inference instead of getting wrapped in a sequence expression.
-    pending_class_field_hoists: Vec<Vec<ClassFieldHoist>>,
     /// Eager-compose gate. When `Some`, a coverage point whose positions do not
     /// remap through the input source map is not instrumented at all: no map
     /// entry is registered and no counter is emitted, so the runtime coverage
@@ -297,7 +293,6 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             name_callback_arguments,
             logical_branch_ids: Vec::new(),
             used_optional_chain_helper: false,
-            pending_class_field_hoists: Vec::new(),
             eager_remapper,
             eager_statement_ids: BTreeMap::new(),
             eager_function_ids: BTreeMap::new(),
@@ -425,22 +420,6 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         _ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         self.ignored_prop_stack.pop();
-    }
-
-    fn enter_class_body(
-        &mut self,
-        _body: &mut ClassBody<'a>,
-        _ctx: &mut TraverseCtx<'a, CoverageState>,
-    ) {
-        self.pending_class_field_hoists.push(Vec::new());
-    }
-
-    fn exit_class_body(
-        &mut self,
-        body: &mut ClassBody<'a>,
-        ctx: &mut TraverseCtx<'a, CoverageState>,
-    ) {
-        self.insert_class_field_counters(body, ctx);
     }
 
     fn enter_object_property(

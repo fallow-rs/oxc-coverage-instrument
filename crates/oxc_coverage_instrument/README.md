@@ -243,5 +243,18 @@ running counter, it is stable across rebuilds, where the `(anonymous_N)` index
 renumbers whenever an unrelated function is added. Defaults to `false`, so
 default output stays byte-identical to what Istanbul consumers expect.
 
+### 7. Anonymous class-field values lose inferred runtime names
+
+Class-field initializer counters use Istanbul-style sequence wrapping:
+`field = (++cov.s[N], function () {})`. The wrapper keeps the counter inside
+the original field and therefore does not add enumerable properties or change
+`Object.keys()` output. It also prevents JavaScript NamedEvaluation from
+inferring `"field"` as the anonymous function, arrow, or class value's runtime
+`name`; those values keep an empty name after instrumentation. Explicitly named
+function and class expressions keep their declared names.
+
+Pinned by `integration.rs::sequence_wrapped_class_field_functions_are_anonymous`
+and the per-kind class-field runtime counter tests.
+
 This crate is the entry point of the oxc-coverage suite; the source-map,
 V8, and reporting layers live in sibling crates.

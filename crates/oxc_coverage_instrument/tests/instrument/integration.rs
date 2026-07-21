@@ -49,6 +49,36 @@ fn assert_runtime_counted(output: &std::process::Output) {
     );
 }
 
+fn statement_id_at_column(
+    result: &oxc_coverage_instrument::InstrumentResult,
+    column: u32,
+) -> String {
+    result
+        .coverage_map
+        .statement_map
+        .iter()
+        .find(|(_, location)| location.start.line == 1 && location.start.column == column)
+        .map(|(id, _)| id.clone())
+        .expect("class field initializer statement entry")
+}
+
+fn assert_statement_counter_incremented(code: &str, filename: &str, statement_id: &str) {
+    let path = serde_json::to_string(filename).unwrap();
+    let statement_id = serde_json::to_string(statement_id).unwrap();
+    let output = run_node_eval(&format!(
+        "{code}\nconsole.log(globalThis.__coverage__[{path}].s[{statement_id}]);"
+    ));
+    assert!(
+        output.status.success(),
+        "instrumented class field runtime failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).trim().parse::<u64>().unwrap() > 0,
+        "class field initializer counter must increment"
+    );
+}
+
 const ECMASCRIPT_LINE_TERMINATORS: [(&str, &str); 5] =
     [("LF", "\n"), ("CRLF", "\r\n"), ("CR", "\r"), ("LS", "\u{2028}"), ("PS", "\u{2029}")];
 
@@ -343,25 +373,65 @@ fn track_optional_chain_default_on_matches_existing_behavior() {
 }
 
 #[test]
-fn class_field_initializer_keeps_function_name() {
-    // Wrapping the value as `(++cov.s[N], function () {})` would defeat
-    // NamedEvaluation and leave the function unnamed at runtime. The counter
-    // goes on a synthetic sibling field instead, so the value stays a bare
-    // function or class expression and `Function.name` is unchanged.
-    let result = instrument_js(
-        "class Foo { field1 = function () {}; static field2 = class {}; arrow = () => 1; }",
-    );
-    let counter_fields = result.code.matches("__cov_").count();
-    assert!(
-        counter_fields >= 3,
-        "expected synthetic counter fields for each hoisted initializer:\n{}",
-        result.code
-    );
-    assert!(
-        !result.code.contains(", function ()") && !result.code.contains(", () =>"),
-        "initializer must not be wrapped in a sequence expression:\n{}",
-        result.code
-    );
+fn class_field_instrumentation_preserves_instance_keys() {
+    let source = "class A { arrow = () => 1; function = function () { return 2; }; }\nconsole.log(JSON.stringify(Object.keys(new A())));";
+    let original = run_node_eval(source);
+    let instrumented = run_node_eval(&instrument_js(source).code);
+
+    assert!(original.status.success() && instrumented.status.success());
+    assert_eq!(instrumented.stdout, original.stdout);
+}
+
+#[test]
+fn class_field_instrumentation_preserves_static_keys() {
+    let source = "class A { static function = function () { return 1; }; }\nconsole.log(JSON.stringify(Object.keys(A)));";
+    let original = run_node_eval(source);
+    let instrumented = run_node_eval(&instrument_js(source).code);
+
+    assert!(original.status.success() && instrumented.status.success());
+    assert_eq!(instrumented.stdout, original.stdout);
+}
+
+#[test]
+fn instance_arrow_field_counter_increments() {
+    let filename = "instance-arrow-field.cjs";
+    let source = "class A { field = () => 1; }\nnew A();";
+    let column = u32::try_from(source.find("() => 1").unwrap()).unwrap();
+    let result = instrument(source, filename, &default_opts()).unwrap();
+    let statement_id = statement_id_at_column(&result, column);
+
+    assert_statement_counter_incremented(&result.code, filename, &statement_id);
+}
+
+#[test]
+fn instance_function_field_counter_increments() {
+    let filename = "instance-function-field.cjs";
+    let source = "class A { field = function () { return 1; }; }\nnew A();";
+    let column = u32::try_from(source.find("function ()").unwrap()).unwrap();
+    let result = instrument(source, filename, &default_opts()).unwrap();
+    let statement_id = statement_id_at_column(&result, column);
+
+    assert_statement_counter_incremented(&result.code, filename, &statement_id);
+}
+
+#[test]
+fn static_function_field_counter_increments() {
+    let filename = "static-function-field.cjs";
+    let source = "class A { static field = function () { return 1; }; }";
+    let column = u32::try_from(source.find("function ()").unwrap()).unwrap();
+    let result = instrument(source, filename, &default_opts()).unwrap();
+    let statement_id = statement_id_at_column(&result, column);
+
+    assert_statement_counter_incremented(&result.code, filename, &statement_id);
+}
+
+#[test]
+fn sequence_wrapped_class_field_functions_are_anonymous() {
+    let source = "class A { field = function () {}; arrow = () => 1; static staticField = function () {}; }\nconsole.log(JSON.stringify([new A().field.name, new A().arrow.name, A.staticField.name]));";
+    let output = run_node_eval(&instrument_js(source).code);
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), r#"["","",""]"#);
 }
 
 #[test]
