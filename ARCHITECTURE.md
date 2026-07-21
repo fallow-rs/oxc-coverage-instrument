@@ -6,8 +6,11 @@ across all of them. For usage, see the README of the crate you need.
 
 ## Bird's Eye View
 
-Instrumentation happens at the AST level. Nothing is rewritten as text, and no
-regular expression ever sees the source.
+Coverage counters are injected at the AST level, and no regular expression
+rewrites the input source. The standalone source-to-source adapter also inserts
+a synthetic AST marker after the directive prologue. After codegen it replaces
+that marker statement with the generated coverage setup and shifts the following
+source-map lines.
 
 ```
 source code (JS/TS)
@@ -25,14 +28,19 @@ CoverageTransform   traverse AST, inject ++cov().s[N] counters
 oxc_codegen         emit instrumented code and source map
     |
     v
+setup insertion     replace generated marker, shift source map
+    |
+    v
 instrumented code + coverage map
 ```
 
 `CoverageTransform` is an `oxc_traverse` visitor. It assigns each statement,
 function, and branch an id, records its `Location` in the coverage map, and
 injects the counter expression that increments the matching slot at runtime.
-Codegen then emits the rewritten AST along with a source map from instrumented
-output back to the input.
+The standalone adapter adds the setup marker, codegen emits the rewritten AST
+and its source map, then the adapter replaces that marker with the coverage
+setup. The experimental host-owned AST API instead returns the setup preamble
+for the host to insert and connect to semantic state.
 
 When an `inputSourceMap` is supplied, the instrumenter composes the codegen
 output map with the input map, so downstream remappers (Vitest, nyc, monocart)
@@ -43,8 +51,9 @@ the major bundlers rely on.
 
 ## Code Map
 
-The workspace carries a Rust port of the whole Istanbul stack, one crate per
-upstream package.
+The workspace provides a broad Istanbul-compatible coverage pipeline, with one
+crate per responsibility. It does not claim to port every Istanbul package or
+reporter; the reporting crate implements the formats named below.
 
 | Crate | Replaces |
 |:------|:---------|

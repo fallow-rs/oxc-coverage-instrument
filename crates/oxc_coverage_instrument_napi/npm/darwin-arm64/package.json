@@ -8,7 +8,7 @@
   "files": [
     "coverage-instrument.darwin-arm64.node"
   ],
-  "description": "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST. 58x faster than istanbul-lib-instrument.",
+  "description": "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST.",
   "keywords": [
     "oxc",
     "istanbul",

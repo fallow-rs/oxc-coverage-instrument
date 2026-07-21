@@ -13,9 +13,10 @@ the [Oxc](https://oxc.rs) parser.
 Instrumentation happens at the AST level through `oxc_traverse` and
 `oxc_codegen`, and the output is checked against `istanbul-lib-instrument` on a
 shared fixture corpus, both by count and byte for byte. The workspace also
-carries Rust ports of the rest of the Istanbul stack: the data model, source-map
-remapping, V8-to-Istanbul conversion, report summarization, and the report
-emitters.
+provides the surrounding Istanbul-compatible pipeline: the data model,
+source-map remapping, V8-to-Istanbul conversion, report summarization, and the
+`text`, `text-summary`, `json-summary`, `lcov`, `cobertura`, and `html`
+reporters. It does not claim to port every Istanbul package or reporter.
 
 ## Install
 
@@ -77,8 +78,8 @@ the [Node.js package README](crates/oxc_coverage_instrument_napi/README.md).
   `v8-to-istanbul`.
 - [`oxc_coverage_report`](crates/oxc_coverage_report/README.md) replaces
   `istanbul-lib-report`, and
-  [`oxc_coverage_reports`](crates/oxc_coverage_reports/README.md) replaces
-  `istanbul-reports`.
+  [`oxc_coverage_reports`](crates/oxc_coverage_reports/README.md) provides a
+  selected set of `istanbul-reports`-compatible formats.
 - `examples/` carries runnable projects for Vitest with TypeScript, Node with
   WebAssembly, and Cloudflare Workers.
 

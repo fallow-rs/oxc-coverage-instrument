@@ -10,7 +10,7 @@
     "wasi-worker.mjs",
     "wasi-worker-browser.mjs"
   ],
-  "description": "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST. 8-48x faster than istanbul-lib-instrument.",
+  "description": "Istanbul-compatible JavaScript/TypeScript coverage instrumentation using the Oxc AST.",
   "keywords": [
     "oxc",
     "istanbul",
