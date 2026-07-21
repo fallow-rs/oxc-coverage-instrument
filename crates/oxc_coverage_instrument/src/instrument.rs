@@ -410,9 +410,15 @@ pub fn instrument(
         options,
     });
 
+    let needs_optional_chain_helper = transform.used_optional_chain_helper;
     let coverage_map = finalize_coverage_map(filename, transform, options);
 
-    let (coverage_json, preamble) = build_instrument_preamble(&coverage_map, options, &cov_fn_name);
+    let (coverage_json, preamble) = build_instrument_preamble(
+        &coverage_map,
+        options,
+        &cov_fn_name,
+        needs_optional_chain_helper,
+    );
 
     let (code, raw_source_map) = emit_code(EmitInputs {
         program: &parsed.program,
@@ -505,6 +511,9 @@ fn build_instrument_preamble(
     coverage_map: &FileCoverage,
     options: &InstrumentOptions,
     cov_fn_name: &str,
+    // Whether the transform wrapped any optional-chain link, so the preamble
+    // declares the `cov_fn_oc` helper.
+    needs_optional_chain_helper: bool,
 ) -> (String, String) {
     // Serialize once and reuse it for both the hash guard and the coverageData
     // literal.
@@ -517,6 +526,7 @@ fn build_instrument_preamble(
         coverage_var: &options.coverage_variable,
         cov_fn_name,
         report_logic: options.report_logic,
+        needs_optional_chain_helper,
     });
     (coverage_json, preamble)
 }
@@ -664,11 +674,16 @@ fn finalize_coverage_map(
     transform: CoverageTransform<'_, '_>,
     options: &InstrumentOptions,
 ) -> FileCoverage {
+    let overlay_conflict = transform.eager_function_overlay_conflict;
     let mut coverage_map =
         build_coverage_map(filename, transform, options.input_source_map.as_deref());
     if options.function_identity_overlay {
-        coverage_map.x_fallow_function_map =
-            Some(build_function_identity_map(&coverage_map.path, &coverage_map.fn_map));
+        // An eager fold of two functions with differing identities drops the
+        // whole overlay, matching the deferred `merge_functions`; the conflict
+        // is recorded on the transform when the fold happens. Dropping it here,
+        // before composition, keeps the composed result overlay-free.
+        coverage_map.x_fallow_function_map = (!overlay_conflict)
+            .then(|| build_function_identity_map(&coverage_map.path, &coverage_map.fn_map));
     }
 
     // Fold the embedded `inputSourceMap` in before the map is serialized into

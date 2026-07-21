@@ -14,21 +14,9 @@ use super::counters::{
     CounterKind, CounterType, PendingInsertion, build_counter_stmt, dummy_expr, index_literal,
     inject_branch_counter_into_statement, prepend_counter,
 };
-use super::coverage_map::is_synthetic_span;
+use super::coverage_map::{PendingArm, PendingBranch, is_synthetic_span};
 use super::ignore::{enclosing_destructure_property_pragma, is_ignored_case};
 use super::{CoverageState, CoverageTransform};
-
-pub(super) struct ElseBranchInput<'arena, 'a> {
-    pub(super) stmt: &'a mut IfStatement<'arena>,
-    pub(super) branch_id: usize,
-    pub(super) synthetic_anchor: u32,
-}
-
-pub(super) struct ConditionalArmInput<'arena, 'a> {
-    pub(super) branch_id: usize,
-    pub(super) arm: &'a mut Expression<'arena>,
-    pub(super) ignored: bool,
-}
 
 pub(super) struct OptionalChainLinkInput<'arena, 'a> {
     pub(super) object: &'a mut Expression<'arena>,
@@ -59,31 +47,59 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // the side-table instead, because `v8_to_istanbul` has to resolve
         // arm[0] against V8's `BlockStatement` range and V8 emits no range
         // matching the whole-IfStatement convention.
-        let consequent_span = stmt.span;
         let consequent_body_span = stmt.consequent.span();
+        let synthetic_anchor = consequent_body_span.end;
+
+        // Every arm span is a pure pre-mutation read, so the whole arm vector
+        // is known before the umbrella id is chosen. The else arm resolves to
+        // its own span, or a zero-width anchor at the consequent's end when the
+        // `if` has no (or an already-synthetic) `else`; its V8 body span begins
+        // at the consequent's end and includes the `else` transition.
+        let mut arms = Vec::new();
+        let mut consequent_arm = None;
+        if pragma != Some(IgnoreType::If) {
+            consequent_arm = Some(arms.len());
+            arms.push(PendingArm::with_body(stmt.span, consequent_body_span));
+        }
+        let mut else_arm = None;
+        if pragma != Some(IgnoreType::Else) {
+            let arm_span = match &stmt.alternate {
+                Some(alt) if !is_synthetic_span(alt.span()) => alt.span(),
+                _ => Span::new(synthetic_anchor, synthetic_anchor),
+            };
+            let v8_body_span = Span::new(synthetic_anchor, arm_span.end);
+            else_arm = Some(arms.len());
+            arms.push(PendingArm::with_body(arm_span, v8_body_span));
+        }
+
         // Skipping the umbrella skips every counter under this branch, but the
         // traversal still recurses; the pragma-arm bookkeeping above and
         // `pop_ignored_if_arms`'s pop stay balanced either way.
-        let Some(branch_id) = self.add_branch("if", stmt.span) else {
+        let Some(reg) = self.register_branch(PendingBranch {
+            branch_type: "if",
+            umbrella_span: stmt.span,
+            gate_arms: true,
+            arms,
+        }) else {
             return;
         };
         let cov_fn = self.cov_fn_name;
 
-        if pragma != Some(IgnoreType::If)
-            && let Some(path_idx) =
-                self.add_branch_path_with_body(branch_id, consequent_span, consequent_body_span)
+        // Consequent first, then else: the same mutation order as before, so
+        // the synthesized `else {}` still lands after the consequent counter.
+        if let Some(arm) = consequent_arm
+            && let Some(path_idx) = reg.slot(arm)
         {
             inject_branch_counter_into_statement(
                 &mut stmt.consequent,
-                CounterKind::branch(cov_fn, branch_id, path_idx),
+                CounterKind::branch(cov_fn, reg.branch_id, path_idx),
                 ctx,
             );
         }
-        if pragma != Some(IgnoreType::Else) {
-            self.inject_else_branch_counter(
-                ElseBranchInput { stmt, branch_id, synthetic_anchor: consequent_body_span.end },
-                ctx,
-            );
+        if let Some(arm) = else_arm
+            && let Some(path_idx) = reg.slot(arm)
+        {
+            self.synthesize_else_arm_and_inject(stmt, reg.branch_id, path_idx, ctx);
         }
     }
 
@@ -117,24 +133,47 @@ impl<'arena> CoverageTransform<'_, 'arena> {
             return;
         }
 
-        let Some(branch_id) = self.add_branch("cond-expr", expr.span) else {
+        // istanbul drops only the pragma'd arm's location from the branch map,
+        // so the entry survives with the one remaining arm still counted.
+        let mut arms = Vec::new();
+        let mut consequent_arm = None;
+        if !ignore_consequent {
+            consequent_arm = Some(arms.len());
+            arms.push(PendingArm::new(expr.consequent.span()));
+        }
+        let mut alternate_arm = None;
+        if !ignore_alternate {
+            alternate_arm = Some(arms.len());
+            arms.push(PendingArm::new(expr.alternate.span()));
+        }
+
+        let Some(reg) = self.register_branch(PendingBranch {
+            branch_type: "cond-expr",
+            umbrella_span: expr.span,
+            gate_arms: true,
+            arms,
+        }) else {
             return;
         };
 
-        // istanbul drops only the pragma'd arm's location from the branch map,
-        // so the entry survives with the one remaining arm still counted.
-        self.inject_conditional_arm_counter(
-            ConditionalArmInput {
-                branch_id,
-                arm: &mut expr.consequent,
-                ignored: ignore_consequent,
-            },
-            ctx,
-        );
-        self.inject_conditional_arm_counter(
-            ConditionalArmInput { branch_id, arm: &mut expr.alternate, ignored: ignore_alternate },
-            ctx,
-        );
+        if let Some(arm) = consequent_arm
+            && let Some(path_idx) = reg.slot(arm)
+        {
+            prepend_counter(
+                &mut expr.consequent,
+                CounterKind::branch(self.cov_fn_name, reg.branch_id, path_idx),
+                ctx,
+            );
+        }
+        if let Some(arm) = alternate_arm
+            && let Some(path_idx) = reg.slot(arm)
+        {
+            prepend_counter(
+                &mut expr.alternate,
+                CounterKind::branch(self.cov_fn_name, reg.branch_id, path_idx),
+                ctx,
+            );
+        }
     }
 
     /// Register the `switch` branch and prepend a counter to each case body
@@ -147,21 +186,36 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         if self.in_ignored_subtree() {
             return;
         }
-        let Some(branch_id) = self.add_branch("switch", stmt.span) else {
+        // Pass A: collect non-ignored case spans in case order. The `&mut`
+        // injection below re-walks the same cases, so the arm index the k-th
+        // surviving case gets here is the slot it reads back through `reg`.
+        let mut arms = Vec::new();
+        for case in &stmt.cases {
+            if !is_ignored_case(case, &ctx.state.pragmas) {
+                arms.push(PendingArm::new(case.span));
+            }
+        }
+        let Some(reg) = self.register_branch(PendingBranch {
+            branch_type: "switch",
+            umbrella_span: stmt.span,
+            gate_arms: true,
+            arms,
+        }) else {
             return;
         };
 
         let cov_fn = self.cov_fn_name;
+        let mut arm = 0;
         for case in &mut stmt.cases {
             if is_ignored_case(case, &ctx.state.pragmas) {
                 continue;
             }
-            let Some(path_idx) = self.add_branch_path(branch_id, case.span) else {
-                continue;
-            };
-            let branch_stmt =
-                build_counter_stmt(CounterKind::branch(cov_fn, branch_id, path_idx), ctx);
-            case.consequent.insert(0, branch_stmt);
+            if let Some(path_idx) = reg.slot(arm) {
+                let branch_stmt =
+                    build_counter_stmt(CounterKind::branch(cov_fn, reg.branch_id, path_idx), ctx);
+                case.consequent.insert(0, branch_stmt);
+            }
+            arm += 1;
         }
     }
 
@@ -194,11 +248,20 @@ impl<'arena> CoverageTransform<'_, 'arena> {
                 self.pending_name = Some(id.name.to_string());
             }
             let init_span = init.span();
-            let Some(branch_id) = self.add_branch("default-arg", param.span) else {
+            let Some(reg) = self.register_branch(PendingBranch {
+                branch_type: "default-arg",
+                umbrella_span: param.span,
+                gate_arms: true,
+                arms: vec![PendingArm::new(init_span)],
+            }) else {
                 return;
             };
-            if self.add_branch_path(branch_id, init_span).is_some() {
-                prepend_counter(init, CounterKind::branch(self.cov_fn_name, branch_id, 0), ctx);
+            if let Some(path_idx) = reg.slot(0) {
+                prepend_counter(
+                    init,
+                    CounterKind::branch(self.cov_fn_name, reg.branch_id, path_idx),
+                    ctx,
+                );
             }
         }
     }
@@ -237,31 +300,21 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // Istanbul types destructuring defaults (`const { x = 1 } = obj`) as
         // `default-arg` too.
         let right_span = pattern.right.span();
-        let Some(branch_id) = self.add_branch("default-arg", pattern.span) else {
+        let Some(reg) = self.register_branch(PendingBranch {
+            branch_type: "default-arg",
+            umbrella_span: pattern.span,
+            gate_arms: true,
+            arms: vec![PendingArm::new(right_span)],
+        }) else {
             return;
         };
-        if self.add_branch_path(branch_id, right_span).is_some() {
+        if let Some(path_idx) = reg.slot(0) {
             prepend_counter(
                 &mut pattern.right,
-                CounterKind::branch(self.cov_fn_name, branch_id, 0),
+                CounterKind::branch(self.cov_fn_name, reg.branch_id, path_idx),
                 ctx,
             );
         }
-    }
-
-    pub(super) fn inject_conditional_arm_counter(
-        &mut self,
-        input: ConditionalArmInput<'arena, '_>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
-    ) {
-        let ConditionalArmInput { branch_id, arm, ignored } = input;
-        if ignored {
-            return;
-        }
-        let Some(path_idx) = self.add_branch_path(branch_id, arm.span()) else {
-            return;
-        };
-        prepend_counter(arm, CounterKind::branch(self.cov_fn_name, branch_id, path_idx), ctx);
     }
 
     pub(super) fn try_instrument_logical_assignment(
@@ -274,25 +327,27 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         }
         let left_span = expr.left.span();
         let right_span = expr.right.span();
-        let Some(branch_id) = self.add_branch("binary-expr", expr.span) else {
+        // `gate_arms: false`: the left counter rides the `BranchLeft` pending
+        // insertion at slot 0 and the right is hard-wired to slot 1, so both
+        // arms must be registered together or not at all.
+        let Some(reg) = self.register_branch(PendingBranch {
+            branch_type: "binary-expr",
+            umbrella_span: expr.span,
+            gate_arms: false,
+            arms: vec![PendingArm::new(left_span), PendingArm::new(right_span)],
+        }) else {
             return;
         };
-        self.add_branch_path_location(
-            branch_id,
-            self.span_to_location(left_span),
-            (left_span.start, left_span.end),
-        );
-        self.add_branch_path_location(
-            branch_id,
-            self.span_to_location(right_span),
-            (right_span.start, right_span.end),
-        );
         self.pending_insertions.push(PendingInsertion {
             target_start: expr.span.start,
-            counter_id: branch_id,
+            counter_id: reg.branch_id,
             counter_type: CounterType::BranchLeft,
         });
-        prepend_counter(&mut expr.right, CounterKind::branch(self.cov_fn_name, branch_id, 1), ctx);
+        prepend_counter(
+            &mut expr.right,
+            CounterKind::branch(self.cov_fn_name, reg.branch_id, 1),
+            ctx,
+        );
     }
 
     /// Record which arm spans of an `if` are pragma-ignored, so statements
@@ -316,35 +371,17 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     }
 
     /// Synthesize a missing else-arm block where needed and inject its branch
-    /// counter, as istanbul-lib-instrument's `coverIfBranches` does.
-    ///
-    /// `synthetic_anchor` is the offset reported as the synthetic else arm's
-    /// location when the `IfStatement` has no `else` clause. Anchoring on the
-    /// consequent's end keeps `branchMap[N].locations[1]` a real `Location`, so
-    /// consumers reading `start.line` off it do not trip over a placeholder.
-    pub(super) fn inject_else_branch_counter(
-        &mut self,
-        input: ElseBranchInput<'arena, '_>,
+    /// counter, as istanbul-lib-instrument's `coverIfBranches` does. The arm
+    /// span is resolved in `instrument_if_branches` before any mutation; the
+    /// block is created here only once the arm is known to survive the gate, so
+    /// a rejected else arm leaves no spurious `else {}` in the output.
+    fn synthesize_else_arm_and_inject(
+        &self,
+        stmt: &mut IfStatement<'arena>,
+        branch_id: usize,
+        path_idx: usize,
         ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
-        let ElseBranchInput { stmt, branch_id, synthetic_anchor } = input;
-        // Resolved before any AST mutation: a real else uses its own span,
-        // while a missing or already zero-width else anchors at the
-        // consequent's end.
-        let arm_span = match &stmt.alternate {
-            Some(alt) if !is_synthetic_span(alt.span()) => alt.span(),
-            _ => Span::new(synthetic_anchor, synthetic_anchor),
-        };
-        // V8 alternate ranges begin where the consequent ends and include the
-        // `else` transition. Keep Istanbul's narrower alternate location for
-        // reporters while retaining the V8-visible span for count matching.
-        let v8_body_span = Span::new(synthetic_anchor, arm_span.end);
-        // Resolved before the empty block is synthesized, so an else arm the
-        // eager gate rejects leaves no spurious `else {}` in the output.
-        let Some(path_idx) = self.add_branch_path_with_body(branch_id, arm_span, v8_body_span)
-        else {
-            return;
-        };
         if stmt.alternate.is_none() {
             let scope_id =
                 ctx.create_child_scope_of_current(oxc_syntax::scope::ScopeFlags::empty());
@@ -382,17 +419,23 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         let OptionalChainLinkInput { object, link_span } = input;
-        // The eager gate applies at the whole-branch level only: the
-        // `cov_fn_oc` helper references fixed arm indices 0 and 1, so either
-        // both arms are registered or the link is left unwrapped.
-        let Some(branch_id) = self.add_branch("optional-chain", link_span) else {
+        // `gate_arms: false`: the `cov_fn_oc` helper references fixed arm
+        // indices 0 and 1, so either both arms are registered or the link is
+        // left unwrapped. Arm 0 is a zero-width anchor at the link's start;
+        // arm 1 is the link's full span.
+        let anchor = Span::new(link_span.start, link_span.start);
+        let Some(reg) = self.register_branch(PendingBranch {
+            branch_type: "optional-chain",
+            umbrella_span: link_span,
+            gate_arms: false,
+            arms: vec![PendingArm::new(anchor), PendingArm::new(link_span)],
+        }) else {
             return;
         };
-        let anchor = Span::new(link_span.start, link_span.start);
-        let anchor_loc = self.span_to_location(anchor);
-        self.add_branch_path_location(branch_id, anchor_loc, (anchor.start, anchor.end));
-        let link_loc = self.span_to_location(link_span);
-        self.add_branch_path_location(branch_id, link_loc, (link_span.start, link_span.end));
+        let branch_id = reg.branch_id;
+        // An `_oc` call is about to be emitted, so the preamble must define the
+        // helper even if this entry later folds onto a differently-typed one.
+        self.used_optional_chain_helper = true;
 
         // `cov_fn_oc(<original>, <branch_id>)` observes the value, increments
         // `b[id][0]` or `b[id][1]` on nullishness, and returns the value

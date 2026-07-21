@@ -21,6 +21,11 @@ pub struct PreambleInputs<'a> {
     pub cov_fn_name: &'a str,
     /// Whether to emit the truthy-value tracking helper (`_bt`).
     pub report_logic: bool,
+    /// Whether to emit the optional-chain link observer (`_oc`). Driven by the
+    /// transform having wrapped a link, not by the branch map carrying an
+    /// `optional-chain` entry: an eager fold can collapse such an entry onto a
+    /// differently-typed one while the emitted `_oc` call stays.
+    pub needs_optional_chain_helper: bool,
 }
 
 /// Generate the preamble as source text, prepended to the emitted code.
@@ -36,6 +41,7 @@ pub fn generate_preamble_source(inputs: &PreambleInputs<'_>) -> String {
         coverage_var,
         cov_fn_name,
         report_logic,
+        needs_optional_chain_helper,
     } = *inputs;
     // Both `serde_json::to_string` calls below serialize a plain string, and
     // the full coverage map arrives already serialized as `coverage_json`, so
@@ -58,7 +64,7 @@ pub fn generate_preamble_source(inputs: &PreambleInputs<'_>) -> String {
     if report_logic {
         append_logic_helper(&mut buf, cov_fn_name);
     }
-    if coverage.branch_map.values().any(|entry| entry.branch_type == "optional-chain") {
+    if needs_optional_chain_helper {
         append_optional_chain_helper(&mut buf, cov_fn_name);
     }
     buf

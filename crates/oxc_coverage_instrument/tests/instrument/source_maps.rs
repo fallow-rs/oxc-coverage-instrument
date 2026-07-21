@@ -423,12 +423,41 @@ fn line_anchored_map(lines: usize, source_content: &str) -> String {
     )
 }
 
-/// Eager compose and canonicalizing remap (`remapCoverageMap` with
-/// `dropUnmapped`) for the same source and input map.
-fn eager_and_canonical_lazy(
+/// Line-anchored map where only the listed 1-based generated lines carry a
+/// segment (at column 0), each mapping to a consecutive original line; unlisted
+/// lines are unmapped, so any span on them fails `getMapping`. This is the
+/// shape that lets an umbrella span two mapped lines while the arm lines
+/// between them do not remap.
+fn line_anchored_partial_map(
+    mapped_lines: &[usize],
+    total_lines: usize,
+    source_content: &str,
+) -> String {
+    let mut first = true;
+    let mappings = (1..=total_lines)
+        .map(|line| {
+            if mapped_lines.contains(&line) {
+                let segment = if first { "AAAA" } else { "AACA" };
+                first = false;
+                segment
+            } else {
+                ""
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    format!(
+        r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{source_content:?}],"mappings":"{mappings}","names":[]}}"#,
+    )
+}
+
+/// Eager compose and the canonicalizing remap (`remapCoverageMap` with
+/// `dropUnmapped`) for `generated` under `input_sm`. `None` when the lazy remap
+/// drops every entry so no `src/app.ts` output survives.
+fn eager_and_lazy_for_map(
     generated: &str,
-) -> (oxc_coverage_instrument::InstrumentResult, FileCoverage) {
-    let input_sm = line_anchored_map(generated.lines().count(), generated);
+    input_sm: String,
+) -> (oxc_coverage_instrument::InstrumentResult, Option<FileCoverage>) {
     let eager = instrument(
         generated,
         "mod.ts",
@@ -448,7 +477,19 @@ fn eager_and_canonical_lazy(
     let mut map = BTreeMap::new();
     map.insert("mod.ts".to_string(), lazy_instrumented.coverage_map);
     let mut lazy = remap_coverage_map_with_options(&map, RemapOptions { drop_unmapped: true });
-    (eager, lazy.remove("src/app.ts").expect("lazy remap lands on the original path"))
+    (eager, lazy.remove("src/app.ts"))
+}
+
+/// Eager compose and canonicalizing remap (`remapCoverageMap` with
+/// `dropUnmapped`) for the same source under a fully line-anchored map, where
+/// every generated line maps and distinct spans on a line collapse onto one
+/// original range.
+fn eager_and_canonical_lazy(
+    generated: &str,
+) -> (oxc_coverage_instrument::InstrumentResult, FileCoverage) {
+    let input_sm = line_anchored_map(generated.lines().count(), generated);
+    let (eager, lazy) = eager_and_lazy_for_map(generated, input_sm);
+    (eager, lazy.expect("lazy remap lands on the original path"))
 }
 
 #[test]
@@ -488,6 +529,295 @@ fn compose_merges_functions_collapsing_to_one_original_decl() {
     );
     assert_eq!(eager.code.matches(".f[0]").count(), 2, "both arrows bump the shared counter");
     assert!(!eager.code.contains(".f[1]"), "collapsed functions must not claim a second id");
+}
+
+#[test]
+fn compose_merges_branches_collapsing_to_one_arm_vector() {
+    // The #193 repro: two ternaries on one line whose only mapping segment sits
+    // at column 0, so both arm vectors widen to the same original range. The
+    // canonicalizing remap folds them into one `cond-expr` entry; the eager
+    // gate must hand the second ternary the first one's counter id so the baked
+    // map matches that fold.
+    let generated = "const x = a ? 1 : 2, y = b ? 3 : 4;\n";
+    let (eager, lazy) = eager_and_canonical_lazy(generated);
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.branch_map).unwrap(),
+        serde_json::to_value(&lazy.branch_map).unwrap(),
+        "eager branchMap must equal the canonicalizing remap (one cond-expr entry)"
+    );
+    assert_eq!(eager.coverage_map.branch_map.len(), 1, "both ternaries fold to one entry");
+}
+
+#[test]
+fn compose_merges_branches_share_one_counter_id() {
+    // Both ternaries increment the same shared branch slot, so `b[0]` is
+    // referenced by all four arms and no second branch id is claimed.
+    let generated = "const x = a ? 1 : 2, y = b ? 3 : 4;\n";
+    let (eager, _) = eager_and_canonical_lazy(generated);
+
+    assert!(eager.code.contains(".b[0]"), "shared branch counter is emitted");
+    assert!(!eager.code.contains(".b[1]"), "folded ternaries must not claim a second branch id");
+}
+
+#[test]
+fn compose_merges_branches_emit_no_dangling_counter() {
+    // Every `b[id]` referenced in the emitted code must exist in the folded
+    // branch map, or the increment throws at runtime against an absent slot.
+    let generated = "const x = a ? 1 : 2, y = b ? 3 : 4;\n";
+    let (eager, _) = eager_and_canonical_lazy(generated);
+
+    let branch_ids: std::collections::BTreeSet<usize> =
+        eager.coverage_map.branch_map.keys().map(|k| k.parse().unwrap()).collect();
+    let dangling: Vec<_> =
+        counter_ids_in_code(&eager.code, 'b').difference(&branch_ids).copied().collect();
+    assert!(dangling.is_empty(), "dangling branch counters after fold: {dangling:?}");
+}
+
+#[test]
+fn compose_merges_logical_branches_collapsing() {
+    // Two logical chains on one line widen to the same arm vector and fold, the
+    // `binary-expr` counterpart of the ternary fold.
+    let generated = "const p = a && b, q = c && d;\n";
+    let (eager, lazy) = eager_and_canonical_lazy(generated);
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.branch_map).unwrap(),
+        serde_json::to_value(&lazy.branch_map).unwrap(),
+        "eager branchMap must equal the canonicalizing remap"
+    );
+    assert_eq!(eager.coverage_map.branch_map.len(), 1, "both logical chains fold to one entry");
+}
+
+#[test]
+fn compose_merges_logical_branches_fold_single_truthy_entry() {
+    // With report_logic, the two folded logical chains share one id, so bT
+    // carries a single zeroed entry of the shared arm length, matching the
+    // deferred merge that sums the two bT vectors of one entry.
+    let generated = "const p = a && b, q = c && d;\n";
+    let input_sm = line_anchored_map(generated.lines().count(), generated);
+    let eager = instrument(
+        generated,
+        "mod.ts",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm.clone()),
+            compose_input_source_map: true,
+            report_logic: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+    let lazy_instrumented = instrument(
+        generated,
+        "mod.ts",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm),
+            report_logic: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+    let mut map = BTreeMap::new();
+    map.insert("mod.ts".to_string(), lazy_instrumented.coverage_map);
+    let lazy = remap_coverage_map_with_options(&map, RemapOptions { drop_unmapped: true })
+        .remove("src/app.ts")
+        .expect("lazy remap lands on the original path");
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.b_t).unwrap(),
+        serde_json::to_value(&lazy.b_t).unwrap(),
+        "eager bT must equal the canonicalizing remap"
+    );
+    assert_eq!(
+        eager.coverage_map.b_t.as_ref().map(BTreeMap::len),
+        Some(1),
+        "the folded logical branches share one bT entry"
+    );
+}
+
+#[test]
+fn compose_merges_optional_chain_branches_collapsing() {
+    // Two `?.` links on one line widen to the same `[anchor, link]` vector and
+    // fold onto one `optional-chain` entry; both `_oc` calls address the shared
+    // id, and the helper is still emitted even though only one entry survives.
+    let generated = "globalThis.r = obj?.a?.b;\n";
+    let (eager, lazy) = eager_and_canonical_lazy(generated);
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.branch_map).unwrap(),
+        serde_json::to_value(&lazy.branch_map).unwrap(),
+        "eager branchMap must equal the canonicalizing remap"
+    );
+    assert_eq!(
+        eager.coverage_map.branch_map.len(),
+        1,
+        "both links fold onto one optional-chain entry"
+    );
+    assert!(
+        eager.code.contains("_oc(val, id)"),
+        "the preamble still defines the _oc helper after the fold"
+    );
+    // The `_oc(val, id)` helper definition contributes one match; every other
+    // `_oc(` is a wrapped link, and all address the shared id 0.
+    assert_eq!(
+        eager.code.matches("_oc(").count(),
+        3,
+        "the two folded links plus the helper definition reference _oc"
+    );
+    let branch_ids: std::collections::BTreeSet<usize> =
+        eager.coverage_map.branch_map.keys().map(|k| k.parse().unwrap()).collect();
+    let dangling: Vec<_> =
+        counter_ids_in_code(&eager.code, 'b').difference(&branch_ids).copied().collect();
+    assert!(dangling.is_empty(), "no dangling branch counter after the fold: {dangling:?}");
+}
+
+#[test]
+fn compose_merges_default_arg_branches_differing_in_umbrella() {
+    // Two parameter defaults on one line: their umbrella spans (`a = 1`,
+    // `b = 2`) differ but their arm spans (`1`, `2`) widen to the same original
+    // range. The fold key excludes the umbrella, so they fold exactly as the
+    // deferred merge folds them by arm vector alone.
+    let generated = "function f(a = 1, b = 2) { return a + b; }\n";
+    let (eager, lazy) = eager_and_canonical_lazy(generated);
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.branch_map).unwrap(),
+        serde_json::to_value(&lazy.branch_map).unwrap(),
+        "eager branchMap must equal the canonicalizing remap (umbrella excluded from the key)"
+    );
+    assert_eq!(eager.coverage_map.branch_map.len(), 1, "the two defaults fold to one entry");
+}
+
+#[test]
+fn compose_branch_partial_arm_gate_keeps_contiguous_index() {
+    // A multi-line switch whose umbrella (first and last line) maps but whose
+    // second case sits on an unmapped line: the surviving case keeps a
+    // contiguous arm index and the branch is not wrongly folded, matching the
+    // deferred prune that projects surviving arms.
+    let generated =
+        "switch (a) {\n  case 1: x = 1; break;\n  case 2: x = 2; break;\n}\nglobalThis.r = x;\n";
+    let total_lines = generated.lines().count();
+    let input_sm = line_anchored_partial_map(&[1, 2, 4, 5], total_lines, generated);
+    let (eager, lazy) = eager_and_lazy_for_map(generated, input_sm);
+    let lazy = lazy.expect("the mapped case keeps the branch alive");
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.branch_map).unwrap(),
+        serde_json::to_value(&lazy.branch_map).unwrap(),
+        "eager branchMap must equal the canonicalizing remap"
+    );
+    assert_eq!(eager.coverage_map.branch_map.len(), 1, "the switch survives with its mapped case");
+    assert_eq!(
+        eager.coverage_map.branch_map["0"].locations.len(),
+        1,
+        "only the mapped case arm survives, at a contiguous index"
+    );
+}
+
+#[test]
+fn compose_drops_all_arms_unmapped_branch_and_renumbers() {
+    // A multi-line switch whose umbrella (line 2 and its
+    // closing brace on line 7) maps but whose case lines are all unmapped: the
+    // deferred `dropUnmapped` path drops such a branch entirely, so the eager
+    // path must drop it too, consuming no id. The surviving ternary that
+    // registers after it then renumbers to id 0, matching the canonicalizing
+    // remap instead of stranding it at a burned id.
+    let generated = "let a = 1, b = 0;\nswitch (a) {\n  case 1:\n    b = 1; break;\n  default:\n    b = 9; break;\n}\nconst t = a > 0 ? 'p' : 'n';\nglobalThis.r = b + t.length;\n";
+    let total_lines = generated.lines().count();
+    let input_sm = line_anchored_partial_map(&[1, 2, 7, 8, 9], total_lines, generated);
+    let (eager, lazy) = eager_and_lazy_for_map(generated, input_sm);
+    let lazy = lazy.expect("the mapped ternary keeps a branch alive");
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.branch_map).unwrap(),
+        serde_json::to_value(&lazy.branch_map).unwrap(),
+        "eager branchMap must equal the canonicalizing remap after the zero-arm drop"
+    );
+    let keys: Vec<&String> = eager.coverage_map.branch_map.keys().collect();
+    assert_eq!(keys, vec!["0"], "the surviving ternary renumbers to a contiguous id 0");
+    assert_eq!(
+        eager.coverage_map.branch_map["0"].branch_type, "cond-expr",
+        "the all-arms-unmapped switch is dropped; only the ternary remains"
+    );
+    let branch_ids: std::collections::BTreeSet<usize> =
+        eager.coverage_map.branch_map.keys().map(|k| k.parse().unwrap()).collect();
+    let dangling: Vec<_> =
+        counter_ids_in_code(&eager.code, 'b').difference(&branch_ids).copied().collect();
+    assert!(dangling.is_empty(), "no dangling branch counter after the drop: {dangling:?}");
+}
+
+#[test]
+fn compose_cross_type_branch_fold_keeps_optional_chain_helper() {
+    // A logical chain and an optional-chain link on one anchored line fold
+    // onto a single entry, and the fold key ignores branch_type (matching
+    // merge_branches), so the surviving entry is the logical's binary-expr.
+    // The link observer must still be emitted: its gate tracks link wrapping,
+    // not surviving branch types, or the emitted call would reference a
+    // missing helper at runtime.
+    let generated = "const ok = a && b, v = a?.x;\n";
+    let (eager, lazy) = eager_and_canonical_lazy(generated);
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.branch_map).unwrap(),
+        serde_json::to_value(&lazy.branch_map).unwrap(),
+        "eager branchMap must equal the canonicalizing remap across the type-erasing fold"
+    );
+    assert_eq!(
+        eager.coverage_map.branch_map["0"].branch_type, "binary-expr",
+        "the first-registered logical entry survives the fold"
+    );
+    assert!(
+        eager.code.contains("_oc(val, id)"),
+        "the optional-chain helper definition must survive the type-erasing fold"
+    );
+    assert!(eager.code.matches("_oc(").count() >= 2, "the wrapped link still calls the helper");
+}
+
+#[test]
+fn compose_function_fold_conflict_drops_overlay() {
+    // Two arrows fold onto one decl under the line-anchored map, but their
+    // identities differ (names `f` / `g`, distinct generated decl columns). The
+    // deferred merge detects the conflict and drops the whole overlay; the
+    // eager path must record the conflict at fold time and drop it the same
+    // way, so both overlays are `None`.
+    let generated = "const f = () => 1, g = () => 2;\n";
+    let input_sm = line_anchored_map(generated.lines().count(), generated);
+    let eager = instrument(
+        generated,
+        "mod.ts",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm.clone()),
+            compose_input_source_map: true,
+            function_identity_overlay: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+    let lazy_instrumented = instrument(
+        generated,
+        "mod.ts",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm),
+            function_identity_overlay: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+    let lazy = remap_coverage_map_with_options(
+        &BTreeMap::from([("mod.ts".to_string(), lazy_instrumented.coverage_map)]),
+        RemapOptions { drop_unmapped: true },
+    )
+    .remove("src/app.ts")
+    .expect("lazy remap lands on the original path");
+
+    assert!(
+        eager.coverage_map.x_fallow_function_map.is_none(),
+        "the eager fold of two differing identities drops the overlay"
+    );
+    assert!(
+        lazy.x_fallow_function_map.is_none(),
+        "the deferred merge also drops the overlay on the identity conflict"
+    );
 }
 
 /// Intermediate JS whose first statement maps back to `src/app.ts` but whose

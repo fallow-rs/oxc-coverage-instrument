@@ -186,6 +186,59 @@ runOnce('mapped head + unmapped boilerplate tail', {
 }
 
 // ---------------------------------------------------------------------------
+// Branch folds (issue #193): two constructs on one fully-mapped line whose arm
+// vectors collapse onto one original range must share a single branch id, the
+// same fold the canonicalizing remap applies. Each asserts eager.branchMap deep
+// -equals lazy(dropUnmapped).branchMap, no dangling counter, and correct
+// execution.
+// ---------------------------------------------------------------------------
+console.log('\nBranch fold controls (issue #193)\n');
+
+const foldControl = (name, generated, { reportLogic = false, expectVal } = {}) => {
+  const totalLines = generated.split('\n').length;
+  const inputSourceMap = partialMap(totalLines, totalLines, generated);
+  const eagerOpts = { coverageVariable: '__c', inputSourceMap, composeInputSourceMap: true, ...(reportLogic ? { reportLogic: true } : {}) };
+  const r = instrument(generated, 'mod.ts', eagerOpts);
+  const eagerMap = JSON.parse(r.coverageMap);
+  const lazyPlain = JSON.parse(instrument(generated, 'mod.ts', { coverageVariable: '__c', inputSourceMap, ...(reportLogic ? { reportLogic: true } : {}) }).coverageMap);
+  const lazyOut = JSON.parse(remapCoverageMap(JSON.stringify({ 'mod.ts': lazyPlain }), { dropUnmapped: true }));
+  const lazy = lazyOut[eagerMap.path];
+  if (!lazy) {
+    failures++;
+    console.log(`  [FAIL] ${name}: lazy remap missing expected path ${eagerMap.path} (got ${Object.keys(lazyOut)})`);
+    return;
+  }
+  check(`${name}: eager branchMap == lazy(dropUnmapped)`, JSON.stringify(eagerMap.branchMap) === JSON.stringify(lazy.branchMap), `eager=${JSON.stringify(eagerMap.branchMap)} lazy=${JSON.stringify(lazy.branchMap)}`);
+  const refs = [...new Set([...r.code.matchAll(/\.b\[(\d+)\]/g)].map((m) => m[1]))];
+  check(`${name}: no dangling branch counter`, refs.every((id) => id in eagerMap.branchMap), JSON.stringify(refs));
+  if (expectVal !== undefined) {
+    const g = {};
+    let threw = null;
+    try { new Function('globalThis', r.code)(g); } catch (e) { threw = e; }
+    check(`${name}: runs and returns ${expectVal}`, threw === null && g.__r === expectVal, threw ? `${threw.message}` : `__r=${g.__r}`);
+  }
+  return { r, eagerMap, lazy };
+};
+
+// Folded ternaries: two cond-expr onto one entry.
+{
+  const { eagerMap } = foldControl('folded ternaries', 'const a = 1, b = 0;\nglobalThis.__r = (a ? 1 : 2) + (b ? 3 : 4);\n', { expectVal: 1 + 4 });
+  check('folded ternaries: one branch entry', Object.keys(eagerMap.branchMap).length === 1);
+}
+
+// Folded logical with reportLogic: single bT entry of the shared arm length.
+{
+  const { eagerMap } = foldControl('folded logical (reportLogic)', 'const a = 1, b = 0;\nglobalThis.__r = (a && a) + (b && b);\n', { reportLogic: true, expectVal: 1 + 0 });
+  check('folded logical: single bT entry', eagerMap.bT && Object.keys(eagerMap.bT).length === 1, JSON.stringify(eagerMap.bT));
+}
+
+// Folded optional-chain: two links onto one entry, executes without throwing.
+{
+  const { eagerMap } = foldControl('folded optional-chain', 'const o = { a: { b: 3 } };\nglobalThis.__r = o?.a?.b;\n', { expectVal: 3 });
+  check('folded optional-chain: one branch entry', Object.keys(eagerMap.branchMap).length === 1);
+}
+
+// ---------------------------------------------------------------------------
 // Heavy sweep: diverse constructs x EVERY mapping cutoff (0..N lines mapped).
 // At each cutoff the instrumented eager-composed output must (a) have no
 // dangling counters, (b) place no surviving entry past the mapped original

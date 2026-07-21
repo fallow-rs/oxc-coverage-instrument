@@ -189,6 +189,12 @@ pub struct CoverageTransform<'src, 'arena> {
     name_callback_arguments: bool,
     /// Branch IDs of logical expression branches (for building the `bT` map).
     pub logical_branch_ids: Vec<usize>,
+    /// Set once any optional-chain link has been wrapped in the `cov_fn_oc`
+    /// helper, so the preamble emits that helper. Read instead of scanning the
+    /// branch map for an `optional-chain` type, because an eager fold can
+    /// collapse an `optional-chain` entry onto a differently-typed one (the
+    /// fold key excludes `branch_type`) while the emitted `_oc` call remains.
+    pub used_optional_chain_helper: bool,
     /// Per-class stack of class-field counters to hoist as synthetic
     /// sibling fields, so `field = function () {}` keeps Function.name
     /// inference instead of getting wrapped in a sequence expression.
@@ -206,6 +212,15 @@ pub struct CoverageTransform<'src, 'arena> {
     /// Function ids already handed out per remapped `decl` location; the
     /// function counterpart of `eager_statement_ids`.
     eager_function_ids: BTreeMap<coverage_map::EagerMergeKey, usize>,
+    /// Branch ids already handed out per remapped surviving-arm vector, so
+    /// branches that collapse onto one original arm vector under the eager gate
+    /// share a counter. Empty outside eager mode. Mirrors `eager_statement_ids`
+    /// / `eager_function_ids`.
+    eager_branch_ids: BTreeMap<coverage_map::BranchKey, usize>,
+    /// Set when an eager function fold merges two functions whose identities
+    /// differ, so `finalize` drops the `x_fallow_functionMap` overlay the way
+    /// the deferred merge does. Never set outside eager mode.
+    pub eager_function_overlay_conflict: bool,
 }
 
 /// Inputs to [`CoverageTransform::new`], grouped so the constructor stays at
@@ -281,10 +296,13 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             ignore_class_methods,
             name_callback_arguments,
             logical_branch_ids: Vec::new(),
+            used_optional_chain_helper: false,
             pending_class_field_hoists: Vec::new(),
             eager_remapper,
             eager_statement_ids: BTreeMap::new(),
             eager_function_ids: BTreeMap::new(),
+            eager_branch_ids: BTreeMap::new(),
+            eager_function_overlay_conflict: false,
         }
     }
 }

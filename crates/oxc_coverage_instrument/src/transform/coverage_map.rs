@@ -32,6 +32,72 @@ impl From<(u32, Location)> for EagerMergeKey {
     }
 }
 
+/// Fold key for a branch after eager-compose resolution: the resolved source
+/// plus the remapped surviving-arm location vector. Mirrors `merge_branches`,
+/// which keys a fold on the arm `locations` vector alone: the umbrella `loc`
+/// and the `branch_type` are excluded so two branches that widen to one
+/// original arm vector share a counter even when their umbrella or type
+/// differ, exactly as the canonicalizing merge folds them.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct BranchKey {
+    source: u32,
+    arms: Vec<(u32, u32, u32, u32)>,
+}
+
+/// One branch arm collected before the umbrella id is chosen. `location_span`
+/// is the istanbul-reported range; `body_span` is the v8 side-table range,
+/// equal to `location_span` for every arm except if-arm 0 and the else-arm.
+pub(super) struct PendingArm {
+    pub(super) location_span: Span,
+    pub(super) body_span: Span,
+}
+
+impl PendingArm {
+    /// Arm whose reported location and v8 body span coincide, the common case.
+    pub(super) const fn new(span: Span) -> Self {
+        Self { location_span: span, body_span: span }
+    }
+
+    /// Arm whose istanbul-reported location and v8 body span differ (if-arm 0
+    /// and the else-arm).
+    pub(super) const fn with_body(location_span: Span, body_span: Span) -> Self {
+        Self { location_span, body_span }
+    }
+}
+
+/// A branch whose arms are collected but whose id is not yet assigned.
+pub(super) struct PendingBranch {
+    pub(super) branch_type: &'static str,
+    pub(super) umbrella_span: Span,
+    /// `false` for logical binary-expr, optional-chain and logical-assignment,
+    /// whose arm vector must match the wrapped leaves / fixed helper indices
+    /// one for one, so an arm is never individually dropped. `true` elsewhere.
+    pub(super) gate_arms: bool,
+    pub(super) arms: Vec<PendingArm>,
+}
+
+/// The umbrella id and per-input-arm surviving slot returned by
+/// [`CoverageTransform::register_branch`].
+pub(super) struct BranchRegistration {
+    pub(super) branch_id: usize,
+    /// `path_indices[k]` is the slot for input arm `k`, or `None` when the
+    /// per-arm gate dropped it. Contiguous over surviving arms; on a dedup hit
+    /// these index the shared entry's arms, which coincide one for one by
+    /// construction of the fold key.
+    path_indices: Vec<Option<usize>>,
+}
+
+impl BranchRegistration {
+    /// Slot for input arm `k`, if it survived.
+    pub(super) fn slot(&self, arm: usize) -> Option<usize> {
+        self.path_indices[arm]
+    }
+}
+
+const fn location_parts(loc: &Location) -> (u32, u32, u32, u32) {
+    (loc.start.line, loc.start.column, loc.end.line, loc.end.column)
+}
+
 impl CoverageTransform<'_, '_> {
     /// Whether an istanbul `Location` survives `getMapping` resolution through
     /// the eager-compose input source map, which is the same decision the
@@ -49,7 +115,7 @@ impl CoverageTransform<'_, '_> {
         self.eager_remapper.as_ref().and_then(|r| r.remap_location(loc)).map(EagerMergeKey::from)
     }
 
-    pub(super) fn span_to_location(&self, span: Span) -> Location {
+    fn span_to_location(&self, span: Span) -> Location {
         Location {
             start: self.offset_to_position(span.start),
             end: self.offset_to_position(span.end),
@@ -98,6 +164,20 @@ impl CoverageTransform<'_, '_> {
         if let Some(key) = &key
             && let Some(&id) = self.eager_function_ids.get(key)
         {
+            // The deferred merge drops the whole `x_fallow_functionMap` overlay
+            // when two functions fold onto one decl with differing identities
+            // (`merge_functions` via `function_identities_equal`). Two distinct
+            // AST functions always sit at distinct generated decl positions, so
+            // any real fold is a conflict; record it field-for-field on the
+            // same inputs the deferred comparison uses so `finalize` drops the
+            // overlay exactly when the deferred path would.
+            if let Some(existing) = self.fn_map.get(id)
+                && (existing.name != name
+                    || location_parts(&existing.decl) != location_parts(&decl)
+                    || location_parts(&existing.loc) != location_parts(&loc))
+            {
+                self.eager_function_overlay_conflict = true;
+            }
             return Some(id);
         }
         let id_num = self.fn_map.len();
@@ -136,85 +216,88 @@ impl CoverageTransform<'_, '_> {
         Some(id_num)
     }
 
-    /// Register a branch umbrella entry. In eager mode returns `None` when the
-    /// umbrella `loc` start/end fails to remap, mirroring the `prune_branches`
-    /// outer-loc rule: nothing is pushed and the caller must skip every counter
-    /// under this branch. Outside eager mode this always returns `Some`.
-    pub(super) fn add_branch(&mut self, branch_type: &str, span: Span) -> Option<usize> {
-        let loc = self.span_to_location(span);
-        if !self.location_maps(&loc) {
+    /// The eager fold key for a branch: `Some` only in eager mode when every
+    /// surviving arm remaps to one shared source, mirroring the single-source
+    /// arm vector `merge_branches` folds on. `None` (no fold, fresh id) outside
+    /// eager mode, when any arm fails to remap, or when arms span more than one
+    /// source. A `None` key never over-folds relative to the deferred path,
+    /// which within one output file only ever merges a single source.
+    fn eager_branch_key(&self, surviving_locs: &[Location]) -> Option<BranchKey> {
+        let remapper = self.eager_remapper.as_ref()?;
+        let mut source = None;
+        let mut arms = Vec::with_capacity(surviving_locs.len());
+        for loc in surviving_locs {
+            let (arm_source, mapped) = remapper.remap_location(loc)?;
+            if *source.get_or_insert(arm_source) != arm_source {
+                return None;
+            }
+            arms.push(location_parts(&mapped));
+        }
+        Some(BranchKey { source: source?, arms })
+    }
+
+    /// Register a branch whose arms are already collected, returning the
+    /// umbrella id and the surviving slot per input arm. `None` when the branch
+    /// is not instrumented at all: the umbrella `loc` fails to remap (the
+    /// `prune_branches` outer-loc rule), or, in eager mode, no arm survives the
+    /// per-arm gate. The single source of the gate, the fold and the dedup for
+    /// every branch type.
+    ///
+    /// Outside eager mode this always allocates a fresh id, keeps every arm and
+    /// pushes one entry, so it is byte-identical to the former `add_branch` plus
+    /// per-arm push it replaces, including the empty entry a zero-arm switch
+    /// pushes to preserve the id-burn `build_file_coverage` relies on. In eager
+    /// mode a branch whose remapped surviving-arm vector collides with an
+    /// earlier one gets that entry's id and pushes nothing, so both branches'
+    /// arm counters sum onto the shared slot the way `merge_branches` sums them.
+    pub(super) fn register_branch(&mut self, pending: PendingBranch) -> Option<BranchRegistration> {
+        let PendingBranch { branch_type, umbrella_span, gate_arms, arms } = pending;
+        let umbrella = self.span_to_location(umbrella_span);
+        if !self.location_maps(&umbrella) {
             return None;
         }
-        let id_num = self.branch_map.len();
-        let line = loc.start.line;
+        let mut path_indices = Vec::with_capacity(arms.len());
+        let mut surviving_locs = Vec::new();
+        let mut body_spans = Vec::new();
+        for arm in &arms {
+            let loc = self.span_to_location(arm.location_span);
+            if gate_arms && !self.location_maps(&loc) {
+                path_indices.push(None);
+                continue;
+            }
+            path_indices.push(Some(surviving_locs.len()));
+            surviving_locs.push(loc);
+            body_spans.push((arm.body_span.start, arm.body_span.end));
+        }
+        // A branch whose arms all fail to remap is dropped on the deferred path
+        // (`prune_single_source_unmapped` / `fan_out_branches`), even when its
+        // umbrella maps; returning `None` instruments nothing and consumes no
+        // id, matching that drop and keeping the eager `branchMap` ids
+        // contiguous. Only reachable in eager mode: outside it `location_maps`
+        // never rejects an arm, so an all-cases-ignored switch still falls
+        // through to the empty push below.
+        if self.eager_remapper.is_some() && surviving_locs.is_empty() {
+            return None;
+        }
+        let key = self.eager_branch_key(&surviving_locs);
+        if let Some(key) = &key
+            && let Some(&branch_id) = self.eager_branch_ids.get(key)
+        {
+            return Some(BranchRegistration { branch_id, path_indices });
+        }
+        let branch_id = self.branch_map.len();
+        if let Some(key) = key {
+            self.eager_branch_ids.insert(key, branch_id);
+        }
+        let line = umbrella.start.line;
         self.branch_map.push(BranchEntry {
-            loc,
+            loc: umbrella,
             line,
             branch_type: branch_type.to_string(),
-            locations: Vec::new(),
+            locations: surviving_locs,
         });
-        self.branch_arm_body_byte_spans.push(Vec::new());
-        Some(id_num)
-    }
-
-    /// Register a branch arm. In eager mode returns `None` when the location
-    /// span's start/end fails to remap; the arm is then not pushed, so a
-    /// partially-unmapped branch keeps only its mapped arms with contiguous
-    /// indices. The caller must skip the arm's counter on `None`. Outside eager
-    /// mode this always returns `Some`.
-    pub(super) fn add_branch_path(&mut self, branch_id: usize, span: Span) -> Option<usize> {
-        let location = self.span_to_location(span);
-        if !self.location_maps(&location) {
-            return None;
-        }
-        Some(self.add_branch_path_location(branch_id, location, (span.start, span.end)))
-    }
-
-    pub(super) fn add_logical_leaf_paths(&mut self, branch_id: usize, leaf_spans: Vec<Span>) {
-        for span in leaf_spans {
-            // The per-arm gate is bypassed deliberately: leaf wrapping advances
-            // `path_idx` per leaf and requires the arm vec to match the wrapped
-            // leaves one for one.
-            let location = self.span_to_location(span);
-            self.add_branch_path_location(branch_id, location, (span.start, span.end));
-        }
-    }
-
-    /// Record a branch arm whose istanbul-reported location and the underlying
-    /// AST body span differ. Today this is only the if-arm 0 case (istanbul
-    /// reports the whole `IfStatement`; the body is the consequent statement).
-    /// Gating mirrors [`Self::add_branch_path`] (on the location span).
-    pub(super) fn add_branch_path_with_body(
-        &mut self,
-        branch_id: usize,
-        location_span: Span,
-        body_span: Span,
-    ) -> Option<usize> {
-        let location = self.span_to_location(location_span);
-        if !self.location_maps(&location) {
-            return None;
-        }
-        Some(self.add_branch_path_location(branch_id, location, (body_span.start, body_span.end)))
-    }
-
-    pub(super) fn add_branch_path_location(
-        &mut self,
-        branch_id: usize,
-        location: Location,
-        body_byte_span: (u32, u32),
-    ) -> usize {
-        let entry = self
-            .branch_map
-            .get_mut(branch_id)
-            .expect("branch path must reference an existing branch");
-        let path_idx = entry.locations.len();
-        entry.locations.push(location);
-        let body_spans = self
-            .branch_arm_body_byte_spans
-            .get_mut(branch_id)
-            .expect("branch arm body span vec must exist for every branch id");
-        body_spans.push(body_byte_span);
-        path_idx
+        self.branch_arm_body_byte_spans.push(body_spans);
+        Some(BranchRegistration { branch_id, path_indices })
     }
 }
 

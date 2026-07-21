@@ -11,7 +11,7 @@ use oxc_traverse::TraverseCtx;
 use crate::pragma::{IgnoreType, PragmaMap};
 
 use super::counters::{CounterKind, dummy_expr, index_literal, prepend_counter};
-use super::coverage_map::is_synthetic_span;
+use super::coverage_map::{PendingArm, PendingBranch, is_synthetic_span};
 use super::{CoverageState, CoverageTransform};
 
 impl<'arena> CoverageTransform<'_, 'arena> {
@@ -46,25 +46,29 @@ impl<'arena> CoverageTransform<'_, 'arena> {
                     return;
                 }
 
-                // The eager gate applies at the whole-branch level only. Leaf
-                // wrapping advances `path_idx` per leaf and requires
-                // `b[id].len()` to equal the number of wrapped leaves, so
-                // gating a single leaf would desync the two: either the branch
-                // is kept and every leaf is wrapped and registered, or the
-                // umbrella is skipped and none are.
-                let Some(branch_id) = self.add_branch("binary-expr", expr.span) else {
+                // `gate_arms: false`: leaf wrapping advances `path_idx` per
+                // leaf and requires `b[id].len()` to equal the number of
+                // wrapped leaves, so no leaf is ever individually dropped.
+                // Either the branch is kept and every leaf is wrapped and
+                // registered, or the umbrella is skipped and none are.
+                let arms = leaf_spans.into_iter().map(PendingArm::new).collect();
+                let Some(reg) = self.register_branch(PendingBranch {
+                    branch_type: "binary-expr",
+                    umbrella_span: expr.span,
+                    gate_arms: false,
+                    arms,
+                }) else {
                     return;
                 };
-                self.add_logical_leaf_paths(branch_id, leaf_spans);
 
                 if self.report_logic {
-                    self.logical_branch_ids.push(branch_id);
+                    self.logical_branch_ids.push(reg.branch_id);
                 }
 
                 let mut state = LogicalWrapState::new(
                     self.cov_fn_name,
                     self.cov_fn_bt_name,
-                    branch_id,
+                    reg.branch_id,
                     self.report_logic,
                 );
                 wrap_logical_leaves(expr, &mut state, ctx);
