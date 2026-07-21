@@ -21,6 +21,7 @@ workspace = true
 doctest = true
 
 [features]
+ast-api = []
 codspeed = ["criterion2/codspeed"]
 
 [dependencies]

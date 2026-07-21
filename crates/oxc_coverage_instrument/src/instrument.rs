@@ -383,6 +383,27 @@ pub struct InstrumentResult {
     pub unhandled_pragmas: Vec<UnhandledPragma>,
 }
 
+/// Result of the experimental AST-level instrumentation entry point.
+///
+/// The program contains coverage counters after the call, but not the coverage
+/// setup preamble. A host must insert or emit `preamble` after the source's
+/// hashbang and directive prologue, then update semantic state for that new
+/// declaration. `scoping` describes the counter-mutated program before that
+/// host-owned insertion.
+pub struct InstrumentProgramResult {
+    /// Semantic scoping returned by `oxc_traverse` after counter injection.
+    pub scoping: Scoping,
+    /// Istanbul-compatible coverage metadata for the mutated program.
+    pub coverage_map: FileCoverage,
+    /// Pre-serialized form of `coverage_map` used by the setup preamble.
+    pub coverage_map_json: String,
+    /// Coverage setup source to insert after hashbang and directives. `None`
+    /// when an ignore-file pragma suppresses the whole program.
+    pub preamble: Option<String>,
+    /// Coverage pragma comments that were found but not handled.
+    pub unhandled_pragmas: Vec<UnhandledPragma>,
+}
+
 /// Check whether a string is a valid JavaScript identifier (ASCII subset).
 fn is_valid_js_identifier(s: &str) -> bool {
     !s.is_empty()
@@ -437,43 +458,50 @@ pub fn instrument(
     let mut parsed = parse_program(&allocator, source, filename, options.source_type)?;
 
     let (pragmas, unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
-    if pragmas.ignore_file && !options.strip_typescript {
-        return Ok(empty_coverage_result(filename, source, unhandled_pragmas));
-    }
-
     let scoping = prepare_scoping(PrepareScopingInput {
         allocator: &allocator,
         filename,
         program: &mut parsed.program,
         options,
     })?;
-    if pragmas.ignore_file {
-        let (code, _) =
-            emit_code(EmitInputs { program: &parsed.program, scoping, source, filename, options });
-        return Ok(empty_coverage_result(filename, &code, unhandled_pragmas));
-    }
-    let cov_fn_base = generate_cov_fn_name(filename);
-    let cov_fn_name = resolve_cov_fn_name(&cov_fn_base, &scoping);
-
-    let (transform, _scoping) = run_coverage_transform(CoverageTransformRun {
+    let program_result = instrument_program_with_pragmas(InstrumentProgramInput {
         allocator: &allocator,
         program: &mut parsed.program,
         scoping,
         pragmas,
+        unhandled_pragmas,
         source,
-        cov_fn_name: &cov_fn_name,
+        filename,
         options,
-    });
+    })?;
+    let InstrumentProgramResult {
+        scoping,
+        coverage_map,
+        coverage_map_json,
+        preamble,
+        unhandled_pragmas,
+    } = program_result;
 
-    let needs_optional_chain_helper = transform.used_optional_chain_helper;
-    let coverage_map = finalize_coverage_map(filename, transform, options);
-
-    let (coverage_json, preamble) = build_instrument_preamble(
-        &coverage_map,
-        options,
-        &cov_fn_name,
-        needs_optional_chain_helper,
-    );
+    let Some(preamble) = preamble else {
+        if !options.strip_typescript {
+            return Ok(InstrumentResult {
+                code: source.to_string(),
+                coverage_map,
+                coverage_map_json,
+                source_map: None,
+                unhandled_pragmas,
+            });
+        }
+        let (code, _) =
+            emit_code(EmitInputs { program: &parsed.program, scoping, source, filename, options });
+        return Ok(InstrumentResult {
+            code,
+            coverage_map,
+            coverage_map_json,
+            source_map: None,
+            unhandled_pragmas,
+        });
+    };
     let scoping = inject_preamble(&allocator, &mut parsed.program, &preamble);
 
     let (code, raw_source_map) =
@@ -482,12 +510,140 @@ pub fn instrument(
         .as_deref()
         .map(|sm| finalize_source_map(sm, options.input_source_map.as_deref()));
 
-    Ok(InstrumentResult {
-        code,
-        coverage_map,
-        coverage_map_json: coverage_json,
-        source_map,
+    Ok(InstrumentResult { code, coverage_map, coverage_map_json, source_map, unhandled_pragmas })
+}
+
+struct InstrumentProgramInput<'src, 'arena, 'a> {
+    allocator: &'arena Allocator,
+    program: &'a mut Program<'arena>,
+    scoping: Scoping,
+    pragmas: PragmaMap,
+    unhandled_pragmas: Vec<UnhandledPragma>,
+    source: &'src str,
+    filename: &'a str,
+    options: &'a InstrumentOptions,
+}
+
+fn instrument_program_with_pragmas(
+    input: InstrumentProgramInput<'_, '_, '_>,
+) -> Result<InstrumentProgramResult, InstrumentError> {
+    let InstrumentProgramInput {
+        allocator,
+        program,
+        scoping,
+        pragmas,
         unhandled_pragmas,
+        source,
+        filename,
+        options,
+    } = input;
+    validate_coverage_variable(options)?;
+    if pragmas.ignore_file {
+        let coverage_map = empty_coverage(filename);
+        let coverage_map_json = serialize_coverage_map(&coverage_map);
+        return Ok(InstrumentProgramResult {
+            scoping,
+            coverage_map,
+            coverage_map_json,
+            preamble: None,
+            unhandled_pragmas,
+        });
+    }
+
+    let cov_fn_base = generate_cov_fn_name(filename);
+    let cov_fn_name = resolve_cov_fn_name(&cov_fn_base, &scoping);
+    let (transform, scoping) = run_coverage_transform(CoverageTransformRun {
+        allocator,
+        program,
+        scoping,
+        pragmas,
+        source,
+        cov_fn_name: &cov_fn_name,
+        options,
+    });
+    let needs_optional_chain_helper = transform.used_optional_chain_helper;
+    let coverage_map = finalize_coverage_map(filename, transform, options);
+    let (coverage_map_json, preamble) = build_instrument_preamble(
+        &coverage_map,
+        options,
+        &cov_fn_name,
+        needs_optional_chain_helper,
+    );
+
+    Ok(InstrumentProgramResult {
+        scoping,
+        coverage_map,
+        coverage_map_json,
+        preamble: Some(preamble),
+        unhandled_pragmas,
+    })
+}
+
+/// Inject coverage counters into a host-owned Oxc program without parsing or
+/// code generation.
+///
+/// The supplied `scoping` must describe `program`, and every program span must
+/// refer to `source_text`. The host remains responsible for TypeScript or JSX
+/// lowering; parser and output options on [`InstrumentOptions`] do not run
+/// those phases here. Coverage-shape, source-map composition and naming options
+/// still apply.
+///
+/// The returned `preamble` is source metadata rather than an AST fragment. It
+/// must be inserted or emitted after the program's hashbang and directives.
+/// Rebuild semantic state after inserting it, because it declares the binding
+/// referenced by the injected counters.
+///
+/// # Errors
+///
+/// Returns [`InstrumentError::InvalidCoverageVariable`] when the configured
+/// coverage variable is not a valid JavaScript identifier.
+///
+/// # Example
+///
+/// ```
+/// use oxc_allocator::Allocator;
+/// use oxc_coverage_instrument::{InstrumentOptions, instrument_program};
+/// use oxc_parser::Parser;
+/// use oxc_semantic::SemanticBuilder;
+/// use oxc_span::SourceType;
+///
+/// let source = "function answer() { return 42; }";
+/// let allocator = Allocator::default();
+/// let mut parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
+/// assert!(!parsed.diagnostics.has_errors());
+/// let scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
+/// let result = instrument_program(
+///     &allocator,
+///     &mut parsed.program,
+///     scoping,
+///     source,
+///     "answer.js",
+///     &InstrumentOptions::default(),
+/// )?;
+///
+/// assert!(result.preamble.is_some());
+/// assert_eq!(result.coverage_map.fn_map["0"].name, "answer");
+/// # Ok::<(), oxc_coverage_instrument::InstrumentError>(())
+/// ```
+#[cfg(feature = "ast-api")]
+pub fn instrument_program<'arena>(
+    allocator: &'arena Allocator,
+    program: &mut Program<'arena>,
+    scoping: Scoping,
+    source_text: &str,
+    filename: &str,
+    options: &InstrumentOptions,
+) -> Result<InstrumentProgramResult, InstrumentError> {
+    let (pragmas, unhandled_pragmas) = PragmaMap::from_program(program, source_text);
+    instrument_program_with_pragmas(InstrumentProgramInput {
+        allocator,
+        program,
+        scoping,
+        pragmas,
+        unhandled_pragmas,
+        source: source_text,
+        filename,
+        options,
     })
 }
 
@@ -744,22 +900,6 @@ fn empty_coverage(filename: &str) -> FileCoverage {
         branch_entries: Vec::new(),
         logical_branch_ids: Vec::new(),
     })
-}
-
-fn empty_coverage_result(
-    filename: &str,
-    source: &str,
-    unhandled_pragmas: Vec<UnhandledPragma>,
-) -> InstrumentResult {
-    let coverage_map = empty_coverage(filename);
-    let coverage_map_json = serialize_coverage_map(&coverage_map);
-    InstrumentResult {
-        code: source.to_string(),
-        coverage_map,
-        coverage_map_json,
-        source_map: None,
-        unhandled_pragmas,
-    }
 }
 
 fn build_coverage_map(

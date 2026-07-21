@@ -3,6 +3,8 @@
 //! counter, coverage pragmas, raw TypeScript input, source-map composition,
 //! V8-to-Istanbul conversion, and the fixture and conformance corpora.
 
+#[cfg(feature = "ast-api")]
+mod ast_api;
 mod callback_argument_names;
 mod common;
 mod compat_profile;

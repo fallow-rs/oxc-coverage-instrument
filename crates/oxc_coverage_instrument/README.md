@@ -67,6 +67,29 @@ for (path, coverage) in &map {
 }
 ```
 
+### Experimental AST API
+
+Enable the `ast-api` crate feature to instrument a `Program` and `Scoping`
+already owned by an Oxc host. `instrument_program` injects counters into that
+AST and returns the updated scoping, coverage map, serialized map, unhandled
+pragmas, and setup preamble. It does not parse or generate code.
+
+The host owns the surrounding pipeline. TypeScript and JSX must already be in
+the intended transform state, and parser or output options do not run those
+phases inside this entry point. The returned preamble is source metadata, not an
+AST fragment. Insert or emit it after the hashbang and directive prologue, then
+rebuild semantic state so its declaration is connected to the injected counter
+references.
+
+```toml
+[dependencies]
+oxc_coverage_instrument = { version = "0.11", features = ["ast-api"] }
+```
+
+The source-to-source `instrument` function uses the same internal AST pass and
+continues to own parsing, optional TypeScript lowering, preamble insertion,
+codegen, and output source-map generation.
+
 ### Composing the input source map eagerly
 
 The default flow is lazy: `instrument()` embeds the `inputSourceMap` and a

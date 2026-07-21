@@ -36,6 +36,8 @@
 //! in the README. Set [`InstrumentOptions::compat`] to
 //! [`CompatProfile::Istanbul`] for strict `istanbul-lib-instrument` parity.
 //! The fields whose semantics do not fit on a single line are expanded below.
+//! An experimental host-owned AST entry point is available with the `ast-api`
+//! crate feature. The default feature set exposes only the source-to-source API.
 //!
 //! ### Composing an input source map
 //!
@@ -128,6 +130,8 @@ pub use instrument::{
     CompatProfile, DecoratorMode, InstrumentError, InstrumentOptions, InstrumentResult,
     InstrumentSourceType, instrument,
 };
+#[cfg(feature = "ast-api")]
+pub use instrument::{InstrumentProgramResult, instrument_program};
 pub use oxc_coverage_source_maps::{
     PositionRemapper, RemapOptions, SourceMapStore, remap_coverage, remap_coverage_map,
     remap_coverage_map_with_loader, remap_coverage_map_with_loader_and_options,

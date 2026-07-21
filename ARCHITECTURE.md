@@ -104,6 +104,12 @@ instrumenting source, it fills the hit-count vectors of a `FileCoverage` from V8
 inspector ranges, so V8-collected data joins the pipeline at the same place
 runtime-collected `__coverage__` does.
 
+With the experimental `ast-api` feature, an Oxc host can enter the first box at
+the transform boundary. `instrument_program` accepts a host-owned `Program` and
+`Scoping`, mutates the AST with counters, and returns coverage metadata plus the
+setup preamble. Parsing, TypeScript or JSX lowering, preamble insertion,
+semantic rebuilding, and code generation remain owned by the host.
+
 `oxc_coverage_instrument` re-exports the remap, V8, and data-model surfaces, so a
 consumer that only needs the default path can depend on that one crate.
 
