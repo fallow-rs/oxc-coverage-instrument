@@ -3,13 +3,11 @@
 // Run: node scripts/compare-istanbul.mjs
 
 import { createInstrumenter } from 'istanbul-lib-instrument';
-import { readFileSync, writeFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { mkdtempSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = join(__dirname, '..');
-const fixturesDir = join(root, 'tests', 'fixtures');
+const outDir = mkdtempSync(join(tmpdir(), 'istanbul-reference-'));
 
 // Simple JS fixtures for structural comparison
 const simpleFixtures = [
@@ -75,8 +73,9 @@ for (const { name, source } of simpleFixtures) {
 }
 
 // Write reference output for Rust-side comparison
-writeFileSync('/tmp/istanbul-reference-output.json', JSON.stringify(details, null, 2));
-console.log('Reference output: /tmp/istanbul-reference-output.json');
+const referencePath = join(outDir, 'istanbul-reference-output.json');
+writeFileSync(referencePath, JSON.stringify(details, null, 2));
+console.log(`Reference output: ${referencePath}`);
 
 // Full coverage maps
 const fullMaps = {};
@@ -85,21 +84,6 @@ for (const { name, source } of simpleFixtures) {
     fullMaps[name] = instrumentWithIstanbul(source, `${name}.js`);
   } catch {}
 }
-writeFileSync('/tmp/istanbul-full-coverage-maps.json', JSON.stringify(fullMaps, null, 2));
-console.log('Full maps: /tmp/istanbul-full-coverage-maps.json\n');
-
-// Performance
-console.log('=== Performance: Istanbul-lib-instrument ===\n');
-const perfSource = readFileSync(join(fixturesDir, 'medium-app.js'), 'utf-8');
-const iterations = 1000;
-const start = performance.now();
-for (let i = 0; i < iterations; i++) {
-  instrumentWithIstanbul(perfSource, 'medium-app.js');
-}
-const elapsed = performance.now() - start;
-const avgMs = elapsed / iterations;
-const throughputMiBs = (perfSource.length / 1024 / 1024) / (avgMs / 1000);
-console.log(`File: medium-app.js (${(perfSource.length / 1024).toFixed(1)} KB)`);
-console.log(`${iterations} iterations in ${elapsed.toFixed(0)}ms`);
-console.log(`Average: ${avgMs.toFixed(3)}ms per file`);
-console.log(`Throughput: ${throughputMiBs.toFixed(1)} MiB/s`);
+const fullMapsPath = join(outDir, 'istanbul-full-coverage-maps.json');
+writeFileSync(fullMapsPath, JSON.stringify(fullMaps, null, 2));
+console.log(`Full maps: ${fullMapsPath}`);

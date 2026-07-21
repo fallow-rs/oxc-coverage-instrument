@@ -7,13 +7,11 @@ import { spawnSync } from 'node:child_process';
 import {
   copyFileSync,
   existsSync,
-  mkdtempSync,
   readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -121,7 +119,6 @@ console.log('Testing patch-wasi-browser-shim.mjs...\n');
 
 // Test 4: malformed shim (no import block) errors loudly
 {
-  const tmp = mkdtempSync(join(tmpdir(), 'patch-shim-test-'));
   let backup = null;
   if (existsSync(REAL_SHIM)) {
     backup = `${REAL_SHIM}.test-backup`;
@@ -143,7 +140,6 @@ console.log('Testing patch-wasi-browser-shim.mjs...\n');
       copyFileSync(backup, REAL_SHIM);
       rmSync(backup);
     }
-    rmSync(tmp, { recursive: true, force: true });
   }
 }
 

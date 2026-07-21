@@ -44,7 +44,7 @@ const danglingRefs = (code, map) => {
   const out = {};
   for (const kind of ['s', 'f', 'b']) {
     const refs = [...new Set([...code.matchAll(new RegExp(`\\.${kind}\\[(\\d+)\\]`, 'g'))].map((m) => m[1]))];
-    out[kind] = refs.filter((id) => !(id in map[{ s: 's', f: 'f', b: 'b' }[kind]]));
+    out[kind] = refs.filter((id) => !(id in map[kind]));
   }
   return out;
 };
