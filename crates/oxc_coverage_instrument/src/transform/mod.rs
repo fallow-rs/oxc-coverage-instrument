@@ -48,7 +48,7 @@
 //! - `logical.rs`: logical-chain flattening and per-leaf counter wrapping.
 //! - `names.rs`: `fnMap` name inference from declarations, bindings, property
 //!   keys, assignment targets and call arguments.
-//! - `preamble.rs`: the per-file coverage-object IIFE prepended to the output.
+//! - `preamble.rs`: the per-file coverage-object IIFE inserted after directives.
 //! - `statements.rs`: statement-counter placement, including the hoists that
 //!   keep `Function.name` inference intact.
 

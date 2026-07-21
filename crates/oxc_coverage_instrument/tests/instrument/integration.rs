@@ -728,6 +728,41 @@ fn source_map_accounts_for_preamble_offset() {
     );
 }
 
+#[test]
+fn source_map_preserves_mappings_before_preamble_insertion() {
+    let source = "#!/usr/bin/env node\n\"use strict\";\nconsole.log('mapped');";
+    let opts = InstrumentOptions { source_map: true, ..InstrumentOptions::default() };
+    let result = instrument(source, "test.js", &opts).unwrap();
+    let lines: Vec<_> = result.code.lines().collect();
+    assert_eq!(lines[0], "#!/usr/bin/env node");
+    assert_eq!(lines[1], "\"use strict\";");
+    assert!(lines[2].starts_with("var cov_"));
+
+    let sm =
+        oxc_sourcemap::SourceMap::from_json_string(result.source_map.as_ref().unwrap()).unwrap();
+    let tokens: Vec<_> = sm.get_tokens().collect();
+    let directive_line = u32::try_from(
+        lines.iter().position(|line| *line == "\"use strict\";").expect("directive is emitted"),
+    )
+    .unwrap();
+    let statement_line = u32::try_from(
+        lines.iter().position(|line| line.contains("console.log")).expect("statement is emitted"),
+    )
+    .unwrap();
+    assert!(
+        tokens
+            .iter()
+            .any(|token| token.get_dst_line() == directive_line && token.get_src_line() == 1),
+        "directive mapping must stay before the inserted preamble"
+    );
+    assert!(
+        tokens
+            .iter()
+            .any(|token| token.get_dst_line() == statement_line && token.get_src_line() == 2),
+        "statement mapping must move with the generated statement"
+    );
+}
+
 // Error handling
 
 #[test]
@@ -1318,7 +1353,7 @@ fn preamble_invokes_setup_once_and_counters_use_cached_coverage() {
     let cov_end = result.code[cov_start..].find(' ').unwrap() + cov_start;
     let cov_name = &result.code[cov_start..cov_end];
     assert!(
-        result.code.contains("return actualCoverage;\n})();"),
+        result.code.contains("return actualCoverage; })();"),
         "coverage setup should be invoked once in the preamble"
     );
     assert!(

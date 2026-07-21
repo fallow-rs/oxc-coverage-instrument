@@ -6,6 +6,12 @@
 use oxc_coverage_instrument::{InstrumentError, V8ToIstanbulError};
 
 #[test]
+fn preamble_error_display_includes_placement_diagnostic() {
+    let err = InstrumentError::PreambleError("output ended before insertion".to_string());
+    assert_eq!(err.to_string(), "coverage preamble error: output ended before insertion");
+}
+
+#[test]
 fn transform_error_display_format() {
     let err = InstrumentError::TransformError(vec![
         "unsupported syntax at line 5".to_string(),

@@ -88,7 +88,9 @@ oxc_coverage_instrument = { version = "0.11", features = ["ast-api"] }
 
 The source-to-source `instrument` function uses the same internal AST pass and
 continues to own parsing, optional TypeScript lowering, preamble insertion,
-codegen, and output source-map generation.
+codegen, and output source-map generation. It inserts the emitted setup after
+the hashbang and directive prologue, then shifts only the following generated
+source-map lines. The setup does not require another parse or semantic pass.
 
 ### Composing the input source map eagerly
 

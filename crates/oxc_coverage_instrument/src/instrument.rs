@@ -3,14 +3,13 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use oxc_allocator::{Allocator, Vec as ArenaVec};
+use oxc_allocator::Allocator;
 use oxc_ast::ast::Program;
-use oxc_ast_visit::VisitMut;
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_coverage_types::{FileCoverage, UnhandledPragma};
 use oxc_parser::{Parser, ParserReturn};
 use oxc_semantic::{Scoping, SemanticBuilder};
-use oxc_span::{SPAN, SourceType, Span};
+use oxc_span::SourceType;
 use oxc_transformer::{
     DecoratorOptions, JsxOptions, TransformOptions, Transformer, TypeScriptOptions,
 };
@@ -435,6 +434,8 @@ fn serialize_coverage_map(coverage_map: &FileCoverage) -> String {
 /// - [`InstrumentError::TransformError`] if
 ///   [`InstrumentOptions::strip_typescript`] is set and the strip pass reports
 ///   an error
+/// - [`InstrumentError::PreambleError`] if the generated coverage setup cannot
+///   be placed after the directive prologue
 ///
 /// # Example
 ///
@@ -492,25 +493,41 @@ pub fn instrument(
                 unhandled_pragmas,
             });
         }
-        let (code, _) =
-            emit_code(EmitInputs { program: &parsed.program, scoping, source, filename, options });
+        let emitted = emit_code(EmitInputs {
+            program: &parsed.program,
+            scoping,
+            source,
+            filename,
+            preamble: None,
+            options,
+        })?;
         return Ok(InstrumentResult {
-            code,
+            code: emitted.code,
             coverage_map,
             coverage_map_json,
             source_map: None,
             unhandled_pragmas,
         });
     };
-    let scoping = inject_preamble(&allocator, &mut parsed.program, &preamble);
+    let emitted = emit_code(EmitInputs {
+        program: &parsed.program,
+        scoping,
+        source,
+        filename,
+        preamble: Some(&preamble),
+        options,
+    })?;
+    let source_map = emitted.source_map.as_deref().map(|sm| {
+        finalize_source_map(sm, emitted.preamble_shift, options.input_source_map.as_deref())
+    });
 
-    let (code, raw_source_map) =
-        emit_code(EmitInputs { program: &parsed.program, scoping, source, filename, options });
-    let source_map = raw_source_map
-        .as_deref()
-        .map(|sm| finalize_source_map(sm, options.input_source_map.as_deref()));
-
-    Ok(InstrumentResult { code, coverage_map, coverage_map_json, source_map, unhandled_pragmas })
+    Ok(InstrumentResult {
+        code: emitted.code,
+        coverage_map,
+        coverage_map_json,
+        source_map,
+        unhandled_pragmas,
+    })
 }
 
 struct InstrumentProgramInput<'src, 'arena, 'a> {
@@ -770,40 +787,6 @@ fn build_instrument_preamble(
         needs_optional_chain_helper,
     });
     (coverage_json, preamble)
-}
-
-fn inject_preamble<'arena>(
-    allocator: &'arena Allocator,
-    program: &mut Program<'arena>,
-    preamble: &str,
-) -> Scoping {
-    let preamble = allocator.alloc_str(preamble);
-    let mut parsed = Parser::new(allocator, preamble, program.source_type).parse();
-    assert!(
-        !parsed.diagnostics.has_errors(),
-        "generated coverage preamble must parse: {:?}",
-        parsed.diagnostics.errors().map(ToString::to_string).collect::<Vec<_>>()
-    );
-
-    ClearSpans.visit_program(&mut parsed.program);
-
-    let mut body = ArenaVec::with_capacity_in(
-        parsed.program.body.len().saturating_add(program.body.len()),
-        &allocator,
-    );
-    body.append(&mut parsed.program.body);
-    body.append(&mut program.body);
-    program.body = body;
-
-    SemanticBuilder::new().build(program).semantic.into_scoping()
-}
-
-struct ClearSpans;
-
-impl VisitMut<'_> for ClearSpans {
-    fn visit_span(&mut self, span: &mut Span) {
-        *span = SPAN;
-    }
 }
 
 struct StripTypescriptInput<'arena, 'a> {
@@ -1068,11 +1051,24 @@ struct EmitInputs<'a, 'arena> {
     scoping: Scoping,
     source: &'a str,
     filename: &'a str,
+    preamble: Option<&'a str>,
     options: &'a InstrumentOptions,
 }
 
-fn emit_code(inputs: EmitInputs<'_, '_>) -> (String, Option<String>) {
-    let EmitInputs { program, scoping, source, filename, options } = inputs;
+struct EmitResult {
+    code: String,
+    source_map: Option<String>,
+    preamble_shift: Option<PreambleShift>,
+}
+
+#[derive(Clone, Copy)]
+struct PreambleShift {
+    insertion_line: u32,
+    line_count: u32,
+}
+
+fn emit_code(inputs: EmitInputs<'_, '_>) -> Result<EmitResult, InstrumentError> {
+    let EmitInputs { program, scoping, source, filename, preamble, options } = inputs;
     let codegen_options = CodegenOptions {
         source_map_path: if options.source_map { Some(PathBuf::from(filename)) } else { None },
         ..CodegenOptions::default()
@@ -1082,7 +1078,52 @@ fn emit_code(inputs: EmitInputs<'_, '_>) -> (String, Option<String>) {
         .with_source_text(source)
         .with_scoping(Some(scoping))
         .build(program);
-    (codegen_ret.code, codegen_ret.map.map(|sm| sm.to_json_string()))
+    let source_map = codegen_ret.map.map(|sm| sm.to_json_string());
+    let Some(preamble) = preamble else {
+        return Ok(EmitResult { code: codegen_ret.code, source_map, preamble_shift: None });
+    };
+    let insertion_line = u32::try_from(
+        usize::from(program.hashbang.is_some()).saturating_add(program.directives.len()),
+    )
+    .map_err(|_| InstrumentError::PreambleError("directive count exceeds u32".to_string()))?;
+    let line_count = u32::try_from(preamble.bytes().filter(|byte| *byte == b'\n').count())
+        .map_err(|_| InstrumentError::PreambleError("setup line count exceeds u32".to_string()))?;
+    if line_count == 0 || !preamble.ends_with('\n') {
+        return Err(InstrumentError::PreambleError(
+            "generated coverage setup must end with a newline".to_string(),
+        ));
+    }
+    let code = insert_preamble(&codegen_ret.code, preamble, insertion_line)?;
+    Ok(EmitResult {
+        code,
+        source_map,
+        preamble_shift: Some(PreambleShift { insertion_line, line_count }),
+    })
+}
+
+fn insert_preamble(
+    code: &str,
+    preamble: &str,
+    insertion_line: u32,
+) -> Result<String, InstrumentError> {
+    let insertion_line = usize::try_from(insertion_line)
+        .map_err(|_| InstrumentError::PreambleError("insertion line exceeds usize".to_string()))?;
+    let insertion_offset = if insertion_line == 0 {
+        0
+    } else {
+        code.match_indices('\n').nth(insertion_line - 1).map(|(offset, _)| offset + 1).ok_or_else(
+            || {
+                InstrumentError::PreambleError(
+                    "generated output ended before the directive prologue".to_string(),
+                )
+            },
+        )?
+    };
+    let mut output = String::with_capacity(code.len().saturating_add(preamble.len()));
+    output.push_str(&code[..insertion_offset]);
+    output.push_str(preamble);
+    output.push_str(&code[insertion_offset..]);
+    Ok(output)
 }
 
 /// If an input source map was provided, compose the generated map with it so
@@ -1091,13 +1132,43 @@ fn emit_code(inputs: EmitInputs<'_, '_>) -> (String, Option<String>) {
 /// Composition is delegated to `srcmap-remapping`, which mirrors the semantics
 /// of `@ampproject/remapping` (the prior art `istanbul-lib-source-maps` and
 /// most JS bundlers also follow).
-fn finalize_source_map(output_json: &str, input_source_map: Option<&str>) -> String {
+fn finalize_source_map(
+    output_json: &str,
+    preamble_shift: Option<PreambleShift>,
+    input_source_map: Option<&str>,
+) -> String {
     // Bridge the codegen source map to srcmap_sourcemap via JSON. Both crates
     // emit the standard source map v3 format, so the round-trip is lossless.
     // Bail out to the raw serialization if the parse ever fails.
-    let Ok(output_sm) = srcmap_sourcemap::SourceMap::from_json(output_json) else {
+    let Ok(mut output_sm) = srcmap_sourcemap::SourceMap::from_json(output_json) else {
         return output_json.to_string();
     };
+    if let Some(shift) = preamble_shift {
+        let mappings = output_sm
+            .all_mappings()
+            .iter()
+            .copied()
+            .map(|mut mapping| {
+                if mapping.generated_line >= shift.insertion_line {
+                    mapping.generated_line =
+                        mapping.generated_line.saturating_add(shift.line_count);
+                }
+                mapping
+            })
+            .collect();
+        output_sm = srcmap_sourcemap::SourceMap::from_parts_with_extensions(
+            output_sm.file.clone(),
+            output_sm.source_root.clone(),
+            output_sm.sources.clone(),
+            output_sm.sources_content.clone(),
+            output_sm.names.clone(),
+            mappings,
+            output_sm.ignore_list.clone(),
+            output_sm.debug_id.clone(),
+            output_sm.scopes.clone(),
+            output_sm.extensions.clone(),
+        );
+    }
 
     if let Some(input_sm_json) = input_source_map
         && let Ok(input_sm) = srcmap_sourcemap::SourceMap::from_json(input_sm_json)
@@ -1119,6 +1190,8 @@ fn finalize_source_map(output_json: &str, input_source_map: Option<&str>) -> Str
 pub enum InstrumentError {
     /// The source could not be parsed.
     ParseError(String),
+    /// The generated coverage setup could not be placed in the emitted output.
+    PreambleError(String),
     /// The coverage variable name is not a valid JavaScript identifier.
     InvalidCoverageVariable(String),
     /// The TypeScript strip pass produced diagnostics. Only emitted when
@@ -1133,6 +1206,7 @@ impl std::fmt::Display for InstrumentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ParseError(msg) => write!(f, "parse error: {msg}"),
+            Self::PreambleError(msg) => write!(f, "coverage preamble error: {msg}"),
             Self::TransformError(msgs) => write!(f, "transform error: {}", msgs.join("; ")),
             Self::InvalidCoverageVariable(name) => {
                 write!(

@@ -25,7 +25,8 @@ pub struct PreambleInputs<'a> {
     pub needs_optional_chain_helper: bool,
 }
 
-/// Generate the preamble as source text, prepended to the emitted code.
+/// Generate the preamble as source text for insertion after the hashbang and
+/// directive prologue in the emitted code.
 ///
 /// The preamble is built as a string rather than as AST nodes, which is what
 /// istanbul-lib-instrument does: the IIFE is fixed apart from the interpolated
