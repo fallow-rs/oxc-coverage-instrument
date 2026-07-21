@@ -21,10 +21,7 @@ pub struct PreambleInputs<'a> {
     pub cov_fn_name: &'a str,
     /// Whether to emit the truthy-value tracking helper (`_bt`).
     pub report_logic: bool,
-    /// Whether to emit the optional-chain link observer (`_oc`). Driven by the
-    /// transform having wrapped a link, not by the branch map carrying an
-    /// `optional-chain` entry: an eager fold can collapse such an entry onto a
-    /// differently-typed one while the emitted `_oc` call stays.
+    /// Whether to emit the optional-chain link observer (`_oc`).
     pub needs_optional_chain_helper: bool,
 }
 

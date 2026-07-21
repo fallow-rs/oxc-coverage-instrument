@@ -85,8 +85,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         };
         let cov_fn = self.cov_fn_name;
 
-        // Consequent first, then else: the same mutation order as before, so
-        // the synthesized `else {}` still lands after the consequent counter.
+        // The synthesized `else {}` must land after the consequent counter.
         if let Some(arm) = consequent_arm
             && let Some(path_idx) = reg.slot(arm)
         {
@@ -433,8 +432,6 @@ impl<'arena> CoverageTransform<'_, 'arena> {
             return;
         };
         let branch_id = reg.branch_id;
-        // An `_oc` call is about to be emitted, so the preamble must define the
-        // helper even if this entry later folds onto a differently-typed one.
         self.used_optional_chain_helper = true;
 
         // `cov_fn_oc(<original>, <branch_id>)` observes the value, increments

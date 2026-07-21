@@ -678,10 +678,8 @@ fn finalize_coverage_map(
     let mut coverage_map =
         build_coverage_map(filename, transform, options.input_source_map.as_deref());
     if options.function_identity_overlay {
-        // An eager fold of two functions with differing identities drops the
-        // whole overlay, matching the deferred `merge_functions`; the conflict
-        // is recorded on the transform when the fold happens. Dropping it here,
-        // before composition, keeps the composed result overlay-free.
+        // Dropped before composition, so the composed result is overlay-free
+        // the way the deferred `merge_functions` conflict rule leaves it.
         coverage_map.x_fallow_function_map = (!overlay_conflict)
             .then(|| build_function_identity_map(&coverage_map.path, &coverage_map.fn_map));
     }
