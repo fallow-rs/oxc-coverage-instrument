@@ -54,3 +54,9 @@ name = "instrument"
 harness = false
 test = false
 required-features = ["codspeed"]
+
+[[bench]]
+name = "ast_kernel"
+harness = false
+test = false
+required-features = ["ast-api", "codspeed"]
