@@ -393,7 +393,8 @@ pub fn instrument(
             emit_code(EmitInputs { program: &parsed.program, scoping, source, filename, options });
         return Ok(empty_coverage_result(filename, &code, unhandled_pragmas));
     }
-    let cov_fn_name = generate_cov_fn_name(filename);
+    let cov_fn_base = generate_cov_fn_name(filename);
+    let cov_fn_name = resolve_cov_fn_name(&cov_fn_base, &scoping);
 
     let (transform, _scoping) = run_coverage_transform(CoverageTransformRun {
         allocator: &allocator,
@@ -429,6 +430,39 @@ pub fn instrument(
         source_map,
         unhandled_pragmas,
     })
+}
+
+const COVERAGE_BINDING_SUFFIXES: [&str; 4] = ["", "_bt", "_oc", "_temp"];
+
+fn resolve_cov_fn_name(base: &str, scoping: &Scoping) -> String {
+    if coverage_binding_is_available(base, scoping) {
+        return base.to_string();
+    }
+
+    let mut suffix = 1_u32;
+    loop {
+        let candidate = format!("{base}_{suffix}");
+        if coverage_binding_is_available(&candidate, scoping) {
+            return candidate;
+        }
+        suffix = suffix.checked_add(1).expect("coverage binding suffix space exhausted");
+    }
+}
+
+fn coverage_binding_is_available(candidate: &str, scoping: &Scoping) -> bool {
+    scoping.iter_bindings().all(|(_, bindings)| {
+        bindings.keys().all(|symbol| {
+            COVERAGE_BINDING_SUFFIXES
+                .iter()
+                .all(|suffix| !symbol_is_coverage_binding(symbol.as_str(), candidate, suffix))
+        })
+    })
+}
+
+fn symbol_is_coverage_binding(symbol: &str, candidate: &str, suffix: &str) -> bool {
+    symbol.len() == candidate.len().saturating_add(suffix.len())
+        && symbol.starts_with(candidate)
+        && symbol.ends_with(suffix)
 }
 
 fn validate_coverage_variable(options: &InstrumentOptions) -> Result<(), InstrumentError> {

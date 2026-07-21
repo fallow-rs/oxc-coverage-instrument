@@ -20,6 +20,35 @@ fn run_node_eval(code: &str) -> std::process::Output {
     Command::new("node").arg("--eval").arg(code).output().expect("node must be available")
 }
 
+fn base_coverage_binding(filename: &str) -> String {
+    let code = instrument("", filename, &default_opts()).unwrap().code;
+    let start = code.find("var cov_").expect("coverage binding declaration") + 4;
+    let end = code[start..].find(' ').expect("coverage binding terminator") + start;
+    code[start..end].to_string()
+}
+
+fn run_with_statement_counts(code: &str, filename: &str) -> std::process::Output {
+    let path = serde_json::to_string(filename).unwrap();
+    run_node_eval(&format!(
+        "{code}\nconsole.log(JSON.stringify(globalThis.__coverage__[{path}].s));"
+    ))
+}
+
+fn assert_runtime_counted(output: &std::process::Output) {
+    assert!(
+        output.status.success(),
+        "instrumented runtime failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let counts: serde_json::Value =
+        serde_json::from_str(stdout.lines().last().expect("statement counts line")).unwrap();
+    assert!(
+        counts.as_object().unwrap().values().any(|count| count.as_u64().unwrap_or(0) > 0),
+        "at least one emitted statement counter must increment"
+    );
+}
+
 const ECMASCRIPT_LINE_TERMINATORS: [(&str, &str); 5] =
     [("LF", "\n"), ("CRLF", "\r\n"), ("CR", "\r"), ("LS", "\u{2028}"), ("PS", "\u{2029}")];
 
@@ -1199,6 +1228,65 @@ fn preamble_invokes_setup_once_and_counters_use_cached_coverage() {
         !result.code.contains(&format!("{cov_name}().")),
         "counter sites should not call the coverage setup function"
     );
+}
+
+#[test]
+fn top_level_coverage_binding_collision_is_uniquified() {
+    let filename = "top-level-collision.cjs";
+    let base = base_coverage_binding(filename);
+    let source = format!("let {base} = 7; console.log({base});");
+    let result = instrument(&source, filename, &default_opts()).unwrap();
+    let output = run_with_statement_counts(&result.code, filename);
+
+    assert!(result.code.starts_with(&format!("var {base}_1 =")));
+    assert_runtime_counted(&output);
+}
+
+#[test]
+fn nested_parameter_coverage_binding_collision_is_uniquified() {
+    let filename = "parameter-collision.cjs";
+    let base = base_coverage_binding(filename);
+    let source = format!("function answer({base}) {{ return 42; }} console.log(answer({{}}));");
+    let result = instrument(&source, filename, &default_opts()).unwrap();
+    let output = run_with_statement_counts(&result.code, filename);
+
+    assert!(result.code.starts_with(&format!("var {base}_1 =")));
+    assert_runtime_counted(&output);
+}
+
+#[test]
+fn derived_coverage_helper_collision_uniquifies_base() {
+    let filename = "helper-collision.cjs";
+    let base = base_coverage_binding(filename);
+    let helper = format!("{base}_oc");
+    let source = format!(
+        "function read({helper}, value) {{ return value?.x; }} console.log(read(0, {{ x: 1 }}));"
+    );
+    let result = instrument(&source, filename, &default_opts()).unwrap();
+    let output = run_with_statement_counts(&result.code, filename);
+
+    assert!(result.code.starts_with(&format!("var {base}_1 =")));
+    assert_runtime_counted(&output);
+}
+
+#[test]
+fn non_colliding_coverage_binding_keeps_deterministic_base_name() {
+    let filename = "no-collision.cjs";
+    let base = base_coverage_binding(filename);
+    let result = instrument("console.log('ok');", filename, &default_opts()).unwrap();
+
+    assert!(result.code.starts_with(&format!("var {base} =")));
+}
+
+#[test]
+fn stripped_type_only_binding_does_not_force_coverage_suffix() {
+    let filename = "type-only-collision.ts";
+    let base = base_coverage_binding(filename);
+    let source = format!("type {base} = number; console.log('ok');");
+    let options = InstrumentOptions { strip_typescript: true, ..default_opts() };
+    let result = instrument(&source, filename, &options).unwrap();
+
+    assert!(result.code.starts_with(&format!("var {base} =")));
 }
 
 // Gap analysis: constructs that Istanbul instruments but this crate might miss
