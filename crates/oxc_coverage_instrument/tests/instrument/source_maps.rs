@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 
 use oxc_coverage_instrument::{
     FileCoverage, InstrumentOptions, RemapOptions, SourceMapStore, instrument, parse_coverage_map,
-    remap_coverage, remap_coverage_map, remap_coverage_map_with_loader, remap_coverage_with_loader,
-    remap_coverage_with_options,
+    remap_coverage, remap_coverage_map, remap_coverage_map_with_loader,
+    remap_coverage_map_with_options, remap_coverage_with_loader, remap_coverage_with_options,
 };
 
 /// Three-line TypeScript file post type-strip, with an identity-line source map.
@@ -374,7 +374,11 @@ fn compose_input_source_map_equals_instrument_then_remap() {
     // later remap opportunity. Given that, `remapCoverageMap` on an eager
     // result is a no-op. Every position in `three_line_inputs` maps cleanly, so
     // nothing is dropped here; the drop itself is exercised by
-    // `compose_input_source_map_drops_unmapped_positions` below.
+    // `compose_input_source_map_drops_unmapped_positions` below. The
+    // single-file remap keeps the caller's ids and does not fold entries that
+    // land on one original location, so inputs where spans collapse compare
+    // against `remap_coverage_map_with_options` instead; see the
+    // `compose_merges_*` tests below.
     let (_, intermediate, input_sm) = three_line_inputs();
 
     let eager = instrument(
@@ -405,6 +409,85 @@ fn compose_input_source_map_equals_instrument_then_remap() {
         serde_json::to_value(&lazy).unwrap(),
         "eager compose must equal instrument-then-remap with drop_unmapped"
     );
+}
+
+/// Source map with one `getMapping` segment per line, at column 0 onto the
+/// same original line. Every span on a line then resolves to that line's full
+/// token range, so distinct generated spans collapse onto one original
+/// location.
+fn line_anchored_map(lines: usize, source_content: &str) -> String {
+    let mappings =
+        (0..lines).map(|i| if i == 0 { "AAAA" } else { "AACA" }).collect::<Vec<_>>().join(";");
+    format!(
+        r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{source_content:?}],"mappings":"{mappings}","names":[]}}"#,
+    )
+}
+
+/// Eager compose and canonicalizing remap (`remapCoverageMap` with
+/// `dropUnmapped`) for the same source and input map.
+fn eager_and_canonical_lazy(
+    generated: &str,
+) -> (oxc_coverage_instrument::InstrumentResult, FileCoverage) {
+    let input_sm = line_anchored_map(generated.lines().count(), generated);
+    let eager = instrument(
+        generated,
+        "mod.ts",
+        &InstrumentOptions {
+            input_source_map: Some(input_sm.clone()),
+            compose_input_source_map: true,
+            ..InstrumentOptions::default()
+        },
+    )
+    .unwrap();
+    let lazy_instrumented = instrument(
+        generated,
+        "mod.ts",
+        &InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() },
+    )
+    .unwrap();
+    let mut map = BTreeMap::new();
+    map.insert("mod.ts".to_string(), lazy_instrumented.coverage_map);
+    let mut lazy = remap_coverage_map_with_options(&map, RemapOptions { drop_unmapped: true });
+    (eager, lazy.remove("src/app.ts").expect("lazy remap lands on the original path"))
+}
+
+#[test]
+fn compose_merges_statements_collapsing_to_one_original_location() {
+    // The declaration statement and the arrow's expression-body statement sit
+    // on one generated line whose only mapping segment is at column 0, so
+    // `getMapping` widens both to the same original range. The canonicalizing
+    // remap folds such entries into one; the eager gate must hand both the
+    // same counter id so the baked map matches that fold and the emitted
+    // counters stay consistent with it.
+    let generated = "const pick = (x) => (x > 0 ? 'pos' : 'neg');\nglobalThis.r = pick(1);\n";
+    let (eager, lazy) = eager_and_canonical_lazy(generated);
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.statement_map).unwrap(),
+        serde_json::to_value(&lazy.statement_map).unwrap(),
+        "eager statementMap must equal the canonicalizing remap"
+    );
+    // Both collapsed statements bump the shared slot, and no emitted counter
+    // references an id the map does not carry.
+    assert!(eager.code.contains(".s[0]"), "shared statement counter is emitted");
+    assert!(!eager.code.contains(".s[2]"), "collapsed statements must not claim a third id");
+}
+
+#[test]
+fn compose_merges_functions_collapsing_to_one_original_decl() {
+    // Two arrows whose declarations widen to the same original range. The
+    // canonicalizing remap folds functions by remapped `decl`, so the eager
+    // gate must give the second arrow the first one's counter id.
+    let generated = "const f = () => 1, g = () => 2;\n";
+    let (eager, lazy) = eager_and_canonical_lazy(generated);
+
+    assert_eq!(
+        serde_json::to_value(&eager.coverage_map.fn_map).unwrap(),
+        serde_json::to_value(&lazy.fn_map).unwrap(),
+        "eager fnMap must equal the canonicalizing remap"
+    );
+    assert_eq!(eager.code.matches(".f[0]").count(), 2, "both arrows bump the shared counter");
+    assert!(!eager.code.contains(".f[1]"), "collapsed functions must not claim a second id");
 }
 
 /// Intermediate JS whose first statement maps back to `src/app.ts` but whose

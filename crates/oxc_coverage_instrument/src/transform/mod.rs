@@ -52,6 +52,8 @@
 //! - `statements.rs`: statement-counter placement, including the hoists that
 //!   keep `Function.name` inference intact.
 
+use std::collections::BTreeMap;
+
 use oxc_allocator::{Allocator, Vec as ArenaVec};
 use oxc_ast::ast::*;
 use oxc_coverage_types::{BranchEntry, FnEntry, Location};
@@ -197,6 +199,13 @@ pub struct CoverageTransform<'src, 'arena> {
     /// object and the emitted counters agree. `None` for every non-eager
     /// caller, where gating is a strict no-op.
     eager_remapper: Option<oxc_coverage_source_maps::PositionRemapper>,
+    /// Statement ids already handed out per remapped location, so statements
+    /// that collapse onto one original location under the eager gate share a
+    /// counter. Empty outside eager mode.
+    eager_statement_ids: BTreeMap<coverage_map::EagerMergeKey, usize>,
+    /// Function ids already handed out per remapped `decl` location; the
+    /// function counterpart of `eager_statement_ids`.
+    eager_function_ids: BTreeMap<coverage_map::EagerMergeKey, usize>,
 }
 
 /// Inputs to [`CoverageTransform::new`], grouped so the constructor stays at
@@ -274,6 +283,8 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             logical_branch_ids: Vec::new(),
             pending_class_field_hoists: Vec::new(),
             eager_remapper,
+            eager_statement_ids: BTreeMap::new(),
+            eager_function_ids: BTreeMap::new(),
         }
     }
 }

@@ -7,6 +7,31 @@ use oxc_coverage_types::{BranchEntry, FnEntry, Location, Position};
 
 use super::CoverageTransform;
 
+/// Identity of a coverage point after eager-compose resolution: the resolved
+/// source index plus the remapped original endpoints. Two generated spans with
+/// the same key fold into one entry when the canonicalizing remap merges by
+/// location, so the eager gate hands them one shared counter id up front.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct EagerMergeKey {
+    source: u32,
+    start_line: u32,
+    start_column: u32,
+    end_line: u32,
+    end_column: u32,
+}
+
+impl From<(u32, Location)> for EagerMergeKey {
+    fn from((source, location): (u32, Location)) -> Self {
+        Self {
+            source,
+            start_line: location.start.line,
+            start_column: location.start.column,
+            end_line: location.end.line,
+            end_column: location.end.column,
+        }
+    }
+}
+
 impl CoverageTransform<'_, '_> {
     /// Whether an istanbul `Location` survives `getMapping` resolution through
     /// the eager-compose input source map, which is the same decision the
@@ -16,6 +41,12 @@ impl CoverageTransform<'_, '_> {
     /// is set, so gating is a strict no-op outside eager mode.
     fn location_maps(&self, loc: &Location) -> bool {
         self.eager_remapper.as_ref().is_none_or(|r| r.location_maps(loc))
+    }
+
+    /// The eager merge key for `loc`: `None` outside eager mode, where every
+    /// registration keeps its own id.
+    fn eager_merge_key(&self, loc: &Location) -> Option<EagerMergeKey> {
+        self.eager_remapper.as_ref().and_then(|r| r.remap_location(loc)).map(EagerMergeKey::from)
     }
 
     pub(super) fn span_to_location(&self, span: Span) -> Location {
@@ -47,8 +78,11 @@ impl CoverageTransform<'_, '_> {
     /// Register a function entry. In eager mode returns `None` when any of the
     /// four endpoints (`decl` start/end, `loc` start/end) fails to remap,
     /// mirroring `prune_functions`: the entry is not pushed and the caller must
-    /// skip the function counter. Outside eager mode this always returns
-    /// `Some`.
+    /// skip the function counter. A function whose remapped `decl` collides
+    /// with an earlier one gets that entry's id instead of a new one, matching
+    /// the decl-keyed fold `merge_file_coverage` applies; the shared counter
+    /// then sums the hits the deferred path would merge. Outside eager mode
+    /// this always returns `Some` with a fresh id.
     pub(super) fn add_function(
         &mut self,
         name: String,
@@ -60,7 +94,16 @@ impl CoverageTransform<'_, '_> {
         if !self.location_maps(&decl) || !self.location_maps(&loc) {
             return None;
         }
+        let key = self.eager_merge_key(&decl);
+        if let Some(key) = &key
+            && let Some(&id) = self.eager_function_ids.get(key)
+        {
+            return Some(id);
+        }
         let id_num = self.fn_map.len();
+        if let Some(key) = key {
+            self.eager_function_ids.insert(key, id_num);
+        }
         let line = decl.start.line;
         self.fn_map.push(FnEntry { name, line, decl, loc });
         Some(id_num)
@@ -68,14 +111,27 @@ impl CoverageTransform<'_, '_> {
 
     /// Register a statement location. In eager mode returns `None` when either
     /// endpoint fails to remap, mirroring `prune_statements`: the location is
-    /// not pushed and the caller must skip the statement counter. Outside eager
-    /// mode this always returns `Some`.
+    /// not pushed and the caller must skip the statement counter. A statement
+    /// whose remapped location collides with an earlier one gets that entry's
+    /// id instead of a new one, matching the location-keyed fold
+    /// `merge_file_coverage` applies; the shared counter then sums the hits the
+    /// deferred path would merge. Outside eager mode this always returns `Some`
+    /// with a fresh id.
     pub(super) fn add_statement(&mut self, span: Span) -> Option<usize> {
         let loc = self.span_to_location(span);
         if !self.location_maps(&loc) {
             return None;
         }
+        let key = self.eager_merge_key(&loc);
+        if let Some(key) = &key
+            && let Some(&id) = self.eager_statement_ids.get(key)
+        {
+            return Some(id);
+        }
         let id_num = self.statement_map.len();
+        if let Some(key) = key {
+            self.eager_statement_ids.insert(key, id_num);
+        }
         self.statement_map.push(loc);
         Some(id_num)
     }

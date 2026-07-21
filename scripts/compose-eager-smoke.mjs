@@ -177,10 +177,12 @@ runOnce('mapped head + unmapped boilerplate tail', {
   );
   const lazy = JSON.parse(remapCoverageMap(JSON.stringify({ 'mod.ts': lazyPlain }), { dropUnmapped: true }))['original.ts'];
   const eagerMap = JSON.parse(r.coverageMap);
-  check(
-    'control: eager statementMap == lazy(dropUnmapped)',
-    JSON.stringify(eagerMap.statementMap) === JSON.stringify(lazy.statementMap),
-  );
+  for (const dim of ['statementMap', 'fnMap', 'branchMap']) {
+    check(
+      `control: eager ${dim} == lazy(dropUnmapped)`,
+      JSON.stringify(eagerMap[dim]) === JSON.stringify(lazy[dim]),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ use srcmap_sourcemap::SourceMap;
 
 use crate::{
     context::{RemapCaches, RemapContext},
-    get_mapping::get_mapping_location_cached,
+    get_mapping::{get_mapped_location_cached, get_mapping_location_cached},
     sources::has_resolved_source,
 };
 
@@ -60,6 +60,23 @@ impl PositionRemapper {
         let mut caches = self.caches.borrow_mut();
         let mut ctx = RemapContext::new(&self.sm, &mut caches);
         get_mapping_location_cached(&mut ctx, loc).is_some()
+    }
+
+    /// The `getMapping`-resolved source index and original location for `loc`,
+    /// or `None` when resolution fails or either endpoint carries the
+    /// `line == 0` sentinel, which `getMapping` has no notion of.
+    ///
+    /// The eager gate keys coverage points on this so that generated spans
+    /// collapsing onto one original location share a counter slot, the same
+    /// fold the canonicalizing remap applies through `merge_file_coverage`.
+    #[must_use]
+    pub fn remap_location(&self, loc: &Location) -> Option<(u32, Location)> {
+        if loc.start.line == 0 || loc.end.line == 0 {
+            return None;
+        }
+        let mut caches = self.caches.borrow_mut();
+        let mut ctx = RemapContext::new(&self.sm, &mut caches);
+        get_mapped_location_cached(&mut ctx, loc).map(|mapped| (mapped.source, mapped.location))
     }
 
     /// `true` when the istanbul position (1-based `line`, 0-based UTF-16
