@@ -765,6 +765,35 @@ fn compose_drops_branch_when_umbrella_and_arms_all_fail() {
 }
 
 #[test]
+fn compose_keeps_unmapped_umbrella_logical_branch_via_mapped_leaf() {
+    // The #195 fallback on an ungated (`gate_arms: false`) branch type: a
+    // logical expression starting on an unmapped line whose right leaf sits on
+    // a mapped one. The umbrella shares its start with the left leaf, so it
+    // fails with that leaf; the branch must survive through the mapped right
+    // leaf, with `loc` derived from it like the deferred fallback. The arm
+    // vectors intentionally diverge: logical arms must match the wrapped
+    // leaves one for one (the counters are emitted per leaf), so the eager
+    // entry keeps both leaves while the deferred prune drops the unmapped one.
+    let generated = "let a = 1, b = 2;\nconst ok = a &&\nb;\nglobalThis.r = ok;\n";
+    let total_lines = generated.lines().count();
+    let input_sm = line_anchored_partial_map(&[1, 3, 4], total_lines, generated);
+    let (eager, lazy) = eager_and_lazy_for_map(generated, input_sm);
+    let lazy = lazy.expect("the mapped leaf keeps the branch alive");
+
+    let eager_entry = &eager.coverage_map.branch_map["0"];
+    let lazy_entry = &lazy.branch_map["0"];
+    assert_eq!(eager_entry.branch_type, "binary-expr", "the logical branch survives eagerly");
+    assert_eq!(
+        serde_json::to_value(&eager_entry.loc).unwrap(),
+        serde_json::to_value(&lazy_entry.loc).unwrap(),
+        "eager loc must equal the deferred fallback (first mapping leaf)"
+    );
+    assert_eq!(eager_entry.locations.len(), 2, "ungated leaves are never individually dropped");
+    assert_eq!(lazy_entry.locations.len(), 1, "the deferred prune keeps only the mapped leaf");
+    assert!(eager.code.contains(".b[0]"), "the kept branch's leaf counters are emitted");
+}
+
+#[test]
 fn compose_drops_all_arms_unmapped_branch_and_renumbers() {
     // A multi-line switch whose umbrella (line 2 and its
     // closing brace on line 7) maps but whose case lines are all unmapped: the
