@@ -12,7 +12,7 @@ use srcmap_sourcemap::SourceMap;
 use crate::{
     context::{MappedLocation, RemapCaches, RemapContext},
     get_mapping::{direct_remap_location, get_mapped_location_cached, get_mapping_location_cached},
-    merge::{empty_file_coverage, merge_file_coverage},
+    merge::{empty_file_coverage, merge_file_coverage, numeric_id_order},
     options::RemapOptions,
     sources::resolve_source_path,
 };
@@ -230,7 +230,7 @@ fn fan_out_statements(
     fallback_source: Option<u32>,
     canonicalize_ids: bool,
 ) {
-    for (key, location) in &coverage.statement_map {
+    for (key, location) in numeric_id_order(&coverage.statement_map) {
         let Some(mapped) = mapped_or_direct_location(location, ctx, fallback_source) else {
             continue;
         };
@@ -253,7 +253,7 @@ fn fan_out_functions(
     fallback_source: Option<u32>,
     canonicalize_ids: bool,
 ) {
-    for (key, function) in &coverage.fn_map {
+    for (key, function) in numeric_id_order(&coverage.fn_map) {
         let mapped_decl = mapped_or_direct_location(&function.decl, ctx, fallback_source);
         let mapped_loc = mapped_or_direct_location(&function.loc, ctx, fallback_source);
         let Some((source, decl, loc)) =
@@ -288,7 +288,7 @@ fn fan_out_branches(
     fallback_source: Option<u32>,
     canonicalize_ids: bool,
 ) {
-    for (key, branch) in &coverage.branch_map {
+    for (key, branch) in numeric_id_order(&coverage.branch_map) {
         let mapped_loc = mapped_or_direct_location(&branch.loc, ctx, fallback_source);
         let mut kept_indices = Vec::new();
         let mut locations = Vec::new();

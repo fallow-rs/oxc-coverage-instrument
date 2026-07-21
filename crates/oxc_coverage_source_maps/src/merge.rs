@@ -8,6 +8,33 @@ use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, FunctionIdentity};
 
 use crate::context::LocationKey;
 
+/// Visit `map` in ascending numeric order of its ids, then string order for ids
+/// that do not parse as integers. This reproduces the object-key enumeration
+/// order `istanbul-lib-source-maps` and `istanbul-lib-coverage` assign output
+/// ids in: integer-like keys first, ascending. JavaScript enumerates the
+/// remaining keys in insertion order, which a `BTreeMap` no longer carries, so
+/// those fall back to string order here. Our own ids are always decimal, but
+/// ingested JSON may carry non-numeric keys.
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
+)]
+pub(crate) fn numeric_id_order<T>(map: &BTreeMap<String, T>) -> Vec<(&String, &T)> {
+    let mut entries: Vec<(&String, &T)> = map.iter().collect();
+    entries.sort_by(|(left, _), (right, _)| id_order_key(left).cmp(&id_order_key(right)));
+    entries
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum IdOrderKey<'a> {
+    Numeric(u64),
+    Text(&'a str),
+}
+
+fn id_order_key(id: &str) -> IdOrderKey<'_> {
+    id.parse::<u64>().map_or(IdOrderKey::Text(id), IdOrderKey::Numeric)
+}
+
 /// An empty `FileCoverage` at `path` carrying the optional `bT` and
 /// `x_fallow_functionMap` sections exactly when `template` carries them.
 #[expect(
@@ -91,7 +118,7 @@ fn merge_statements(existing: &mut FileCoverage, incoming: &FileCoverage) {
         .iter()
         .map(|(id, location)| (LocationKey::from(location), id.clone()))
         .collect();
-    for (incoming_id, location) in &incoming.statement_map {
+    for (incoming_id, location) in numeric_id_order(&incoming.statement_map) {
         let key = LocationKey::from(location);
         let output_id = if let Some(id) = ids.get(&key) {
             id.clone()
@@ -123,7 +150,7 @@ fn merge_functions(existing: &mut FileCoverage, incoming: &FileCoverage) {
     let mut overlay_conflict = incoming_overlay.is_none()
         || (existing_has_functions && existing.x_fallow_function_map.is_none());
 
-    for (incoming_id, function) in &incoming.fn_map {
+    for (incoming_id, function) in numeric_id_order(&incoming.fn_map) {
         let key = FunctionMergeKey::from(function);
         let (output_id, existed) = if let Some(id) = ids.get(&key) {
             (id.clone(), true)
@@ -169,7 +196,7 @@ fn merge_branches(existing: &mut FileCoverage, incoming: &FileCoverage) {
         existing.b_t = Some(BTreeMap::new());
     }
 
-    for (incoming_id, branch) in &incoming.branch_map {
+    for (incoming_id, branch) in numeric_id_order(&incoming.branch_map) {
         let key = BranchMergeKey::from(branch);
         let output_id = if let Some(id) = ids.get(&key) {
             id.clone()

@@ -10,6 +10,7 @@ mod drop_unmapped;
 mod fan_out;
 mod fixtures;
 mod get_mapping;
+mod id_order;
 mod merge;
 mod orphan_counters;
 mod position_remapper;
