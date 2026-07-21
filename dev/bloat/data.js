@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784588694785,
+  "lastUpdate": 1784613679883,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2058,6 +2058,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 91195608,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "distinct": true,
+          "id": "40f43cf3dd9759e61e8543e0efaed01f3f1768c9",
+          "message": "fix: preserve receiver in optional member calls\n\nFixes #192",
+          "timestamp": "2026-07-21T07:59:12+02:00",
+          "tree_id": "70d6fd2ac025445e3e9860213b089be2246820fc",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/40f43cf3dd9759e61e8543e0efaed01f3f1768c9"
+        },
+        "date": 1784613678926,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 91196632,
             "unit": "bytes"
           }
         ]
