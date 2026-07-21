@@ -143,8 +143,8 @@ impl CoverageTransform<'_, '_> {
 
     /// Register a function entry. In eager mode returns `None` when any of the
     /// four endpoints (`decl` start/end, `loc` start/end) fails to remap,
-    /// mirroring `prune_functions`: the entry is not pushed and the caller must
-    /// skip the function counter. A function whose remapped `decl` collides
+    /// mirroring the function prune in `prune_single_source_unmapped`: the
+    /// entry is not pushed and the caller must skip the function counter. A function whose remapped `decl` collides
     /// with an earlier one gets that entry's id instead of a new one, matching
     /// the decl-keyed fold `merge_file_coverage` applies; the shared counter
     /// then sums the hits the deferred path would merge. Outside eager mode
@@ -190,8 +190,9 @@ impl CoverageTransform<'_, '_> {
     }
 
     /// Register a statement location. In eager mode returns `None` when either
-    /// endpoint fails to remap, mirroring `prune_statements`: the location is
-    /// not pushed and the caller must skip the statement counter. A statement
+    /// endpoint fails to remap, mirroring the statement prune in
+    /// `prune_single_source_unmapped`: the location is not pushed and the
+    /// caller must skip the statement counter. A statement
     /// whose remapped location collides with an earlier one gets that entry's
     /// id instead of a new one, matching the location-keyed fold
     /// `merge_file_coverage` applies; the shared counter then sums the hits the
