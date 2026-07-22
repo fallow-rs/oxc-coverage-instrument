@@ -2,12 +2,15 @@
 
 use oxc_span::Span;
 
-use super::{BranchKind, BranchRecord, CoverageTransform, FunctionRecord, RegistrationKey};
+#[cfg(feature = "satellite-eager-compose")]
+use super::RegistrationKey;
+use super::{BranchKind, BranchRecord, CoverageTransform, FunctionRecord};
 
 /// Fold key for a branch after eager-compose resolution. The umbrella span
 /// and branch kind are deliberately excluded to match Istanbul's arm-vector
 /// merge identity.
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[cfg(feature = "satellite-eager-compose")]
 pub(super) struct BranchKey {
     source: u32,
     arms: Vec<(u32, u32, u32, u32)>,
@@ -55,35 +58,50 @@ impl BranchRegistration {
     }
 }
 
+#[cfg(feature = "satellite-eager-compose")]
 const fn key_parts(key: RegistrationKey) -> (u32, u32, u32, u32) {
     (key.start_line, key.start_column, key.end_line, key.end_column)
 }
 
 impl CoverageTransform<'_, '_> {
+    #[cfg(feature = "satellite-eager-compose")]
     fn span_maps(&self, span: Span) -> bool {
         self.registration_policy.as_ref().is_none_or(|policy| policy.span_maps(span))
     }
 
+    #[cfg(feature = "satellite-eager-compose")]
     fn registration_key(&self, span: Span) -> Option<RegistrationKey> {
         self.registration_policy.as_ref().and_then(|policy| policy.registration_key(span))
     }
 
+    #[cfg_attr(
+        not(feature = "satellite-eager-compose"),
+        expect(
+            clippy::unnecessary_wraps,
+            reason = "the satellite feature can reject or fold a function registration"
+        )
+    )]
     pub(super) fn add_function(&mut self, name: String, decl: Span, body: Span) -> Option<usize> {
-        if !self.span_maps(decl) || !self.span_maps(body) {
-            return None;
-        }
-        let key = self.registration_key(decl);
-        if let Some(key) = &key
-            && let Some(&id) = self.eager_function_ids.get(key)
-        {
-            if let Some(existing) = self.fn_map.get(id)
-                && (existing.name != name || existing.decl != decl || existing.body != body)
-            {
-                self.eager_function_overlay_conflict = true;
+        #[cfg(feature = "satellite-eager-compose")]
+        let key = {
+            if !self.span_maps(decl) || !self.span_maps(body) {
+                return None;
             }
-            return Some(id);
-        }
+            let key = self.registration_key(decl);
+            if let Some(key) = &key
+                && let Some(&id) = self.eager_function_ids.get(key)
+            {
+                if let Some(existing) = self.fn_map.get(id)
+                    && (existing.name != name || existing.decl != decl || existing.body != body)
+                {
+                    self.eager_function_overlay_conflict = true;
+                }
+                return Some(id);
+            }
+            key
+        };
         let id = self.fn_map.len();
+        #[cfg(feature = "satellite-eager-compose")]
         if let Some(key) = key {
             self.eager_function_ids.insert(key, id);
         }
@@ -91,17 +109,29 @@ impl CoverageTransform<'_, '_> {
         Some(id)
     }
 
+    #[cfg_attr(
+        not(feature = "satellite-eager-compose"),
+        expect(
+            clippy::unnecessary_wraps,
+            reason = "the satellite feature can reject or fold a statement registration"
+        )
+    )]
     pub(super) fn add_statement(&mut self, span: Span) -> Option<usize> {
-        if !self.span_maps(span) {
-            return None;
-        }
-        let key = self.registration_key(span);
-        if let Some(key) = &key
-            && let Some(&id) = self.eager_statement_ids.get(key)
-        {
-            return Some(id);
-        }
+        #[cfg(feature = "satellite-eager-compose")]
+        let key = {
+            if !self.span_maps(span) {
+                return None;
+            }
+            let key = self.registration_key(span);
+            if let Some(key) = &key
+                && let Some(&id) = self.eager_statement_ids.get(key)
+            {
+                return Some(id);
+            }
+            key
+        };
         let id = self.statement_map.len();
+        #[cfg(feature = "satellite-eager-compose")]
         if let Some(key) = key {
             self.eager_statement_ids.insert(key, id);
         }
@@ -109,6 +139,7 @@ impl CoverageTransform<'_, '_> {
         Some(id)
     }
 
+    #[cfg(feature = "satellite-eager-compose")]
     fn eager_branch_key(&self, surviving_arms: &[Option<Span>]) -> Option<BranchKey> {
         let policy = self.registration_policy.as_ref()?;
         let mut source = None;
@@ -129,12 +160,22 @@ impl CoverageTransform<'_, '_> {
         Some(BranchKey { source: source?, arms })
     }
 
+    #[cfg_attr(
+        not(feature = "satellite-eager-compose"),
+        expect(
+            clippy::unnecessary_wraps,
+            reason = "the satellite feature can reject or fold a branch registration"
+        )
+    )]
     pub(super) fn register_branch(&mut self, pending: PendingBranch) -> Option<BranchRegistration> {
         let PendingBranch { kind, umbrella_span, gate_arms, arms } = pending;
+        #[cfg(not(feature = "satellite-eager-compose"))]
+        let _ = gate_arms;
         let mut path_indices = Vec::with_capacity(arms.len());
         let mut surviving_arms = Vec::new();
         let mut body_spans = Vec::new();
         for arm in &arms {
+            #[cfg(feature = "satellite-eager-compose")]
             if gate_arms && arm.location_span.is_some_and(|span| !self.span_maps(span)) {
                 path_indices.push(None);
                 continue;
@@ -144,22 +185,29 @@ impl CoverageTransform<'_, '_> {
             body_spans.push((!is_synthetic_span(arm.body_span)).then_some(arm.body_span));
         }
 
+        #[cfg(feature = "satellite-eager-compose")]
         if self.registration_policy.is_some() && surviving_arms.is_empty() {
             return None;
         }
 
+        #[cfg(feature = "satellite-eager-compose")]
         let entry_span = if self.span_maps(umbrella_span) {
             umbrella_span
         } else {
             surviving_arms.iter().flatten().find(|span| self.span_maps(**span)).copied()?
         };
+        #[cfg(not(feature = "satellite-eager-compose"))]
+        let entry_span = umbrella_span;
+        #[cfg(feature = "satellite-eager-compose")]
         let key = self.eager_branch_key(&surviving_arms);
+        #[cfg(feature = "satellite-eager-compose")]
         if let Some(key) = &key
             && let Some(&branch_id) = self.eager_branch_ids.get(key)
         {
             return Some(BranchRegistration { branch_id, path_indices });
         }
         let branch_id = self.branch_map.len();
+        #[cfg(feature = "satellite-eager-compose")]
         if let Some(key) = key {
             self.eager_branch_ids.insert(key, branch_id);
         }

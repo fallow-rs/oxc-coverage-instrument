@@ -36,6 +36,32 @@ identities should not move into Oxc core. Runtime setup is the one unresolved
 boundary: Oxc must either own a neutral setup builder or expose enough generated
 binding metadata for a host adapter to add setup in the same pass.
 
+## Exact extraction unit
+
+The proposed Oxc contribution is the default-feature build of
+`crates/oxc_coverage_transform`. It is mechanically checkable with:
+
+```bash
+cargo check -p oxc_coverage_transform --no-default-features
+```
+
+That build contains `transform_program`, pragma association, counter discovery
+and mutation, collision-safe bindings, updated `Scoping`, generated names, and
+neutral Oxc-span metadata. Those are the only implementation concerns proposed
+for Oxc.
+
+The `satellite-eager-compose` feature is explicitly excluded from the Oxc
+contribution. It exposes the standalone package's eager source-map folding
+bridge and is enabled only by `oxc_coverage_instrument`. It may not be copied
+into Oxc as part of this proposal. Every other workspace crate and the runtime
+setup adapter also remain in this repository.
+
+This branch is a boundary-review vehicle, not a commit that should be merged
+unchanged into Oxc. The upstream port retains the behavior and public API of
+the default build, removes every `satellite-eager-compose` block and its
+resulting compatibility scaffolding, then adopts Oxc's chosen crate name and
+placement. No satellite concern needs to be accepted before that port starts.
+
 ## Proposed host contract
 
 The host supplies:
@@ -84,12 +110,12 @@ Satellite policy stays outside the kernel:
 - parser, lowering, and codegen options,
 - report, binding, and package configuration.
 
-The default `transform_program` API has no source-map registration policy. The
-prototype retains a hidden compatibility extension because the satellite's
-eager composition mode must decide keep/drop and canonical counter identities
-before counter ids are embedded in the AST. That extension is not proposed for
-the first upstream API. It should remain satellite-only or be redesigned only
-after a real host integration proves that the kernel must own it.
+The default `transform_program` API and default-feature kernel build have no
+source-map registration policy. The `satellite-eager-compose` feature retains a
+hidden compatibility extension because the satellite's eager composition mode
+must decide keep/drop and canonical counter identities before counter ids are
+embedded in the AST. That extension remains satellite-only. A future host need
+can be evaluated as a separate proposal with integration evidence.
 
 ## Prototype status and upstream target
 
@@ -97,7 +123,7 @@ after a real host integration proves that the kernel must own it.
 |:--|:--|:--|:--|
 | Coverage metadata | ordered Oxc spans and typed records | same | settled locally |
 | Runtime setup | satellite AST adapter with complete scoping | generated names plus a shared builder or host adapter | maintainer decision |
-| Registration policy | hidden satellite compatibility extension | omit | revisit only with integration evidence |
+| Registration policy | opt-in `satellite-eager-compose` feature | absent | excluded from this proposal |
 | Host placement | lowered `Program` plus matching `Scoping` | exact post-lowering Rolldown insertion point | integration proof required |
 | Repository ownership | broader suite remains separate | upstream only the kernel | separate governance decision |
 
@@ -197,5 +223,4 @@ line while that constraint remains.
 - whether setup insertion belongs in the kernel,
 - ownership transfer rules for `Scoping`, symbols, and references,
 - generated-span and comment conventions,
-- whether the registration policy belongs in the first API,
 - which Istanbul ordering guarantees Oxc is willing to treat as stable.

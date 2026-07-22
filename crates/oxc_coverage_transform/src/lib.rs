@@ -37,14 +37,15 @@
 //!
 //! ## Files
 //!
-//! - `mod.rs`: the transform state and the `Traverse` impl that dispatches
+//! - `lib.rs`: the transform state and the `Traverse` impl that dispatches
 //!   each visitor hook to the file owning that concern.
 //! - `branches.rs`: `if`, ternary, `switch`, default-argument, logical
 //!   assignment and optional-chain branch instrumentation.
 //! - `counters.rs`: construction of the counter expressions and statements,
 //!   and the pending-insertion records that place them.
-//! - `coverage_map.rs`: span to `Location` conversion and the `statementMap` /
-//!   `fnMap` / `branchMap` registration, including the eager-remap gate.
+//! - `coverage_map.rs`: neutral span-record registration. The
+//!   `satellite-eager-compose` feature adds the standalone adapter's private
+//!   eager-remap compatibility gate.
 //! - `functions.rs`: `fnMap` entry registration for functions, arrows, methods
 //!   and class members, and class-field counter hoisting.
 //! - `ignore.rs`: the predicates deciding whether a node is suppressed by a
@@ -55,7 +56,12 @@
 //! - `statements.rs`: statement-counter placement, including the hoists that
 //!   keep `Function.name` inference intact.
 
-use std::{collections::BTreeMap, error::Error, fmt};
+use std::{error::Error, fmt};
+
+#[cfg(feature = "satellite-eager-compose")]
+use std::collections::BTreeMap;
+#[cfg(not(feature = "satellite-eager-compose"))]
+use std::marker::PhantomData;
 
 use oxc_allocator::{Allocator, Vec as ArenaVec};
 use oxc_ast::ast::*;
@@ -83,12 +89,17 @@ use coverage_map::is_synthetic_span;
 use ignore::{
     is_ignored_case, jsx_attribute_ignored, jsx_child_ignored, jsx_spread_attribute_ignored,
 };
-pub use metadata::{
-    BranchKind, BranchRecord, CoverageMetadata, FunctionRecord, RegistrationKey, RegistrationPolicy,
-};
+pub use metadata::{BranchKind, BranchRecord, CoverageMetadata, FunctionRecord};
+#[cfg(feature = "satellite-eager-compose")]
+pub use metadata::{RegistrationKey, RegistrationPolicy};
 use names::{AssignmentTargetName, assignment_target_name};
 pub use pragma::{IgnoreType, PragmaMap, UnhandledDirective};
 pub use source_text::{line_column, line_starts};
+
+#[cfg(feature = "satellite-eager-compose")]
+type RegistrationPolicyRef<'policy> = Option<&'policy dyn RegistrationPolicy>;
+#[cfg(not(feature = "satellite-eager-compose"))]
+type RegistrationPolicyRef<'policy> = PhantomData<&'policy ()>;
 
 /// State carried through the traverse for coverage instrumentation.
 struct CoverageState {
@@ -201,22 +212,26 @@ struct CoverageTransform<'policy, 'arena> {
     /// entry is registered and no counter is emitted, so the runtime coverage
     /// object and the emitted counters agree. `None` for every non-eager
     /// caller, where gating is a strict no-op.
-    registration_policy: Option<&'policy dyn RegistrationPolicy>,
+    registration_policy: RegistrationPolicyRef<'policy>,
     /// Statement ids already handed out per remapped location, so statements
     /// that collapse onto one original location under the eager gate share a
     /// counter. Empty outside eager mode.
+    #[cfg(feature = "satellite-eager-compose")]
     eager_statement_ids: BTreeMap<RegistrationKey, usize>,
     /// Function ids already handed out per remapped `decl` location; the
     /// function counterpart of `eager_statement_ids`.
+    #[cfg(feature = "satellite-eager-compose")]
     eager_function_ids: BTreeMap<RegistrationKey, usize>,
     /// Branch ids already handed out per remapped surviving-arm vector, so
     /// branches that collapse onto one original arm vector under the eager gate
     /// share a counter. Empty outside eager mode. Mirrors `eager_statement_ids`
     /// / `eager_function_ids`.
+    #[cfg(feature = "satellite-eager-compose")]
     eager_branch_ids: BTreeMap<coverage_map::BranchKey, usize>,
     /// Set when an eager function fold merges two functions whose identities
     /// differ, so `finalize` drops the `x_fallow_functionMap` overlay the way
     /// the deferred merge does. Never set outside eager mode.
+    #[cfg(feature = "satellite-eager-compose")]
     eager_function_overlay_conflict: bool,
 }
 
@@ -314,7 +329,11 @@ impl Error for TransformError {}
 pub fn transform_program(
     input: TransformProgramInput<'_, '_>,
 ) -> Result<TransformOutput, TransformError> {
-    transform_program_with_registration_policy(input, None)
+    #[cfg(feature = "satellite-eager-compose")]
+    let registration_policy = None;
+    #[cfg(not(feature = "satellite-eager-compose"))]
+    let registration_policy = PhantomData;
+    transform_program_inner(input, registration_policy)
 }
 
 /// Compatibility bridge for the satellite package's eager source-map adapter.
@@ -322,9 +341,17 @@ pub fn transform_program(
 /// This is not part of the proposed first Oxc host API. A host that does not
 /// need eager source-map folding should call [`transform_program`].
 #[doc(hidden)]
+#[cfg(feature = "satellite-eager-compose")]
 pub fn transform_program_with_registration_policy(
     input: TransformProgramInput<'_, '_>,
     registration_policy: Option<&dyn RegistrationPolicy>,
+) -> Result<TransformOutput, TransformError> {
+    transform_program_inner(input, registration_policy)
+}
+
+fn transform_program_inner(
+    input: TransformProgramInput<'_, '_>,
+    registration_policy: RegistrationPolicyRef<'_>,
 ) -> Result<TransformOutput, TransformError> {
     let TransformProgramInput { program, scoping, pragmas, mut transform } = input;
     if pragmas.ignore_file {
@@ -398,7 +425,7 @@ fn symbol_is_coverage_binding(symbol: &str, candidate: &str, suffix: &str) -> bo
 impl<'policy, 'arena> CoverageTransform<'policy, 'arena> {
     fn new(
         init: TransformInit<'arena>,
-        registration_policy: Option<&'policy dyn RegistrationPolicy>,
+        registration_policy: RegistrationPolicyRef<'policy>,
     ) -> Self {
         let TransformInit {
             allocator,
@@ -440,9 +467,13 @@ impl<'policy, 'arena> CoverageTransform<'policy, 'arena> {
             logical_branch_ids: Vec::new(),
             used_optional_chain_helper: false,
             registration_policy,
+            #[cfg(feature = "satellite-eager-compose")]
             eager_statement_ids: BTreeMap::new(),
+            #[cfg(feature = "satellite-eager-compose")]
             eager_function_ids: BTreeMap::new(),
+            #[cfg(feature = "satellite-eager-compose")]
             eager_branch_ids: BTreeMap::new(),
+            #[cfg(feature = "satellite-eager-compose")]
             eager_function_overlay_conflict: false,
         }
     }
@@ -456,6 +487,7 @@ impl<'policy, 'arena> CoverageTransform<'policy, 'arena> {
             branch_arm_body_spans: self.branch_arm_body_spans,
             logical_branch_ids: self.logical_branch_ids,
             used_optional_chain_helper: self.used_optional_chain_helper,
+            #[cfg(feature = "satellite-eager-compose")]
             function_overlay_conflict: self.eager_function_overlay_conflict,
         }
     }

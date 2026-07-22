@@ -54,6 +54,7 @@ used most often:
 ./scripts/check.sh fmt             # cargo fmt --all --check
 ./scripts/check.sh rust-doc        # cargo doc with RUSTDOCFLAGS=-D warnings
 ./scripts/check.sh ast-api         # feature tests, doctests, clippy, and rustdoc; separate from defaults
+./scripts/check.sh kernel-boundary # default-feature Oxc extraction candidate only
 ./scripts/check.sh typos           # requires typos-cli
 ./scripts/check.sh version-sync    # internal version pins and release topology
 ./scripts/check.sh real-world-gates # both pinned production-source parity checks

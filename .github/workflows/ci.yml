@@ -44,6 +44,10 @@ jobs:
         if: runner.os == 'Linux'
         run: ./scripts/check.sh ast-api
 
+      - name: Check Oxc kernel extraction boundary
+        if: runner.os == 'Linux'
+        run: ./scripts/check.sh kernel-boundary
+
       - name: Run tests
         run: cargo test --workspace --all-targets
 

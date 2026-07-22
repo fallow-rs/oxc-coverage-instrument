@@ -16,7 +16,9 @@ description = "Provisional AST-only coverage transform kernel for Oxc maintainer
 workspace = true
 
 [features]
+default = []
 codspeed = ["criterion2/codspeed"]
+satellite-eager-compose = []
 
 [dependencies]
 oxc_allocator = { workspace = true }

@@ -59,6 +59,7 @@ pub struct CoverageMetadata {
     pub branch_arm_body_spans: Vec<Vec<Option<Span>>>,
     pub logical_branch_ids: Vec<usize>,
     pub used_optional_chain_helper: bool,
+    #[cfg(feature = "satellite-eager-compose")]
     pub function_overlay_conflict: bool,
 }
 
@@ -66,6 +67,7 @@ pub struct CoverageMetadata {
 /// points onto one canonical source-map location.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[doc(hidden)]
+#[cfg(feature = "satellite-eager-compose")]
 pub struct RegistrationKey {
     pub source: u32,
     pub start_line: u32,
@@ -80,6 +82,7 @@ pub struct RegistrationKey {
 /// It exists here only because eager source-map composition must decide which
 /// counters survive before their ids are embedded in the AST.
 #[doc(hidden)]
+#[cfg(feature = "satellite-eager-compose")]
 pub trait RegistrationPolicy {
     /// Whether a generated span should receive a counter.
     fn span_maps(&self, span: Span) -> bool;
