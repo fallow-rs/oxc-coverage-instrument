@@ -66,6 +66,41 @@ fn direct_host_binding_is_collision_safe() {
 }
 
 #[test]
+fn direct_host_reserves_every_derived_helper_name() {
+    let source = "let cov_host_bt = 1, cov_host_oc = 2, cov_host_temp = 3; answer();";
+    let allocator = Allocator::default();
+    let mut parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
+    assert!(!parsed.diagnostics.has_errors());
+
+    let output = transform(&allocator, source, &mut parsed.program, "cov_host").unwrap();
+    let TransformOutcome::Instrumented { names, .. } = output.outcome else {
+        panic!("program should be instrumented");
+    };
+
+    assert_eq!(names.coverage, "cov_host_1");
+    assert!(output.scoping.get_root_binding("cov_host_1".into()).is_some());
+}
+
+#[test]
+fn direct_host_does_not_capture_an_unresolved_global() {
+    let source = "console.log(typeof cov_host);";
+    let allocator = Allocator::default();
+    let mut parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
+    assert!(!parsed.diagnostics.has_errors());
+
+    let output = transform(&allocator, source, &mut parsed.program, "cov_host").unwrap();
+    let TransformOutcome::Instrumented { names, .. } = output.outcome else {
+        panic!("program should be instrumented");
+    };
+
+    assert_eq!(names.coverage, "cov_host_1");
+    assert!(output.scoping.get_root_binding("cov_host_1".into()).is_some());
+    assert!(
+        output.scoping.root_unresolved_references().keys().any(|name| name.as_str() == "cov_host")
+    );
+}
+
+#[test]
 fn invalid_binding_is_rejected_before_mutation() {
     let source = "answer();";
     let allocator = Allocator::default();
