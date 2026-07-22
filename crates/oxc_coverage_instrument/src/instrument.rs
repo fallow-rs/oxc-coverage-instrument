@@ -4,10 +4,14 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::coverage_builder::{CoverageMaps, build_file_coverage, build_function_identity_map};
-use crate::preamble::{djb31_hex, generate_cov_fn_name};
+use crate::preamble::{PreambleInputs, djb31_hex, generate_cov_fn_name, generate_preamble_source};
+#[cfg(feature = "ast-api")]
 use crate::runtime_setup::{RuntimeSetupInputs, insert_runtime_setup};
 use oxc_allocator::Allocator;
-use oxc_ast::ast::Program;
+use oxc_ast::{
+    AstBuilder,
+    ast::{Expression, Program, Statement},
+};
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_coverage_transform::{
     BranchRecord, CoverageMetadata, FunctionRecord, PragmaMap, RegistrationKey, RegistrationPolicy,
@@ -17,7 +21,7 @@ use oxc_coverage_transform::{
 use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, Location, Position, UnhandledPragma};
 use oxc_parser::{Parser, ParserReturn};
 use oxc_semantic::{Scoping, SemanticBuilder};
-use oxc_span::{SourceType, Span};
+use oxc_span::{SPAN, SourceType, Span};
 use oxc_transformer::{
     DecoratorOptions, JsxOptions, TransformOptions, Transformer, TypeScriptOptions,
 };
@@ -457,8 +461,8 @@ fn serialize_coverage_map(coverage_map: &FileCoverage) -> String {
 /// - [`InstrumentError::TransformError`] if
 ///   [`InstrumentOptions::strip_typescript`] is set and the strip pass reports
 ///   an error
-/// - [`InstrumentError::RuntimeSetupError`] if the coverage data cannot be
-///   represented by the generated runtime setup AST
+/// - [`InstrumentError::PreambleError`] if the generated standalone runtime
+///   setup cannot be placed after the directive prologue
 ///
 /// # Example
 ///
@@ -500,14 +504,49 @@ pub fn instrument(
         filename,
         options,
         prepared_input_source_map: prepared_input_source_map.as_ref(),
+        setup_mode: SetupMode::Source,
     })?;
-    let InstrumentProgramResult {
-        scoping,
-        coverage_map,
-        coverage_map_json,
-        runtime_setup_inserted,
-        unhandled_pragmas,
+    let InstrumentProgramOutput {
+        result:
+            InstrumentProgramResult {
+                scoping,
+                coverage_map,
+                coverage_map_json,
+                runtime_setup_inserted,
+                unhandled_pragmas,
+            },
+        setup_source,
     } = program_result;
+
+    if let Some(preamble) = setup_source {
+        let emitted = emit_code(EmitInputs {
+            allocator: &allocator,
+            program: &mut parsed.program,
+            scoping,
+            source,
+            filename,
+            preamble: Some(&preamble),
+            options,
+        })?;
+        let source_map = emitted.source_map.as_deref().map(|sm| {
+            oxc_coverage_source_maps::finalize_generated_source_map(
+                sm,
+                emitted.preamble_shift.map(|shift| oxc_coverage_source_maps::GeneratedLineShift {
+                    first_following_line: shift.first_following_line,
+                    line_delta: shift.line_delta,
+                }),
+                prepared_input_source_map.as_ref(),
+                options.input_source_map.as_deref(),
+            )
+        });
+        return Ok(InstrumentResult {
+            code: emitted.code,
+            coverage_map,
+            coverage_map_json,
+            source_map,
+            unhandled_pragmas,
+        });
+    }
 
     if !runtime_setup_inserted {
         if !options.strip_typescript {
@@ -520,12 +559,14 @@ pub fn instrument(
             });
         }
         let emitted = emit_code(EmitInputs {
+            allocator: &allocator,
             program: &mut parsed.program,
             scoping,
             source,
             filename,
+            preamble: None,
             options,
-        });
+        })?;
         return Ok(InstrumentResult {
             code: emitted.code,
             coverage_map,
@@ -534,8 +575,15 @@ pub fn instrument(
             unhandled_pragmas,
         });
     }
-    let emitted =
-        emit_code(EmitInputs { program: &mut parsed.program, scoping, source, filename, options });
+    let emitted = emit_code(EmitInputs {
+        allocator: &allocator,
+        program: &mut parsed.program,
+        scoping,
+        source,
+        filename,
+        preamble: None,
+        options,
+    })?;
     let source_map = emitted.source_map.as_deref().map(|sm| {
         oxc_coverage_source_maps::finalize_generated_source_map(
             sm,
@@ -564,11 +612,24 @@ struct InstrumentProgramInput<'src, 'arena, 'a> {
     filename: &'a str,
     options: &'a InstrumentOptions,
     prepared_input_source_map: Option<&'src oxc_coverage_source_maps::PositionRemapper>,
+    setup_mode: SetupMode,
+}
+
+#[derive(Clone, Copy)]
+enum SetupMode {
+    #[cfg(feature = "ast-api")]
+    Ast,
+    Source,
+}
+
+struct InstrumentProgramOutput {
+    result: InstrumentProgramResult,
+    setup_source: Option<String>,
 }
 
 fn instrument_program_with_pragmas(
     input: InstrumentProgramInput<'_, '_, '_>,
-) -> Result<InstrumentProgramResult, InstrumentError> {
+) -> Result<InstrumentProgramOutput, InstrumentError> {
     let InstrumentProgramInput {
         allocator,
         program,
@@ -579,6 +640,7 @@ fn instrument_program_with_pragmas(
         filename,
         options,
         prepared_input_source_map,
+        setup_mode,
     } = input;
     validate_coverage_variable(options)?;
     let locator = SourceLocator::new(source);
@@ -612,39 +674,59 @@ fn instrument_program_with_pragmas(
     let TransformOutcome::Instrumented { metadata, names } = output.outcome else {
         let coverage_map = empty_coverage(filename);
         let coverage_map_json = serialize_coverage_map(&coverage_map);
-        return Ok(InstrumentProgramResult {
-            scoping: output.scoping,
-            coverage_map,
-            coverage_map_json,
-            runtime_setup_inserted: false,
-            unhandled_pragmas,
+        return Ok(InstrumentProgramOutput {
+            result: InstrumentProgramResult {
+                scoping: output.scoping,
+                coverage_map,
+                coverage_map_json,
+                runtime_setup_inserted: false,
+                unhandled_pragmas,
+            },
+            setup_source: None,
         });
     };
     let coverage_map =
         finalize_coverage_map(filename, &locator, metadata, options, prepared_input_source_map);
     let coverage_map_json = serialize_coverage_map(&coverage_map);
     let coverage_hash = djb31_hex(&coverage_map_json);
-    let scoping = insert_runtime_setup(
-        allocator,
-        program,
-        output.scoping,
-        RuntimeSetupInputs {
-            coverage: &coverage_map,
-            coverage_hash: &coverage_hash,
-            coverage_var: &options.coverage_variable,
-            coverage_name: &names.coverage,
-            truthy_helper: names.truthy_helper.as_deref(),
-            optional_chain_helper: names.optional_chain_helper.as_deref(),
-        },
-    )
-    .map_err(|error| InstrumentError::RuntimeSetupError(error.to_string()))?;
+    let (scoping, runtime_setup_inserted, setup_source) = match setup_mode {
+        #[cfg(feature = "ast-api")]
+        SetupMode::Ast => {
+            let setup_inputs = RuntimeSetupInputs {
+                coverage: &coverage_map,
+                coverage_hash: &coverage_hash,
+                coverage_var: &options.coverage_variable,
+                coverage_name: &names.coverage,
+                truthy_helper: names.truthy_helper.as_deref(),
+                optional_chain_helper: names.optional_chain_helper.as_deref(),
+            };
+            let scoping = insert_runtime_setup(allocator, program, output.scoping, setup_inputs)
+                .map_err(|error| InstrumentError::RuntimeSetupError(error.to_string()))?;
+            (scoping, true, None)
+        }
+        SetupMode::Source => {
+            let setup_source = generate_preamble_source(&PreambleInputs {
+                coverage: &coverage_map,
+                coverage_json: &coverage_map_json,
+                coverage_hash: &coverage_hash,
+                coverage_var: &options.coverage_variable,
+                coverage_name: &names.coverage,
+                truthy_helper: names.truthy_helper.as_deref(),
+                optional_chain_helper: names.optional_chain_helper.as_deref(),
+            });
+            (output.scoping, false, Some(setup_source))
+        }
+    };
 
-    Ok(InstrumentProgramResult {
-        scoping,
-        coverage_map,
-        coverage_map_json,
-        runtime_setup_inserted: true,
-        unhandled_pragmas,
+    Ok(InstrumentProgramOutput {
+        result: InstrumentProgramResult {
+            scoping,
+            coverage_map,
+            coverage_map_json,
+            runtime_setup_inserted,
+            unhandled_pragmas,
+        },
+        setup_source,
     })
 }
 
@@ -705,7 +787,7 @@ pub fn instrument_program<'arena>(
     let (pragmas, unhandled_directives) = PragmaMap::from_program(program, source_text);
     let unhandled_pragmas = adapt_unhandled_directives(source_text, unhandled_directives);
     let prepared_input_source_map = prepare_input_source_map(options);
-    instrument_program_with_pragmas(InstrumentProgramInput {
+    let output = instrument_program_with_pragmas(InstrumentProgramInput {
         allocator,
         program,
         scoping,
@@ -715,7 +797,10 @@ pub fn instrument_program<'arena>(
         filename,
         options,
         prepared_input_source_map: prepared_input_source_map.as_ref(),
-    })
+        setup_mode: SetupMode::Ast,
+    })?;
+    debug_assert!(output.setup_source.is_none());
+    Ok(output.result)
 }
 
 fn validate_coverage_variable(options: &InstrumentOptions) -> Result<(), InstrumentError> {
@@ -1130,20 +1215,34 @@ fn collect_arm_body_byte_spans(metadata: &CoverageMetadata) -> BTreeMap<String, 
 }
 
 struct EmitInputs<'a, 'arena> {
+    allocator: &'arena Allocator,
     program: &'a mut Program<'arena>,
     scoping: Scoping,
     source: &'a str,
     filename: &'a str,
+    preamble: Option<&'a str>,
     options: &'a InstrumentOptions,
 }
 
 struct EmitResult {
     code: String,
     source_map: Option<String>,
+    preamble_shift: Option<PreambleShift>,
 }
 
-fn emit_code(inputs: EmitInputs<'_, '_>) -> EmitResult {
-    let EmitInputs { program, scoping, source, filename, options } = inputs;
+#[derive(Clone, Copy)]
+struct PreambleShift {
+    first_following_line: u32,
+    line_delta: u32,
+}
+
+fn emit_code(inputs: EmitInputs<'_, '_>) -> Result<EmitResult, InstrumentError> {
+    let EmitInputs { allocator, program, scoping, source, filename, preamble, options } = inputs;
+    let preamble_marker = if preamble.is_some() {
+        Some(insert_preamble_marker(allocator, program, source)?)
+    } else {
+        None
+    };
     let codegen_options = CodegenOptions {
         source_map_path: if options.source_map { Some(PathBuf::from(filename)) } else { None },
         ..CodegenOptions::default()
@@ -1154,7 +1253,81 @@ fn emit_code(inputs: EmitInputs<'_, '_>) -> EmitResult {
         .with_scoping(Some(scoping))
         .build(program);
     let source_map = codegen_ret.map.map(|sm| sm.to_json_string());
-    EmitResult { code: codegen_ret.code, source_map }
+    let Some(preamble) = preamble else {
+        return Ok(EmitResult { code: codegen_ret.code, source_map, preamble_shift: None });
+    };
+    let marker = preamble_marker.ok_or_else(|| {
+        InstrumentError::PreambleError("coverage setup has no insertion marker".to_string())
+    })?;
+    let (code, preamble_shift) = replace_preamble_marker(&codegen_ret.code, marker, preamble)?;
+    Ok(EmitResult { code, source_map, preamble_shift: Some(preamble_shift) })
+}
+
+const PREAMBLE_MARKER_BASE: &str = "__oxc_coverage_preamble_marker__";
+
+fn insert_preamble_marker<'arena>(
+    allocator: &'arena Allocator,
+    program: &mut Program<'arena>,
+    source: &str,
+) -> Result<&'arena str, InstrumentError> {
+    let mut marker = PREAMBLE_MARKER_BASE.to_string();
+    let mut suffix = 0_u32;
+    while source.contains(&marker) {
+        suffix = suffix.checked_add(1).ok_or_else(|| {
+            InstrumentError::PreambleError("insertion marker suffix exceeds u32".to_string())
+        })?;
+        marker = format!("{PREAMBLE_MARKER_BASE}_{suffix}");
+    }
+    let marker = allocator.alloc_str(&marker);
+    let ast = AstBuilder::new(allocator);
+    let expression = Expression::new_identifier(SPAN, marker, &ast);
+    let statement = Statement::new_expression_statement(SPAN, expression, &ast);
+    // Preserved comments can add output lines before a directive. Making the
+    // marker the first body statement lets codegen place it after every
+    // directive and any comments belonging to that prologue.
+    program.body.insert(0, statement);
+    Ok(marker)
+}
+
+fn replace_preamble_marker(
+    code: &str,
+    marker: &str,
+    preamble: &str,
+) -> Result<(String, PreambleShift), InstrumentError> {
+    let marker_statement = format!("{marker};");
+    let marker_start = code.find(&marker_statement).ok_or_else(|| {
+        InstrumentError::PreambleError("generated output omitted the insertion marker".to_string())
+    })?;
+    let mut marker_end = marker_start.saturating_add(marker_statement.len());
+    if code.as_bytes().get(marker_end) == Some(&b'\n') {
+        marker_end = marker_end.saturating_add(1);
+    }
+    let marker_line = u32::try_from(
+        code[..marker_start].bytes().filter(|byte| *byte == b'\n').count(),
+    )
+    .map_err(|_| InstrumentError::PreambleError("insertion line exceeds u32".to_string()))?;
+    let preamble_lines = u32::try_from(preamble.bytes().filter(|byte| *byte == b'\n').count())
+        .map_err(|_| InstrumentError::PreambleError("setup line count exceeds u32".to_string()))?;
+    if preamble_lines == 0 || !preamble.ends_with('\n') {
+        return Err(InstrumentError::PreambleError(
+            "generated coverage setup must end with a newline".to_string(),
+        ));
+    }
+    let mut output = String::with_capacity(
+        code.len()
+            .saturating_sub(marker_end.saturating_sub(marker_start))
+            .saturating_add(preamble.len()),
+    );
+    output.push_str(&code[..marker_start]);
+    output.push_str(preamble);
+    output.push_str(&code[marker_end..]);
+    Ok((
+        output,
+        PreambleShift {
+            first_following_line: marker_line.saturating_add(1),
+            line_delta: preamble_lines.saturating_sub(1),
+        },
+    ))
 }
 
 /// Error type for instrumentation failures.
@@ -1163,6 +1336,8 @@ fn emit_code(inputs: EmitInputs<'_, '_>) -> EmitResult {
 pub enum InstrumentError {
     /// The source could not be parsed.
     ParseError(String),
+    /// The standalone runtime setup could not be placed in emitted source.
+    PreambleError(String),
     /// The coverage variable is not a standalone safe JavaScript identifier.
     InvalidCoverageVariable(String),
     /// The TypeScript strip pass produced diagnostics. Only emitted when
@@ -1181,6 +1356,7 @@ impl std::fmt::Display for InstrumentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ParseError(msg) => write!(f, "parse error: {msg}"),
+            Self::PreambleError(msg) => write!(f, "coverage preamble error: {msg}"),
             Self::TransformError(msgs) => write!(f, "transform error: {}", msgs.join("; ")),
             Self::CoverageTransformError(msg) => write!(f, "coverage transform error: {msg}"),
             Self::RuntimeSetupError(msg) => write!(f, "runtime setup error: {msg}"),

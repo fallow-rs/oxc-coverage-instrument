@@ -84,6 +84,11 @@ runtime setup as AST and registers its scopes, symbols, and references directly.
 Its final program therefore contains counters and setup without source-text
 insertion, generated-code parsing, or semantic rebuilding.
 
+The standalone `instrument` adapter deliberately uses a separate text emitter
+for the same fixed runtime setup. It inserts that text after codegen and repairs
+the generated source-map line offset. That optimization belongs to the
+satellite source-to-source API and is not part of the proposed Oxc kernel.
+
 The kernel owns symbols, references, child scopes, helper name reservation, and
 all counter nodes. The setup adapter currently owns the equivalent invariants
 for setup nodes. The host owns the root program, allocator, comments, source
@@ -170,10 +175,10 @@ The transform-only benchmark excludes parsing and semantic construction and is
 now a working CodSpeed shard. It can catch kernel regressions, but it does not
 prove the end-to-end benefit Boshen described for Rolldown and Vitest.
 
-The AST-native setup on this prototype branch is also not a standalone package
-speedup over the optimized setup path on `main`. It exists here to prove a
-semantically complete host-owned AST contract. No package performance claim
-should be made from this branch.
+The standalone package retains its optimized text setup path. AST-native setup
+is limited to `instrument_program`, where it proves a semantically complete
+host-owned AST contract. No package performance claim should be inferred from
+the transform-only shard or the AST-native setup.
 
 Before upstreaming, benchmark the same real-world modules through both complete
 pipelines: the released standalone adapter, and an exact Rolldown integration
@@ -184,7 +189,7 @@ the coverage traversal separately from the phases the host avoids duplicating.
 
 1. Oxc maintainers accept placement, naming, host ownership, and the minimal API.
 2. Extract the traversal mechanically behind neutral Oxc-span records. Proven locally.
-3. Make setup insertion AST-native with valid scoping and remove text replacement. Proven locally.
+3. Make host-API setup insertion AST-native with valid scoping. Proven locally.
 4. Prove transform-only performance, dependency isolation, and conformance. Gated locally and in CI.
 5. Port the kernel to Oxc and test this workspace against that exact revision.
 6. Prove the end-to-end Rolldown and Vitest integration benefit on real modules.

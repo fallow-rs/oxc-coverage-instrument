@@ -6,9 +6,10 @@ across all of them. For usage, see the README of the crate you need.
 
 ## Bird's Eye View
 
-Coverage counters and runtime setup are inserted as AST nodes. No regular
-expression rewrites source, no generated setup is reparsed, and no semantic
-rebuild follows instrumentation.
+Coverage counters are inserted as AST nodes. The experimental host API also
+inserts runtime setup as AST, while the standalone source API emits its fixed
+runtime setup directly as text after codegen. Neither path reparses generated
+setup or rebuilds semantic state after instrumentation.
 
 ```
 source code (JS/TS)
@@ -24,10 +25,13 @@ oxc_coverage_transform
                     traverse AST, inject counters, return neutral metadata
     |
     v
-runtime setup       build setup AST and register scopes, symbols, references
+host API setup      build setup AST and register scopes, symbols, references
     |
     v
 oxc_codegen         emit instrumented code and source map
+    |
+    v
+standalone setup    replace insertion marker and shift source map
     |
     v
 instrumented code + coverage map
@@ -40,11 +44,12 @@ graph contains only Oxc AST, semantic, span, syntax, allocator, and traverse
 layers. The published instrument crate adapts that output to Istanbul types,
 applies source-map policy, and owns the runtime setup and source-to-source API.
 
-The standalone adapter converts neutral Oxc spans to Istanbul positions, builds
-the coverage-data literal as ordered AST, inserts the runtime setup after the
-directive prologue, and updates the existing `Scoping` directly. Generated
-setup nodes use synthetic spans, so codegen shifts original source mappings
-without a post-codegen line-offset repair.
+The standalone adapter converts neutral Oxc spans to Istanbul positions, emits
+the fixed runtime setup after the directive prologue, and adjusts generated
+source mappings for those inserted lines. This keeps the source-to-source path
+fast. With `ast-api`, the adapter instead builds the coverage-data literal and
+runtime setup as ordered AST, then updates the existing `Scoping` directly so a
+host can continue its own transform pipeline without a text insertion step.
 
 When an `inputSourceMap` is supplied, the instrumenter composes the codegen
 output map with the input map, so downstream remappers (Vitest, nyc, monocart)
@@ -193,5 +198,7 @@ routine contains only coverage traversal and AST mutation.
 That shard is a regression gate for the kernel, not proof of a Rolldown or
 Vitest speedup. The integration claim must compare complete pipelines on the
 same real-world modules and account for the parse, lowering, semantic, and
-codegen phases the host can reuse. The AST-native prototype setup is a host
-contract proof, not a claimed standalone throughput improvement.
+codegen phases the host can reuse. The standalone benchmark uses direct text
+setup emission. The AST-native setup is measured only when the host API itself
+is benchmarked, and remains a host contract proof rather than a standalone
+throughput claim.

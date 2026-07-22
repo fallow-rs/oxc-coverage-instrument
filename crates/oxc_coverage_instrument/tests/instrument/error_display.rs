@@ -32,6 +32,12 @@ fn coverage_transform_error_display_format() {
 }
 
 #[test]
+fn preamble_error_display_format() {
+    let err = InstrumentError::PreambleError("missing marker".to_string());
+    assert_eq!(err.to_string(), "coverage preamble error: missing marker");
+}
+
+#[test]
 fn runtime_setup_error_display_format() {
     let err = InstrumentError::RuntimeSetupError("unsupported value".to_string());
     assert_eq!(err.to_string(), "runtime setup error: unsupported value");

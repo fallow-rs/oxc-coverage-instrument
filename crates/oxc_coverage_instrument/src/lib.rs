@@ -121,8 +121,10 @@
 
 mod coverage_builder;
 mod instrument;
+#[cfg(feature = "ast-api")]
 mod ordered_value;
 mod preamble;
+#[cfg(feature = "ast-api")]
 mod runtime_setup;
 mod v8_to_istanbul;
 

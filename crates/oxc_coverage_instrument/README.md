@@ -87,9 +87,11 @@ oxc_coverage_instrument = { version = "0.11", features = ["ast-api"] }
 
 The source-to-source `instrument` function uses the same internal AST pass and
 continues to own parsing, optional TypeScript lowering, runtime setup insertion,
-codegen, and output source-map generation. Synthetic setup spans let codegen
-place original mappings correctly without another parse, semantic pass, or
-post-codegen source-map shift.
+codegen, and output source-map generation. It emits the fixed runtime setup as
+text after codegen and shifts the generated source map accordingly. This avoids
+building a large setup AST that would immediately be converted back to text.
+Only `instrument_program` uses AST-native setup insertion because its host keeps
+owning the AST and later pipeline phases.
 
 ### Composing the input source map eagerly
 
