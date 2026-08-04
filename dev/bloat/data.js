@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784666780592,
+  "lastUpdate": 1785856436975,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2377,6 +2377,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 92198784,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3b218d664923cf644638aff0662daca3cad94cbd",
+          "message": "chore(deps): batch the open dependency updates (#202)\n\nactions/setup-node 7.0.0, codeql upload-sarif 4.37.3, CodSpeedHQ/action 4.18.5, and @napi-rs/cli 3.7.4 with a regenerated lockfile; full cargo gate, zizmor, and the napi suite green locally.\n\nCloses #200\nCloses #198\nCloses #190\nCloses #188",
+          "timestamp": "2026-08-04T16:37:22+02:00",
+          "tree_id": "fd44d6767901f8b5945fb5532f28594ff5c568a8",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/3b218d664923cf644638aff0662daca3cad94cbd"
+        },
+        "date": 1785856435953,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92904296,
             "unit": "bytes"
           }
         ]
