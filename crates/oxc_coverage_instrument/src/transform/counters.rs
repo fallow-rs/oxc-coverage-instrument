@@ -2,7 +2,7 @@
 
 use std::mem;
 
-use oxc_allocator::Vec as ArenaVec;
+use oxc_allocator::{GetAllocator, Vec as ArenaVec};
 use oxc_ast::ast::*;
 use oxc_span::SPAN;
 use oxc_syntax::operator::UpdateOperator;
@@ -60,7 +60,7 @@ impl<'a> CounterKind<'a> {
 }
 
 fn alloc_str<'a>(s: &str, ctx: &TraverseCtx<'a, CoverageState>) -> &'a str {
-    ctx.ast.allocator.alloc_str(s)
+    ctx.allocator().alloc_str(s)
 }
 
 /// Build a `base.field` static member access.
