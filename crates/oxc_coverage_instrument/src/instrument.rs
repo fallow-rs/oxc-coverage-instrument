@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use oxc_allocator::Allocator;
 use oxc_ast::{
-    AstBuilder,
     ast::{Expression, Program, Statement},
+    builder::AstBuilder,
 };
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_coverage_types::{FileCoverage, UnhandledPragma};
