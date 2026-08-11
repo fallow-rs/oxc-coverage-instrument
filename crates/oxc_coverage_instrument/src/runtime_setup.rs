@@ -1,7 +1,7 @@
 //! AST-native runtime setup for the satellite adapter.
 
-use oxc_allocator::{Allocator, Vec as ArenaVec};
-use oxc_ast::{AstBuilder, ast::*};
+use oxc_allocator::{Allocator, GetAllocator, Vec as ArenaVec};
+use oxc_ast::{ast::*, builder::AstBuilder};
 use oxc_coverage_types::FileCoverage;
 use oxc_semantic::Scoping;
 use oxc_span::SPAN;
@@ -772,7 +772,7 @@ impl<'arena, 'scoping> RuntimeBuilder<'arena, 'scoping> {
     }
 
     fn alloc(&self, value: &str) -> &'arena str {
-        self.ast.allocator.alloc_str(value)
+        self.ast.allocator().alloc_str(value)
     }
 }
 

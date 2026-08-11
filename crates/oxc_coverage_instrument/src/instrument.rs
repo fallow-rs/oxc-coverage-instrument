@@ -9,8 +9,8 @@ use crate::preamble::{PreambleInputs, djb31_hex, generate_cov_fn_name, generate_
 use crate::runtime_setup::{RuntimeSetupInputs, insert_runtime_setup};
 use oxc_allocator::Allocator;
 use oxc_ast::{
-    AstBuilder,
     ast::{Expression, Program, Statement},
+    builder::AstBuilder,
 };
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_coverage_transform::{
