@@ -26,6 +26,7 @@ rust-test               primitive    Full workspace targets
 doc-test                primitive    Workspace documentation tests
 rust-doc                primitive    Documentation warnings
 ast-api                 aggregate    Experimental AST API tests, lint, and docs
+kernel-boundary         aggregate    Default-feature Oxc kernel candidate only
 typos                   primitive    Repository spelling
 version-sync            primitive    Internal version pins
 napi-test               primitive    Native Node binding tests
@@ -170,6 +171,18 @@ run_ast_api() {
   cargo clippy -p oxc_coverage_instrument --features ast-api --all-targets -- -D warnings
   echo "[check:ast-api] RUSTDOCFLAGS='-D warnings' cargo doc -p oxc_coverage_instrument --features ast-api --no-deps --document-private-items"
   RUSTDOCFLAGS="-D warnings" cargo doc -p oxc_coverage_instrument --features ast-api --no-deps --document-private-items
+}
+
+run_kernel_boundary() {
+  require_tool cargo "Install Rust using rustup, including the clippy component."
+  echo "[check:kernel-boundary] cargo check -p oxc_coverage_transform --no-default-features"
+  cargo check -p oxc_coverage_transform --no-default-features
+  echo "[check:kernel-boundary] cargo test -p oxc_coverage_transform --no-default-features --all-targets"
+  cargo test -p oxc_coverage_transform --no-default-features --all-targets
+  echo "[check:kernel-boundary] cargo clippy -p oxc_coverage_transform --no-default-features --all-targets -- -D warnings"
+  cargo clippy -p oxc_coverage_transform --no-default-features --all-targets -- -D warnings
+  echo "[check:kernel-boundary] RUSTDOCFLAGS='-D warnings' cargo doc -p oxc_coverage_transform --no-default-features --no-deps --document-private-items"
+  RUSTDOCFLAGS="-D warnings" cargo doc -p oxc_coverage_transform --no-default-features --no-deps --document-private-items
 }
 
 run_typos() {
@@ -436,6 +449,7 @@ run_all_local() {
   run_self_test
   run_rust
   run_ast_api
+  run_kernel_boundary
   run_rust_check
   run_rust_test_fast
   run_typos
@@ -474,6 +488,7 @@ case "$profile" in
   doc-test) run_doc_test ;;
   rust-doc) run_rust_doc ;;
   ast-api) run_ast_api ;;
+  kernel-boundary) run_kernel_boundary ;;
   typos) run_typos ;;
   version-sync) run_version_sync ;;
   napi-test) run_napi_test ;;

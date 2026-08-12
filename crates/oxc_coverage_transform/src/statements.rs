@@ -1,4 +1,4 @@
-//! Statement-counter placement: which statement kinds carry a counter, and
+//! Statement-counter placement: which statement kinds carry a counter and
 //! where a counter is emitted when it cannot wrap its own expression slot.
 
 use std::collections::BTreeMap;
@@ -71,7 +71,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     pub(super) fn insert_pending_statement_counters(
         &mut self,
         stmts: &mut ArenaVec<'arena, Statement<'arena>>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         if self.pending_insertions.is_empty() {
             return;
@@ -123,7 +123,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     pub(super) fn instrument_variable_declarator(
         &mut self,
         decl: &mut VariableDeclarator<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         // If the enclosing declaration is ignored, skip both the statement
         // counter wrap and any inner function counter. Set `skip_next` so the

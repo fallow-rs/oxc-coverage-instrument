@@ -46,6 +46,10 @@ jobs:
             cache_key: instrument
             package: oxc_coverage_instrument
             bench: instrument
+          - label: AST coverage kernel
+            cache_key: ast-kernel
+            package: oxc_coverage_transform
+            bench: ast_kernel
           - label: source maps
             cache_key: source-maps
             package: oxc_coverage_source_maps

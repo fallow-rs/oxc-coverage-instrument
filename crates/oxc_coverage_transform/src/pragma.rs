@@ -1,4 +1,4 @@
-//! Istanbul/v8 coverage pragma comment handling.
+//! Istanbul and V8 coverage pragma comment handling.
 //!
 //! Scans AST comments for `istanbul ignore` and `v8 ignore` directives,
 //! building a lookup table that the coverage transform uses to skip
@@ -7,8 +7,6 @@
 use std::collections::BTreeMap;
 
 use oxc_ast::ast::{Comment, Program};
-
-use oxc_coverage_types::UnhandledPragma;
 
 use crate::source_text;
 
@@ -33,6 +31,15 @@ pub enum IgnoreType {
     Else,
 }
 
+/// Unknown coverage directive returned to the satellite adapter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnhandledDirective {
+    /// Original comment contents.
+    pub comment: String,
+    /// Byte offset of the comment in the host source text.
+    pub offset: u32,
+}
+
 /// Lookup table of coverage ignore directives, keyed by the start offset
 /// of the token the comment is attached to.
 pub struct PragmaMap {
@@ -46,7 +53,7 @@ pub struct PragmaMap {
 
 impl PragmaMap {
     /// Build a pragma map from the program's comments and source text.
-    pub fn from_program(program: &Program, source: &str) -> (Self, Vec<UnhandledPragma>) {
+    pub fn from_program(program: &Program, source: &str) -> (Self, Vec<UnhandledDirective>) {
         let mut state = PragmaCollect::default();
         let mut comments: Vec<_> = program.comments.iter().collect();
         comments.sort_by_key(|comment| comment.span.start);
@@ -202,7 +209,7 @@ struct PragmaCollect {
     ignored_ranges: Vec<(u32, u32)>,
     active_ignore_start: Option<u32>,
     ignore_file: bool,
-    unhandled: Vec<UnhandledPragma>,
+    unhandled: Vec<UnhandledDirective>,
 }
 
 impl PragmaCollect {
@@ -225,8 +232,8 @@ impl PragmaCollect {
                 }
             }
             PragmaResult::Unknown(comment_text) => {
-                let (line, column) = source_text::line_column(source, comment.span.start);
-                self.unhandled.push(UnhandledPragma { comment: comment_text, line, column });
+                self.unhandled
+                    .push(UnhandledDirective { comment: comment_text, offset: comment.span.start });
             }
         }
     }

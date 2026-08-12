@@ -11,7 +11,8 @@ and how to submit a change.
 
 | Crate | Published | Owns |
 |:------|:----------|:-----|
-| `crates/oxc_coverage_instrument` | crates.io | Parse, transform, codegen. The instrumenter itself. |
+| `crates/oxc_coverage_instrument` | crates.io | Parse, Istanbul adaptation, source maps, runtime setup, and codegen. |
+| `crates/oxc_coverage_transform` | no | Provisional AST-only Oxc transform kernel and neutral metadata. |
 | `crates/oxc_coverage_types` | crates.io | `FileCoverage`, `FnEntry`, `BranchEntry`, `Location`. |
 | `crates/oxc_coverage_source_maps` | crates.io | Remapping `FileCoverage` back through a source map. |
 | `crates/oxc_coverage_v8` | crates.io | V8 inspector range coverage to Istanbul. |
@@ -53,6 +54,7 @@ used most often:
 ./scripts/check.sh fmt             # cargo fmt --all --check
 ./scripts/check.sh rust-doc        # cargo doc with RUSTDOCFLAGS=-D warnings
 ./scripts/check.sh ast-api         # feature tests, doctests, clippy, and rustdoc; separate from defaults
+./scripts/check.sh kernel-boundary # default-feature Oxc extraction candidate only
 ./scripts/check.sh typos           # requires typos-cli
 ./scripts/check.sh version-sync    # internal version pins and release topology
 ./scripts/check.sh real-world-gates # both pinned production-source parity checks

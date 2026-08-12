@@ -1,4 +1,4 @@
-//! Predicates deciding whether a node is suppressed by an istanbul ignore
+//! Predicates deciding whether a node is suppressed by a coverage ignore
 //! pragma, by an enclosing ignored subtree, or by `ignoreClassMethods`.
 
 use oxc_ast::ast::*;

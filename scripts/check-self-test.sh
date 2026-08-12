@@ -554,6 +554,14 @@ $ROOT||clippy -p oxc_coverage_instrument --features ast-api --all-targets -- -D 
 $ROOT|-D warnings|doc -p oxc_coverage_instrument --features ast-api --no-deps --document-private-items" \
   "ast-api cargo commands"
 
+FAKE_AST_CARGO_LOG="$TMP/kernel-cargo.log" PATH="$TMP/ast-bin:/usr/bin:/bin" \
+  "$CHECK" kernel-boundary >"$TMP/kernel-boundary.log" 2>&1
+assert_equal "$(<"$TMP/kernel-cargo.log")" "$ROOT||check -p oxc_coverage_transform --no-default-features
+$ROOT||test -p oxc_coverage_transform --no-default-features --all-targets
+$ROOT||clippy -p oxc_coverage_transform --no-default-features --all-targets -- -D warnings
+$ROOT|-D warnings|doc -p oxc_coverage_transform --no-default-features --no-deps --document-private-items" \
+  "kernel-boundary cargo commands"
+
 bash "$ROOT/scripts/benchmark-comparison.sh" --self-test
 node --test "$ROOT/scripts/tests/real-world-corpus.test.mjs"
 
@@ -641,6 +649,7 @@ expected_profiles=(
   doc-test
   rust-doc
   ast-api
+  kernel-boundary
   typos
   version-sync
   napi-test
@@ -677,6 +686,7 @@ assert_equal "$actual_list" "$expected_list" "profile inventory"
 sed -n '/^run_all_local() {$/,/^}$/p' "$CHECK" >"$TMP/all-local-body.log"
 assert_contains "$TMP/all-local-body.log" "run_self_test"
 assert_contains "$TMP/all-local-body.log" "run_ast_api"
+assert_contains "$TMP/all-local-body.log" "run_kernel_boundary"
 assert_contains "$TMP/all-local-body.log" "run_real_world_gates"
 
 sed -n '/^run_version_sync() {$/,/^}$/p' "$CHECK" >"$TMP/version-sync-body.log"
@@ -690,6 +700,10 @@ if ! workflow_check_has_self_test_step "$workflow"; then
 fi
 if ! workflow_check_has_linux_profile_step "$workflow" "Check experimental AST API" "ast-api"; then
   fail "CI check job is missing the Linux-only ast-api profile"
+fi
+if ! workflow_check_has_linux_profile_step \
+  "$workflow" "Check Oxc kernel extraction boundary" "kernel-boundary"; then
+  fail "CI check job is missing the Linux-only kernel-boundary profile"
 fi
 if ! workflow_real_world_job_is_gated "$workflow"; then
   fail "CI real-world-parity job is missing manifest-keyed preparation or repository gates"

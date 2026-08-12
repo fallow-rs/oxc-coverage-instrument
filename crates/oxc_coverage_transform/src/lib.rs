@@ -1,4 +1,8 @@
-//! AST-level coverage transform, driven by `oxc_traverse`.
+//! AST-only coverage transform kernel, driven by `oxc_traverse`.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "private concern modules expose their traversal helpers to the crate root"
+)]
 //!
 //! Collects the statement, function and branch spans that make up the
 //! coverage map while injecting the matching counter expressions
@@ -15,7 +19,7 @@
 //! }
 //! ```
 //!
-//! Output, below the preamble that defines `cov_1abc`:
+//! Output, below the host setup that defines `cov_1abc`:
 //!
 //! ```js
 //! function f(x) {
@@ -33,14 +37,15 @@
 //!
 //! ## Files
 //!
-//! - `mod.rs`: the transform state and the `Traverse` impl that dispatches
+//! - `lib.rs`: the transform state and the `Traverse` impl that dispatches
 //!   each visitor hook to the file owning that concern.
 //! - `branches.rs`: `if`, ternary, `switch`, default-argument, logical
 //!   assignment and optional-chain branch instrumentation.
 //! - `counters.rs`: construction of the counter expressions and statements,
 //!   and the pending-insertion records that place them.
-//! - `coverage_map.rs`: span to `Location` conversion and the `statementMap` /
-//!   `fnMap` / `branchMap` registration, including the eager-remap gate.
+//! - `coverage_map.rs`: neutral span-record registration. The
+//!   `satellite-eager-compose` feature adds the standalone adapter's private
+//!   eager-remap compatibility gate.
 //! - `functions.rs`: `fnMap` entry registration for functions, arrows, methods
 //!   and class members, and class-field counter hoisting.
 //! - `ignore.rs`: the predicates deciding whether a node is suppressed by a
@@ -48,22 +53,23 @@
 //! - `logical.rs`: logical-chain flattening and per-leaf counter wrapping.
 //! - `names.rs`: `fnMap` name inference from declarations, bindings, property
 //!   keys, assignment targets and call arguments.
-//! - `preamble.rs`: the per-file coverage-object IIFE inserted after directives.
 //! - `statements.rs`: statement-counter placement, including the hoists that
 //!   keep `Function.name` inference intact.
 
+use std::{error::Error, fmt};
+
+#[cfg(feature = "satellite-eager-compose")]
 use std::collections::BTreeMap;
+#[cfg(not(feature = "satellite-eager-compose"))]
+use std::marker::PhantomData;
 
 use oxc_allocator::{Allocator, Vec as ArenaVec};
 use oxc_ast::ast::*;
-use oxc_coverage_types::{BranchEntry, FnEntry, Location};
+use oxc_semantic::Scoping;
 use oxc_span::{GetSpan, Span};
-use oxc_traverse::{Traverse, TraverseCtx};
-
-use crate::{
-    pragma::{IgnoreType, PragmaMap},
-    source_text,
-};
+use oxc_syntax::symbol::SymbolFlags;
+use oxc_syntax::{identifier::is_identifier_name, keyword::is_reserved_keyword};
+use oxc_traverse::{BoundIdentifier, Traverse, TraverseCtx, traverse_mut};
 
 mod branches;
 mod counters;
@@ -71,8 +77,10 @@ mod coverage_map;
 mod functions;
 mod ignore;
 mod logical;
+mod metadata;
 mod names;
-mod preamble;
+mod pragma;
+mod source_text;
 mod statements;
 
 use branches::OptionalChainLinkInput;
@@ -81,30 +89,32 @@ use coverage_map::is_synthetic_span;
 use ignore::{
     is_ignored_case, jsx_attribute_ignored, jsx_child_ignored, jsx_spread_attribute_ignored,
 };
+pub use metadata::{BranchKind, BranchRecord, CoverageMetadata, FunctionRecord};
+#[cfg(feature = "satellite-eager-compose")]
+pub use metadata::{RegistrationKey, RegistrationPolicy};
 use names::{AssignmentTargetName, assignment_target_name};
+pub use pragma::{IgnoreType, PragmaMap, UnhandledDirective};
+pub use source_text::{line_column, line_starts};
 
-pub use preamble::{PreambleInputs, djb31_hex, generate_cov_fn_name, generate_preamble_source};
+#[cfg(feature = "satellite-eager-compose")]
+type RegistrationPolicyRef<'policy> = Option<&'policy dyn RegistrationPolicy>;
+#[cfg(not(feature = "satellite-eager-compose"))]
+type RegistrationPolicyRef<'policy> = PhantomData<&'policy ()>;
 
 /// State carried through the traverse for coverage instrumentation.
-pub struct CoverageState {
+struct CoverageState {
     /// Pragma map for istanbul/v8 ignore directives.
     pub pragmas: PragmaMap,
 }
 
 /// Collects coverage metadata and injects counter expressions via AST mutation.
-pub struct CoverageTransform<'src, 'arena> {
-    source: &'src str,
-    line_offsets: Vec<u32>,
-    /// True when the source is pure ASCII so columns can be reported as
-    /// `offset - line_start` without walking chars for UTF-16 width.
-    source_is_ascii: bool,
-    /// Function entries indexed by sequential id. Materialized into a
-    /// `BTreeMap<String, FnEntry>` once in `build_file_coverage`.
-    pub fn_map: Vec<FnEntry>,
+struct CoverageTransform<'policy, 'arena> {
+    /// Function records indexed by sequential counter id.
+    fn_map: Vec<FunctionRecord>,
     /// Statement locations indexed by sequential id.
-    pub statement_map: Vec<Location>,
+    statement_map: Vec<Span>,
     /// Branch entries indexed by sequential id.
-    pub branch_map: Vec<BranchEntry>,
+    branch_map: Vec<BranchRecord>,
     /// Body byte spans parallel to `branch_map[i].locations[j]`. For most
     /// branch shapes the body span equals the location span; the exception is
     /// if-arm 0, where `locations[0]` records the whole `IfStatement` span
@@ -114,7 +124,7 @@ pub struct CoverageTransform<'src, 'arena> {
     /// has no range tight to istanbul's whole-IfStatement convention. Slots
     /// with `(0, 0)` represent unknown bodies (e.g. synthetic else-arms) and
     /// are skipped by callers.
-    pub branch_arm_body_byte_spans: Vec<Vec<(u32, u32)>>,
+    branch_arm_body_spans: Vec<Vec<Option<Span>>>,
     /// Name inherited from a parent node (variable declarator, method definition).
     pending_name: Option<String>,
     /// `decl` span inherited from a class `MethodDefinition`. A method's inner
@@ -190,47 +200,48 @@ pub struct CoverageTransform<'src, 'arena> {
     /// Whether transform details should match `istanbul-lib-instrument`.
     istanbul_compat: bool,
     /// Branch IDs of logical expression branches (for building the `bT` map).
-    pub logical_branch_ids: Vec<usize>,
+    logical_branch_ids: Vec<usize>,
     /// Set once any optional-chain link has been wrapped in the `cov_fn_oc`
-    /// helper, so the preamble emits that helper. Read instead of scanning the
+    /// helper, so the host emits that helper. Read instead of scanning the
     /// branch map for an `optional-chain` type, because an eager fold can
     /// collapse an `optional-chain` entry onto a differently-typed one (the
     /// fold key excludes `branch_type`) while the emitted `_oc` call remains.
-    pub used_optional_chain_helper: bool,
+    used_optional_chain_helper: bool,
     /// Eager-compose gate. When `Some`, a coverage point whose positions do not
     /// remap through the input source map is not instrumented at all: no map
     /// entry is registered and no counter is emitted, so the runtime coverage
     /// object and the emitted counters agree. `None` for every non-eager
     /// caller, where gating is a strict no-op.
-    eager_remapper: Option<&'src oxc_coverage_source_maps::PositionRemapper>,
+    registration_policy: RegistrationPolicyRef<'policy>,
     /// Statement ids already handed out per remapped location, so statements
     /// that collapse onto one original location under the eager gate share a
     /// counter. Empty outside eager mode.
-    eager_statement_ids: BTreeMap<coverage_map::EagerMergeKey, usize>,
+    #[cfg(feature = "satellite-eager-compose")]
+    eager_statement_ids: BTreeMap<RegistrationKey, usize>,
     /// Function ids already handed out per remapped `decl` location; the
     /// function counterpart of `eager_statement_ids`.
-    eager_function_ids: BTreeMap<coverage_map::EagerMergeKey, usize>,
+    #[cfg(feature = "satellite-eager-compose")]
+    eager_function_ids: BTreeMap<RegistrationKey, usize>,
     /// Branch ids already handed out per remapped surviving-arm vector, so
     /// branches that collapse onto one original arm vector under the eager gate
     /// share a counter. Empty outside eager mode. Mirrors `eager_statement_ids`
     /// / `eager_function_ids`.
+    #[cfg(feature = "satellite-eager-compose")]
     eager_branch_ids: BTreeMap<coverage_map::BranchKey, usize>,
     /// Set when an eager function fold merges two functions whose identities
     /// differ, so `finalize` drops the `x_fallow_functionMap` overlay the way
     /// the deferred merge does. Never set outside eager mode.
-    pub eager_function_overlay_conflict: bool,
+    #[cfg(feature = "satellite-eager-compose")]
+    eager_function_overlay_conflict: bool,
 }
 
-/// Inputs to [`CoverageTransform::new`], grouped so the constructor stays at
-/// a single parameter even as new options accrete.
-pub struct TransformInit<'src, 'arena> {
+/// Coverage behavior supplied to [`transform_program`].
+pub struct TransformInit<'arena> {
     /// Bump allocator owning the AST being traversed.
     pub allocator: &'arena Allocator,
-    /// The source text; used for line-offset precomputation and span lookups.
-    pub source: &'src str,
-    /// Per-file IIFE function name (e.g. `cov_<hash>`); copied into the arena
-    /// so AST identifiers can refer to it for the lifetime of the traversal.
-    pub cov_fn_name: &'src str,
+    /// Requested per-file coverage binding name (e.g. `cov_<hash>`). The
+    /// kernel validates and collision-resolves it before mutating the AST.
+    pub cov_fn_name: String,
     /// When true, emits the truthy-value tracker (`bT` counters) for logical
     /// expression operands.
     pub report_logic: bool,
@@ -247,34 +258,190 @@ pub struct TransformInit<'src, 'arena> {
     pub name_callback_arguments: bool,
     /// Whether transform details should match `istanbul-lib-instrument`.
     pub istanbul_compat: bool,
-    /// Eager-compose position-remap gate. `Some` only when
-    /// `compose_input_source_map` is on and a usable input map is present;
-    /// `None` for every other caller, where gating is a strict no-op.
-    pub eager_remapper: Option<&'src oxc_coverage_source_maps::PositionRemapper>,
 }
 
-impl<'src, 'arena> CoverageTransform<'src, 'arena> {
-    pub fn new(init: TransformInit<'src, 'arena>) -> Self {
+/// Inputs for one host-owned AST transform pass.
+pub struct TransformProgramInput<'arena, 'program> {
+    /// Program mutated in place.
+    pub program: &'program mut Program<'arena>,
+    /// Semantic state matching `program` before instrumentation.
+    pub scoping: Scoping,
+    /// Parsed ignore directives for the program.
+    pub pragmas: PragmaMap,
+    /// Transform construction inputs.
+    pub transform: TransformInit<'arena>,
+}
+
+/// Generated binding names required by a host-owned runtime setup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratedNames {
+    /// Collision-safe coverage object binding.
+    pub coverage: String,
+    /// Truthy-value helper, when logical truthiness tracking is enabled.
+    pub truthy_helper: Option<String>,
+    /// Optional-chain helper, when at least one optional-chain link was wrapped.
+    pub optional_chain_helper: Option<String>,
+}
+
+/// Semantic result of one AST-only coverage transform pass.
+#[derive(Debug)]
+pub enum TransformOutcome {
+    /// The program carried a file-level coverage-ignore directive.
+    Ignored,
+    /// Counters were injected and metadata was collected.
+    Instrumented { metadata: CoverageMetadata, names: GeneratedNames },
+}
+
+/// Result of one host-owned AST transform pass.
+#[derive(Debug)]
+pub struct TransformOutput {
+    /// Semantic state updated by `oxc_traverse` during counter injection.
+    pub scoping: Scoping,
+    /// Whether the file was ignored or instrumented.
+    pub outcome: TransformOutcome,
+}
+
+/// Invalid input rejected before the AST is mutated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransformError {
+    /// The requested coverage name cannot be emitted as a JavaScript binding.
+    InvalidCoverageBindingName(String),
+}
+
+impl fmt::Display for TransformError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidCoverageBindingName(name) => {
+                write!(formatter, "invalid JavaScript coverage binding name: {name:?}")
+            }
+        }
+    }
+}
+
+impl Error for TransformError {}
+
+/// Mutate a host-owned program and return neutral coverage metadata.
+///
+/// # Errors
+///
+/// Returns [`TransformError::InvalidCoverageBindingName`] when the requested
+/// coverage binding is not a valid non-reserved JavaScript identifier.
+pub fn transform_program(
+    input: TransformProgramInput<'_, '_>,
+) -> Result<TransformOutput, TransformError> {
+    #[cfg(feature = "satellite-eager-compose")]
+    let registration_policy = None;
+    #[cfg(not(feature = "satellite-eager-compose"))]
+    let registration_policy = PhantomData;
+    transform_program_inner(input, registration_policy)
+}
+
+/// Compatibility bridge for the satellite package's eager source-map adapter.
+///
+/// This is not part of the proposed first Oxc host API. A host that does not
+/// need eager source-map folding should call [`transform_program`].
+#[doc(hidden)]
+#[cfg(feature = "satellite-eager-compose")]
+pub fn transform_program_with_registration_policy(
+    input: TransformProgramInput<'_, '_>,
+    registration_policy: Option<&dyn RegistrationPolicy>,
+) -> Result<TransformOutput, TransformError> {
+    transform_program_inner(input, registration_policy)
+}
+
+fn transform_program_inner(
+    input: TransformProgramInput<'_, '_>,
+    registration_policy: RegistrationPolicyRef<'_>,
+) -> Result<TransformOutput, TransformError> {
+    let TransformProgramInput { program, scoping, pragmas, mut transform } = input;
+    if pragmas.ignore_file {
+        return Ok(TransformOutput { scoping, outcome: TransformOutcome::Ignored });
+    }
+    if !is_identifier_name(&transform.cov_fn_name) || is_reserved_keyword(&transform.cov_fn_name) {
+        return Err(TransformError::InvalidCoverageBindingName(transform.cov_fn_name));
+    }
+    transform.cov_fn_name = resolve_cov_fn_name(&transform.cov_fn_name, &scoping);
+    let coverage_name = transform.cov_fn_name.clone();
+    let report_logic = transform.report_logic;
+    let allocator = transform.allocator;
+    let mut coverage_transform = CoverageTransform::new(transform, registration_policy);
+    let state = CoverageState { pragmas };
+    let scoping = traverse_mut(&mut coverage_transform, allocator, program, scoping, state);
+    let metadata = coverage_transform.finish();
+    let names = GeneratedNames {
+        truthy_helper: report_logic.then(|| format!("{coverage_name}_bt")),
+        optional_chain_helper: metadata
+            .used_optional_chain_helper
+            .then(|| format!("{coverage_name}_oc")),
+        coverage: coverage_name,
+    };
+    Ok(TransformOutput { scoping, outcome: TransformOutcome::Instrumented { metadata, names } })
+}
+
+const COVERAGE_BINDING_SUFFIXES: [&str; 4] = ["", "_bt", "_oc", "_temp"];
+
+/// Resolve a collision-safe root binding for the generated coverage function.
+///
+/// # Panics
+///
+/// Panics only if every `u32` collision suffix is exhausted.
+pub fn resolve_cov_fn_name(base: &str, scoping: &Scoping) -> String {
+    if coverage_binding_is_available(base, scoping) {
+        return base.to_string();
+    }
+
+    let mut suffix = 1_u32;
+    loop {
+        let candidate = format!("{base}_{suffix}");
+        if coverage_binding_is_available(&candidate, scoping) {
+            return candidate;
+        }
+        suffix = suffix.checked_add(1).expect("coverage binding suffix space exhausted");
+    }
+}
+
+fn coverage_binding_is_available(candidate: &str, scoping: &Scoping) -> bool {
+    let declared_names_available = scoping.iter_bindings().all(|(_, bindings)| {
+        bindings.keys().all(|symbol| {
+            COVERAGE_BINDING_SUFFIXES
+                .iter()
+                .all(|suffix| !symbol_is_coverage_binding(symbol.as_str(), candidate, suffix))
+        })
+    });
+    declared_names_available
+        && scoping.root_unresolved_references().keys().all(|symbol| {
+            COVERAGE_BINDING_SUFFIXES
+                .iter()
+                .all(|suffix| !symbol_is_coverage_binding(symbol.as_str(), candidate, suffix))
+        })
+}
+
+fn symbol_is_coverage_binding(symbol: &str, candidate: &str, suffix: &str) -> bool {
+    symbol.len() == candidate.len().saturating_add(suffix.len())
+        && symbol.starts_with(candidate)
+        && symbol.ends_with(suffix)
+}
+
+impl<'policy, 'arena> CoverageTransform<'policy, 'arena> {
+    fn new(
+        init: TransformInit<'arena>,
+        registration_policy: RegistrationPolicyRef<'policy>,
+    ) -> Self {
         let TransformInit {
             allocator,
-            source,
             cov_fn_name,
             report_logic,
             track_optional_chain,
             ignore_class_methods,
             name_callback_arguments,
             istanbul_compat,
-            eager_remapper,
         } = init;
-        let cov_fn_name = allocator.alloc_str(cov_fn_name);
+        let cov_fn_name = allocator.alloc_str(&cov_fn_name);
         Self {
-            source,
-            line_offsets: source_text::line_starts(source),
-            source_is_ascii: source.is_ascii(),
             fn_map: Vec::new(),
             statement_map: Vec::new(),
             branch_map: Vec::new(),
-            branch_arm_body_byte_spans: Vec::new(),
+            branch_arm_body_spans: Vec::new(),
             pending_name: None,
             pending_method_decl: None,
             pending_insertions: Vec::new(),
@@ -299,16 +466,45 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             istanbul_compat,
             logical_branch_ids: Vec::new(),
             used_optional_chain_helper: false,
-            eager_remapper,
+            registration_policy,
+            #[cfg(feature = "satellite-eager-compose")]
             eager_statement_ids: BTreeMap::new(),
+            #[cfg(feature = "satellite-eager-compose")]
             eager_function_ids: BTreeMap::new(),
+            #[cfg(feature = "satellite-eager-compose")]
             eager_branch_ids: BTreeMap::new(),
+            #[cfg(feature = "satellite-eager-compose")]
             eager_function_overlay_conflict: false,
+        }
+    }
+
+    /// Consume the traversal state into the neutral adapter boundary.
+    fn finish(self) -> CoverageMetadata {
+        CoverageMetadata {
+            statements: self.statement_map,
+            functions: self.fn_map,
+            branches: self.branch_map,
+            branch_arm_body_spans: self.branch_arm_body_spans,
+            logical_branch_ids: self.logical_branch_ids,
+            used_optional_chain_helper: self.used_optional_chain_helper,
+            #[cfg(feature = "satellite-eager-compose")]
+            function_overlay_conflict: self.eager_function_overlay_conflict,
         }
     }
 }
 
 impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
+    fn enter_program(
+        &mut self,
+        _program: &mut Program<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        ensure_root_binding(self.cov_fn_name, SymbolFlags::FunctionScopedVariable, ctx);
+        if let Some(name) = self.cov_fn_bt_name {
+            ensure_root_binding(name, SymbolFlags::Function, ctx);
+        }
+    }
+
     fn enter_function(
         &mut self,
         func: &mut Function<'a>,
@@ -717,4 +913,29 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         }
         self.try_instrument_logical_assignment(expr, ctx);
     }
+}
+
+fn ensure_root_binding<'a>(
+    name: &'a str,
+    flags: SymbolFlags,
+    ctx: &mut TraverseCtx<'a, CoverageState>,
+) -> BoundIdentifier<'a> {
+    let name = name.into();
+    if let Some(symbol_id) = ctx.scoping().get_root_binding(name) {
+        return BoundIdentifier::new(name, symbol_id);
+    }
+    let root_scope_id = ctx.scoping().root_scope_id();
+    ctx.generate_binding(name, root_scope_id, flags)
+}
+
+fn root_bound_identifier<'a>(
+    name: &'a str,
+    ctx: &TraverseCtx<'a, CoverageState>,
+) -> BoundIdentifier<'a> {
+    let name = name.into();
+    let symbol_id = ctx
+        .scoping()
+        .get_root_binding(name)
+        .expect("coverage helper binding must be registered before use");
+    BoundIdentifier::new(name, symbol_id)
 }

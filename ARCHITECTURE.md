@@ -6,11 +6,10 @@ across all of them. For usage, see the README of the crate you need.
 
 ## Bird's Eye View
 
-Coverage counters are injected at the AST level, and no regular expression
-rewrites the input source. The standalone source-to-source adapter also inserts
-a synthetic AST marker after the directive prologue. After codegen it replaces
-that marker statement with the generated coverage setup and shifts the following
-source-map lines.
+Coverage counters are inserted as AST nodes. The experimental host API also
+inserts runtime setup as AST, while the standalone source API emits its fixed
+runtime setup directly as text after codegen. Neither path reparses generated
+setup or rebuilds semantic state after instrumentation.
 
 ```
 source code (JS/TS)
@@ -22,25 +21,35 @@ oxc_parser          parse to AST
 SemanticBuilder     build scope tree
     |
     v
-CoverageTransform   traverse AST, inject ++cov().s[N] counters
+oxc_coverage_transform
+                    traverse AST, inject counters, return neutral metadata
+    |
+    v
+host API setup      build setup AST and register scopes, symbols, references
     |
     v
 oxc_codegen         emit instrumented code and source map
     |
     v
-setup insertion     replace generated marker, shift source map
+standalone setup    replace insertion marker and shift source map
     |
     v
 instrumented code + coverage map
 ```
 
-`CoverageTransform` is an `oxc_traverse` visitor. It assigns each statement,
-function, and branch an id, records its `Location` in the coverage map, and
-injects the counter expression that increments the matching slot at runtime.
-The standalone adapter adds the setup marker, codegen emits the rewritten AST
-and its source map, then the adapter replaces that marker with the coverage
-setup. The experimental host-owned AST API instead returns the setup preamble
-for the host to insert and connect to semantic state.
+`oxc_coverage_transform` is an unpublished, provisional Oxc extraction target.
+It owns the `oxc_traverse` visitor, ignore semantics, collision-safe generated
+bindings, counter mutation, and neutral ordered metadata. Its normal dependency
+graph contains only Oxc AST, semantic, span, syntax, allocator, and traverse
+layers. The published instrument crate adapts that output to Istanbul types,
+applies source-map policy, and owns the runtime setup and source-to-source API.
+
+The standalone adapter converts neutral Oxc spans to Istanbul positions, emits
+the fixed runtime setup after the directive prologue, and adjusts generated
+source mappings for those inserted lines. This keeps the source-to-source path
+fast. With `ast-api`, the adapter instead builds the coverage-data literal and
+runtime setup as ordered AST, then updates the existing `Scoping` directly so a
+host can continue its own transform pipeline without a text insertion step.
 
 When an `inputSourceMap` is supplied, the instrumenter composes the codegen
 output map with the input map, so downstream remappers (Vitest, nyc, monocart)
@@ -57,6 +66,7 @@ reporter; the reporting crate implements the formats named below.
 
 | Crate | Replaces |
 |:------|:---------|
+| `oxc_coverage_transform` (unpublished proposal) | reusable Oxc AST mutation primitive |
 | [`oxc_coverage_instrument`](crates/oxc_coverage_instrument/README.md) | `istanbul-lib-instrument` |
 | [`oxc_coverage_types`](crates/oxc_coverage_types/README.md) | `istanbul-lib-coverage` (data model) |
 | [`oxc_coverage_source_maps`](crates/oxc_coverage_source_maps/README.md) | `istanbul-lib-source-maps` |
@@ -64,7 +74,8 @@ reporter; the reporting crate implements the formats named below.
 | [`oxc_coverage_report`](crates/oxc_coverage_report/README.md) | `istanbul-lib-report` |
 | [`oxc_coverage_reports`](crates/oxc_coverage_reports/README.md) | `istanbul-reports` (partial) |
 
-Two more crates are workspace-local rather than published to crates.io:
+Three crates are workspace-local rather than published to crates.io. The
+provisional `oxc_coverage_transform` exists only for upstream boundary review.
 [`oxc_coverage_instrument_cli`](crates/oxc_coverage_instrument_cli/README.md)
 ships the `oxc-coverage-instrument` binary, and
 [`oxc_coverage_instrument_napi`](crates/oxc_coverage_instrument_napi/README.md)
@@ -115,9 +126,9 @@ runtime-collected `__coverage__` does.
 
 With the experimental `ast-api` feature, an Oxc host can enter the first box at
 the transform boundary. `instrument_program` accepts a host-owned `Program` and
-`Scoping`, mutates the AST with counters, and returns coverage metadata plus the
-setup preamble. Parsing, TypeScript or JSX lowering, preamble insertion,
-semantic rebuilding, and code generation remain owned by the host.
+`Scoping`, mutates the AST with counters and runtime setup, and returns coverage
+metadata plus the complete updated `Scoping`. Parsing, TypeScript or JSX
+lowering, and code generation remain owned by the host.
 
 `oxc_coverage_instrument` re-exports the remap, V8, and data-model surfaces, so a
 consumer that only needs the default path can depend on that one crate.
@@ -180,3 +191,14 @@ overhead at every AST boundary rather than measuring native Rust.
 
 CodSpeed runs the Rust benchmarks under `crates/*/benches/` on every push to
 `main` and every pull request that touches `crates/` or a workspace manifest.
+The provisional transform crate has its own shard. Its setup phase clones the
+input program and builds semantic state outside measurement; the measured
+routine contains only coverage traversal and AST mutation.
+
+That shard is a regression gate for the kernel, not proof of a Rolldown or
+Vitest speedup. The integration claim must compare complete pipelines on the
+same real-world modules and account for the parse, lowering, semantic, and
+codegen phases the host can reuse. The standalone benchmark uses direct text
+setup emission. The AST-native setup is measured only when the host API itself
+is benchmarked, and remains a host contract proof rather than a standalone
+throughput claim.

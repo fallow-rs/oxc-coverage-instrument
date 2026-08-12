@@ -1,4 +1,4 @@
-//! `fnMap` entry registration for functions, arrows, methods and class
+//! Function entry registration for functions, arrows, methods and class
 //! members, plus name inheritance for function-valued properties.
 
 use std::mem;
@@ -55,7 +55,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // `function foo()` gives the `foo` identifier span, a class method
         // `bar() {}` gives the key span (recorded by `register_method_definition`
         // before this hook runs), and an anonymous `function ()` gives a
-        // one-character marker where the name would have been.
+        // one-character synthetic location where the name would have been.
         let decl_span = if let Some(id) = &func.id {
             id.span
         } else if let Some(span) = self.pending_method_decl.take() {
@@ -75,7 +75,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     pub(super) fn insert_function_counter(
         &mut self,
         body: &mut FunctionBody<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         if self.in_ignored_subtree() {
             return;
@@ -227,7 +227,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     pub(super) fn instrument_property_definition(
         &mut self,
         prop: &mut PropertyDefinition<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         let parent_ignored = self.in_ignored_subtree();
         let has_ignore_next =

@@ -1,4 +1,4 @@
-//! Name inference for `fnMap` entries, from declarations, bindings, property
+//! Name inference for function entries from declarations, bindings, property
 //! keys, assignment targets and call arguments.
 
 use oxc_ast::ast::*;

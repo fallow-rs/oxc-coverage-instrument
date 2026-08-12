@@ -1,0 +1,42 @@
+[package]
+name = "oxc_coverage_transform"
+version = "0.0.0"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Provisional AST-only coverage transform kernel for Oxc maintainer review"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+codspeed = ["criterion2/codspeed"]
+satellite-eager-compose = []
+
+[dependencies]
+oxc_allocator = { workspace = true }
+oxc_ast = { workspace = true }
+oxc_semantic = { workspace = true }
+oxc_span = { workspace = true }
+oxc_syntax = { workspace = true }
+oxc_traverse = { workspace = true }
+
+[dev-dependencies]
+criterion2 = { workspace = true }
+oxc_ast_visit = { workspace = true }
+oxc_parser = { workspace = true }
+oxc_semantic = { workspace = true }
+serde_json = { workspace = true }
+
+[[bench]]
+name = "ast_kernel"
+harness = false
+test = false
+required-features = ["codspeed"]

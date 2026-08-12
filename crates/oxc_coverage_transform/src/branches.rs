@@ -6,6 +6,7 @@ use std::mem;
 use oxc_allocator::Vec as ArenaVec;
 use oxc_ast::ast::*;
 use oxc_span::{GetSpan, SPAN, Span};
+use oxc_syntax::symbol::SymbolFlags;
 use oxc_traverse::TraverseCtx;
 
 use crate::pragma::IgnoreType;
@@ -16,7 +17,7 @@ use super::counters::{
 };
 use super::coverage_map::{PendingArm, PendingBranch, is_synthetic_span};
 use super::ignore::{enclosing_destructure_property_pragma, is_ignored_case};
-use super::{CoverageState, CoverageTransform};
+use super::{BranchKind, CoverageState, CoverageTransform, ensure_root_binding};
 
 pub(super) struct OptionalChainLinkInput<'arena, 'a> {
     pub(super) object: &'a mut Expression<'arena>,
@@ -80,7 +81,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // traversal still recurses; the pragma-arm bookkeeping above and
         // `pop_ignored_if_arms`'s pop stay balanced either way.
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "if",
+            kind: BranchKind::If,
             umbrella_span: stmt.span,
             gate_arms: true,
             arms,
@@ -120,7 +121,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     pub(super) fn instrument_conditional_branches(
         &mut self,
         expr: &mut ConditionalExpression<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         if self.in_ignored_subtree()
             || ctx.state.pragmas.get(expr.span.start) == Some(IgnoreType::Next)
@@ -151,7 +152,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         }
 
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "cond-expr",
+            kind: BranchKind::Conditional,
             umbrella_span: expr.span,
             gate_arms: true,
             arms,
@@ -184,7 +185,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     pub(super) fn instrument_switch_cases(
         &mut self,
         stmt: &mut SwitchStatement<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         if self.in_ignored_subtree() {
             return;
@@ -199,7 +200,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
             }
         }
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "switch",
+            kind: BranchKind::Switch,
             umbrella_span: stmt.span,
             gate_arms: true,
             arms,
@@ -227,7 +228,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     pub(super) fn instrument_parameter_default(
         &mut self,
         param: &mut FormalParameter<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         if self.in_ignored_subtree() {
             return;
@@ -252,7 +253,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
             }
             let init_span = init.span();
             let Some(reg) = self.register_branch(PendingBranch {
-                branch_type: "default-arg",
+                kind: BranchKind::DefaultArgument,
                 umbrella_span: param.span,
                 gate_arms: true,
                 arms: vec![PendingArm::new(init_span)],
@@ -274,7 +275,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     pub(super) fn instrument_destructuring_default(
         &mut self,
         pattern: &mut AssignmentPattern<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         if self.in_ignored_subtree() {
             return;
@@ -304,7 +305,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // `default-arg` too.
         let right_span = pattern.right.span();
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "default-arg",
+            kind: BranchKind::DefaultArgument,
             umbrella_span: pattern.span,
             gate_arms: true,
             arms: vec![PendingArm::new(right_span)],
@@ -323,7 +324,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     pub(super) fn try_instrument_logical_assignment(
         &mut self,
         expr: &mut AssignmentExpression<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
+        ctx: &mut TraverseCtx<'arena, CoverageState>,
     ) {
         if self.istanbul_compat || !is_logical_assignment_operator(expr.operator) {
             return;
@@ -334,7 +335,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // insertion at slot 0 and the right is hard-wired to slot 1, so both
         // arms must be registered together or not at all.
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "binary-expr",
+            kind: BranchKind::Binary,
             umbrella_span: expr.span,
             gate_arms: false,
             arms: vec![PendingArm::new(left_span), PendingArm::new(right_span)],
@@ -412,10 +413,6 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     /// full span. Both run at the same source position; the convention
     /// keeps the JSON-shape consistent with two-arm branch types and
     /// lets reporters render either arm without divergent special cases.
-    #[expect(
-        clippy::needless_pass_by_ref_mut,
-        reason = "takes `&mut` so the three traverse hooks can pass their own `ctx` through unchanged"
-    )]
     pub(super) fn wrap_optional_chain_link(
         &mut self,
         input: OptionalChainLinkInput<'arena, '_>,
@@ -428,7 +425,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // arm 1 is the link's full span.
         let anchor = Span::new(link_span.start, link_span.start);
         let Some(reg) = self.register_branch(PendingBranch {
-            branch_type: "optional-chain",
+            kind: BranchKind::OptionalChain,
             umbrella_span: link_span,
             gate_arms: false,
             arms: vec![PendingArm::new(anchor), PendingArm::new(link_span)],
@@ -445,7 +442,8 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         let oc_name = self
             .cov_fn_oc_name
             .expect("wrap_optional_chain_link runs only when track_optional_chain is on");
-        let callee = Expression::new_identifier(SPAN, oc_name, ctx);
+        let callee =
+            ensure_root_binding(oc_name, SymbolFlags::Function, ctx).create_read_expression(ctx);
         let original = mem::replace(object, dummy_expr(ctx));
         let mut args = ArenaVec::new_in(ctx);
         args.push(Argument::from(original));
