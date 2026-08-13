@@ -133,6 +133,13 @@ pub struct CoverageTransform<'src, 'arena> {
     /// function, so the push/pop balance with the traversal nesting is
     /// preserved; the body hook emits a counter only for `Some` entries.
     pending_fn_counters: Vec<Option<usize>>,
+    /// Per-arrow record of whether the arrow was written with a concise body,
+    /// pushed by `expand_arrow_expression_body` and popped by
+    /// `convert_arrow_expression_body`. Oxc dropped
+    /// `ArrowFunctionExpression::expression` in 0.143, and the body shape cannot
+    /// answer the question on the way out because the enter hook has by then
+    /// given every arrow a block.
+    arrow_expression_bodies: Vec<bool>,
     /// Per-frame record of whether the current function or arrow is being ignored
     /// (i.e. its subtree should not be instrumented). Mirrors Istanbul's `path.skip()`:
     /// when true at any ancestor frame, statements in the body are not counted.
@@ -279,6 +286,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             pending_method_decl: None,
             pending_insertions: Vec::new(),
             pending_fn_counters: Vec::new(),
+            arrow_expression_bodies: Vec::new(),
             ignored_fn_stack: Vec::new(),
             ignored_stmt_stack: Vec::new(),
             ignored_prop_stack: Vec::new(),
@@ -339,6 +347,16 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         self.register_arrow_entry(arrow, ctx);
+    }
+
+    fn enter_arrow_function_body(
+        &mut self,
+        body: &mut ArrowFunctionBody<'a>,
+        ctx: &mut TraverseCtx<'a, CoverageState>,
+    ) {
+        // Runs before traverse descends: the walk re-reads the body after this
+        // hook, so a concise body wrapped here is visited as a block.
+        self.expand_arrow_expression_body(body, ctx);
     }
 
     fn exit_arrow_function_expression(
