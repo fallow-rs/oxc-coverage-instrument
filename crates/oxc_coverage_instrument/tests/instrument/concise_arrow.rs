@@ -204,6 +204,92 @@ const counted = (x) => x * 5;
     );
 }
 
+/// `(filename, body, expression producing the results, expected results as
+/// JSON)`. Each body is instrumented with an ignore-file pragma prepended.
+type IgnoreFileCase = (&'static str, &'static str, &'static str, &'static str);
+
+/// The TypeScript case carries every concise-body shape at once: plain,
+/// object-literal, curried, and each TypeScript-only wrapper the strip pass
+/// rewrites away. The JavaScript case is here because `strip_typescript` is an
+/// option, not an extension: a `.js` bundle instrumented with stripping on
+/// takes the same path.
+const IGNORE_FILE_CASES: &[IgnoreFileCase] = &[
+    (
+        "ignored.ts",
+        "const double = (x: number): number => x * 2;
+const object = (x: number) => ({ v: x });
+const curried = (x: number) => (y: number) => x + y;
+const asChain = (x: number) => x as unknown as string;
+const satisfiesBody = (x: number) => ({ a: x }) satisfies { a: number };
+const angleAssert = (x: unknown) => <string>x;
+const nonNull = (x?: number) => x!;
+const identity = <T,>(v: T): T => v;
+const instantiate = (f: <T>(v: T) => T) => f<number>;
+",
+        "[double(2), object(6).v, curried(1)(2), asChain(3), satisfiesBody(4).a, \
+         angleAssert('s'), nonNull(5), instantiate(identity)(7), identity(8)]",
+        r#"[4, 6, 3, 3, 4, "s", 5, 7, 8]"#,
+    ),
+    (
+        "ignored.js",
+        "const double = (x) => x * 2;
+const object = (x) => ({ v: x });
+const curried = (x) => (y) => x + y;
+",
+        "[double(2), object(6).v, curried(1)(2)]",
+        "[4, 6, 3]",
+    ),
+];
+
+/// An ignore-file pragma returns before the coverage traverse, and that
+/// traverse is the only thing that turns a wrapped concise body back into a
+/// `return`. Under `strip_typescript` the wrapping happens earlier, before the
+/// pragma is acted on, so pre-expanding without that gate emits
+/// `(x) => { x * 2; }` for every arrow in the file. There is no coverage map to
+/// diff against istanbul and no counter to look wrong, only `undefined` where
+/// the value used to be, so nothing short of running the emitted code sees it.
+#[test]
+fn ignore_file_concise_arrows_still_return_their_values_under_strip_typescript() {
+    for tool in ["istanbul", "v8", "c8"] {
+        for &(filename, body, results, expected) in IGNORE_FILE_CASES {
+            let source = format!("/* {tool} ignore file */\n{body}");
+            let options =
+                InstrumentOptions { strip_typescript: true, ..InstrumentOptions::default() };
+            let result = instrument(&source, filename, &options)
+                .unwrap_or_else(|error| panic!("{tool} {filename}: {error}"));
+
+            // Pin that this is the ignore-file path, so the case cannot decay
+            // into an ordinary instrumented-arrow test if the pragma stops
+            // being recognised.
+            assert!(
+                result.coverage_map.fn_map.is_empty() && !result.code.contains("cov_"),
+                "{tool} {filename}: an ignored file earns no counters and no preamble: {}",
+                result.code
+            );
+
+            let compact: String = result.code.chars().filter(|c| !c.is_whitespace()).collect();
+            assert!(
+                !compact.contains("=>{"),
+                "{tool} {filename}: every body here is concise in the source, so none may be \
+                 emitted as a block: {}",
+                result.code
+            );
+
+            let report = run_node(&format!(
+                "{code}\nconsole.log(JSON.stringify({results}));",
+                code = result.code
+            ));
+            assert_eq!(
+                report,
+                serde_json::from_str::<serde_json::Value>(expected).unwrap(),
+                "{tool} {filename}: an ignored file's concise arrows must still return their \
+                 values, got {}",
+                result.code
+            );
+        }
+    }
+}
+
 // Coverage map shapes
 
 #[test]
