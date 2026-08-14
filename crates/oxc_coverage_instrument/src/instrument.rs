@@ -18,6 +18,7 @@ use oxc_transformer::{
 };
 use oxc_traverse::traverse_mut;
 
+use crate::arrow_body::{PreExpandedArrows, pre_expand_concise_arrow_bodies};
 use crate::coverage_builder::{CoverageMaps, build_file_coverage, build_function_identity_map};
 use crate::pragma::PragmaMap;
 use crate::transform::{
@@ -490,6 +491,18 @@ pub fn instrument(
     let prepared_input_source_map = prepare_input_source_map(options);
 
     let (pragmas, unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
+    // The strip pass inside `prepare_scoping` rewrites the body of a concise
+    // arrow whose expression is a TypeScript wrapper (`(x: number) => x as T`)
+    // down to the inner expression, which is all the span that survives. Giving
+    // those bodies their block wrapper here, while the spans are still the ones
+    // the source wrote, keeps the arrow's `fnMap` `loc` and its statement entry
+    // whole. Nothing else between parse and traverse moves a span, so the
+    // non-stripping paths leave the wrapping to the traverse itself.
+    let pre_expanded_arrows = if options.strip_typescript {
+        pre_expand_concise_arrow_bodies(&allocator, &mut parsed.program)
+    } else {
+        PreExpandedArrows::default()
+    };
     let scoping = prepare_scoping(PrepareScopingInput {
         allocator: &allocator,
         filename,
@@ -502,6 +515,7 @@ pub fn instrument(
         scoping,
         pragmas,
         unhandled_pragmas,
+        pre_expanded_arrows,
         source,
         filename,
         options,
@@ -578,6 +592,9 @@ struct InstrumentProgramInput<'src, 'arena, 'a> {
     scoping: Scoping,
     pragmas: PragmaMap,
     unhandled_pragmas: Vec<UnhandledPragma>,
+    /// Arrows whose concise body was already wrapped in a block before a
+    /// span-rewriting pass ran. Empty when no such pass ran.
+    pre_expanded_arrows: PreExpandedArrows,
     source: &'src str,
     filename: &'a str,
     options: &'a InstrumentOptions,
@@ -593,6 +610,7 @@ fn instrument_program_with_pragmas(
         scoping,
         pragmas,
         unhandled_pragmas,
+        pre_expanded_arrows,
         source,
         filename,
         options,
@@ -618,6 +636,7 @@ fn instrument_program_with_pragmas(
         program,
         scoping,
         pragmas,
+        pre_expanded_arrows,
         source,
         cov_fn_name: &cov_fn_name,
         options,
@@ -708,6 +727,10 @@ pub fn instrument_program<'arena>(
         scoping,
         pragmas,
         unhandled_pragmas,
+        // The host owns TypeScript lowering on this path, so nothing here
+        // rewrites a span before the traverse and every concise body is still
+        // one when the arrow is entered.
+        pre_expanded_arrows: PreExpandedArrows::default(),
         source: source_text,
         filename,
         options,
@@ -795,6 +818,7 @@ struct CoverageTransformRun<'src, 'arena, 'a> {
     program: &'a mut Program<'arena>,
     scoping: Scoping,
     pragmas: PragmaMap,
+    pre_expanded_arrows: PreExpandedArrows,
     source: &'src str,
     cov_fn_name: &'src str,
     options: &'a InstrumentOptions,
@@ -809,6 +833,7 @@ fn run_coverage_transform<'src, 'arena>(
         program,
         scoping,
         pragmas,
+        pre_expanded_arrows,
         source,
         cov_fn_name,
         options,
@@ -824,6 +849,7 @@ fn run_coverage_transform<'src, 'arena>(
         istanbul_compat: options.compat == Some(CompatProfile::Istanbul),
         ignore_class_methods: options.ignore_class_methods.clone(),
         name_callback_arguments: options.name_callback_arguments,
+        pre_expanded_arrows,
         eager_remapper,
     });
     let state = CoverageState { pragmas };
@@ -1074,6 +1100,9 @@ pub(crate) fn collect_for_v8_to_istanbul(
         // intersect against; the fnMap names never reach a consumer here, so
         // it stays Istanbul-exact (no callback naming) with no options to wire.
         name_callback_arguments: false,
+        // V8-collect parses and traverses in one step, with no strip pass in
+        // between, so no arrow body is wrapped ahead of the traverse.
+        pre_expanded_arrows: PreExpandedArrows::default(),
         // V8-collect never composes an input source map; gate is a no-op.
         eager_remapper: None,
     });

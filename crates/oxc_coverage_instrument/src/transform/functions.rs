@@ -3,7 +3,6 @@
 
 use std::mem;
 
-use oxc_allocator::ReplaceWith;
 use oxc_ast::ast::*;
 use oxc_span::{GetSpan, SPAN, Span};
 use oxc_traverse::TraverseCtx;
@@ -97,6 +96,15 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         arrow: &ArrowFunctionExpression<'arena>,
         ctx: &TraverseCtx<'arena, CoverageState>,
     ) {
+        // Recorded before the pragma gate below, so the push stays balanced
+        // with `convert_arrow_expression_body`'s unconditional pop, and for
+        // every arrow: an ignored one still has its body wrapped, so it still
+        // needs the `return` formed on the way out. A pre-expanded body no
+        // longer reads as concise, hence the second half.
+        let was_concise =
+            arrow.body.is_expression() || self.pre_expanded_arrows.contains(arrow.span.start);
+        self.arrow_expression_bodies.push(was_concise);
+
         let pragma_skip = ctx.state.pragmas.get(arrow.span.start) == Some(IgnoreType::Next)
             || self.skip_next
             || self.in_ignored_subtree();
@@ -120,8 +128,8 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         };
         // `arrow.body.span()` dispatches to the block for `(a) => { .. }` and to
         // the bare expression for `(a) => a * 2`, which is the `loc` istanbul
-        // records. Read here, before `expand_arrow_expression_body` gives a
-        // concise body a block wrapper, though that wrapper reuses the same span.
+        // records. A wrapper built by either expansion carries the expression's
+        // own span, so it reads the same either way.
         let fn_id = self.add_function(
             name,
             Span::new(arrow.span.start, arrow.span.start + 1),
@@ -129,51 +137,15 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         );
 
         // The counter needs a block to live in, which a concise arrow only gets
-        // once `expand_arrow_expression_body` runs, so the body hook is what
-        // inserts it. Pushed unconditionally to stay balanced with that hook's
-        // pop; `None` emits no counter.
+        // once its body is wrapped, so the body hook is what inserts it. Pushed
+        // unconditionally to stay balanced with that hook's pop; `None` emits
+        // no counter.
         self.pending_fn_counters.push(fn_id);
     }
 
-    /// Wrap a concise arrow body (`(x) => x * 2`) in a block holding a single
-    /// `ExpressionStatement`, before traverse descends into it.
-    ///
-    /// Up to oxc 0.142 the parser itself produced this shape and flagged it
-    /// with `ArrowFunctionExpression::expression`; 0.143 models a concise body
-    /// as a bare `Expression` instead. Traverse walks such a body as an
-    /// expression, so `enter_function_body`, `enter_statement` and
-    /// `exit_statements` never fire for it and the arrow would get neither its
-    /// `f` counter nor the statement entry istanbul records for the expression.
-    /// Re-creating the block here restores all three, and keeps
-    /// `pending_fn_counters` balanced with the body hook's pop.
-    ///
-    /// The block and its statement both carry the expression's own span, as the
-    /// 0.142 parser gave them, so `statementMap` and the source map are
-    /// unchanged. The wrapper must stay an `ExpressionStatement`: the `return`
-    /// is only formed on the way out, with a synthetic span that
-    /// `is_synthetic_span` keeps out of the coverage map.
-    pub(super) fn expand_arrow_expression_body(
-        &mut self,
-        body: &mut ArrowFunctionBody<'arena>,
-        ctx: &TraverseCtx<'arena, CoverageState>,
-    ) {
-        let was_expression = body.is_expression();
-        // Recorded per arrow because 0.143 has no `expression` flag to consult
-        // on the way out, and by then every body looks like a block.
-        self.arrow_expression_bodies.push(was_expression);
-        if !was_expression {
-            return;
-        }
-        let span = body.span();
-        body.replace_with(|expr| {
-            let stmt = Statement::new_expression_statement(span, expr.into_expression(), ctx);
-            ArrowFunctionBody::new_function_body(span, [], [stmt], ctx)
-        });
-    }
-
-    /// Turn the expression `expand_arrow_expression_body` wrapped in a block
-    /// into a `return`, so the arrow keeps yielding its value now that its body
-    /// is a block holding the coverage counters.
+    /// Turn the expression wrapped in a block by either expansion into a
+    /// `return`, so the arrow keeps yielding its value now that its body is a
+    /// block holding the coverage counters.
     pub(super) fn convert_arrow_expression_body(
         &mut self,
         arrow: &mut ArrowFunctionExpression<'arena>,

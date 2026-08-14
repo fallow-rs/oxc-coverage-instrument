@@ -119,6 +119,7 @@
 //!
 //! - <https://github.com/istanbuljs/istanbuljs/tree/istanbul-lib-instrument-v6.0.3/packages/istanbul-lib-instrument>
 
+mod arrow_body;
 mod coverage_builder;
 mod instrument;
 mod pragma;

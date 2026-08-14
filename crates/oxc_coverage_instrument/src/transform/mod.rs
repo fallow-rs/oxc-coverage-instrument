@@ -61,6 +61,7 @@ use oxc_span::{GetSpan, Span};
 use oxc_traverse::{Traverse, TraverseCtx};
 
 use crate::{
+    arrow_body::{PreExpandedArrows, wrap_concise_arrow_body},
     pragma::{IgnoreType, PragmaMap},
     source_text,
 };
@@ -134,12 +135,16 @@ pub struct CoverageTransform<'src, 'arena> {
     /// preserved; the body hook emits a counter only for `Some` entries.
     pending_fn_counters: Vec<Option<usize>>,
     /// Per-arrow record of whether the arrow was written with a concise body,
-    /// pushed by `expand_arrow_expression_body` and popped by
+    /// pushed by `register_arrow_entry` and popped by
     /// `convert_arrow_expression_body`. Oxc dropped
     /// `ArrowFunctionExpression::expression` in 0.143, and the body shape cannot
-    /// answer the question on the way out because the enter hook has by then
-    /// given every arrow a block.
+    /// answer the question on the way out because the arrow has a block by then.
     arrow_expression_bodies: Vec<bool>,
+    /// Arrows whose concise body was wrapped before the traverse started,
+    /// because a span-rewriting pass ran in between. Read on entry, where a
+    /// wrapped body no longer looks concise. Empty for every caller that runs
+    /// no such pass.
+    pre_expanded_arrows: PreExpandedArrows,
     /// Per-frame record of whether the current function or arrow is being ignored
     /// (i.e. its subtree should not be instrumented). Mirrors Istanbul's `path.skip()`:
     /// when true at any ancestor frame, statements in the body are not counted.
@@ -252,6 +257,10 @@ pub struct TransformInit<'src, 'arena> {
     /// call/`new` argument from the callee (`arr.map(cb)` -> `"map"`). Opt-in;
     /// Istanbul leaves these `(anonymous_N)`.
     pub name_callback_arguments: bool,
+    /// Arrows whose concise body a caller wrapped before handing the program
+    /// over, because a pass between parse and traverse rewrites spans. Default
+    /// (empty) for every caller that runs no such pass.
+    pub pre_expanded_arrows: PreExpandedArrows,
     /// Whether transform details should match `istanbul-lib-instrument`.
     pub istanbul_compat: bool,
     /// Eager-compose position-remap gate. `Some` only when
@@ -271,6 +280,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             ignore_class_methods,
             name_callback_arguments,
             istanbul_compat,
+            pre_expanded_arrows,
             eager_remapper,
         } = init;
         let cov_fn_name = allocator.alloc_str(cov_fn_name);
@@ -287,6 +297,7 @@ impl<'src, 'arena> CoverageTransform<'src, 'arena> {
             pending_insertions: Vec::new(),
             pending_fn_counters: Vec::new(),
             arrow_expression_bodies: Vec::new(),
+            pre_expanded_arrows,
             ignored_fn_stack: Vec::new(),
             ignored_stmt_stack: Vec::new(),
             ignored_prop_stack: Vec::new(),
@@ -355,8 +366,11 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         // Runs before traverse descends: the walk re-reads the body after this
-        // hook, so a concise body wrapped here is visited as a block.
-        self.expand_arrow_expression_body(body, ctx);
+        // hook, so a concise body wrapped here is visited as a block, and its
+        // `enter_function_body`, `enter_statement` and `exit_statements` hooks
+        // fire as they did for the block the 0.142 parser produced. A body the
+        // pre-expansion already wrapped is left alone.
+        wrap_concise_arrow_body(body, ctx);
     }
 
     fn exit_arrow_function_expression(
