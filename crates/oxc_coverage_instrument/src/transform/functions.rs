@@ -96,6 +96,15 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         arrow: &ArrowFunctionExpression<'arena>,
         ctx: &TraverseCtx<'arena, CoverageState>,
     ) {
+        // Recorded before the pragma gate below, so the push stays balanced
+        // with `convert_arrow_expression_body`'s unconditional pop, and for
+        // every arrow: an ignored one still has its body wrapped, so it still
+        // needs the `return` formed on the way out. A pre-expanded body no
+        // longer reads as concise, hence the second half.
+        let was_concise =
+            arrow.body.is_expression() || self.pre_expanded_arrows.contains(arrow.span.start);
+        self.arrow_expression_bodies.push(was_concise);
+
         let pragma_skip = ctx.state.pragmas.get(arrow.span.start) == Some(IgnoreType::Next)
             || self.skip_next
             || self.in_ignored_subtree();
@@ -117,41 +126,47 @@ impl<'arena> CoverageTransform<'_, 'arena> {
                 })
                 .unwrap_or_else(|| format!("(anonymous_{})", self.fn_map.len()))
         };
+        // `arrow.body.span()` dispatches to the block for `(a) => { .. }` and to
+        // the bare expression for `(a) => a * 2`, which is the `loc` istanbul
+        // records. A wrapper built by either expansion carries the expression's
+        // own span, so it reads the same either way.
         let fn_id = self.add_function(
             name,
             Span::new(arrow.span.start, arrow.span.start + 1),
-            arrow.body.span,
+            arrow.body.span(),
         );
 
-        // Mutating the body here would invalidate the scope ids traverse is
-        // holding, so the body hook inserts the counter and
-        // `convert_arrow_expression_body` converts an expression body to a
-        // block. Pushed unconditionally to stay balanced with the body hook's
-        // pop; `None` emits no counter.
+        // The counter needs a block to live in, which a concise arrow only gets
+        // once its body is wrapped, so the body hook is what inserts it. Pushed
+        // unconditionally to stay balanced with that hook's pop; `None` emits
+        // no counter.
         self.pending_fn_counters.push(fn_id);
     }
 
-    /// Give an expression-bodied arrow a block body ending in a `return`, so
-    /// the counter inserted into its body has a statement slot to live in.
+    /// Turn the expression wrapped in a block by either expansion into a
+    /// `return`, so the arrow keeps yielding its value now that its body is a
+    /// block holding the coverage counters.
     pub(super) fn convert_arrow_expression_body(
         &mut self,
         arrow: &mut ArrowFunctionExpression<'arena>,
         ctx: &TraverseCtx<'arena, CoverageState>,
     ) {
-        // Converting the expression body to a block body has to happen after
-        // the body has been traversed; doing it in the enter hook would
-        // invalidate the scope ids traverse is holding.
-        if arrow.expression && !arrow.body.statements.is_empty() {
-            if let Some(Statement::ExpressionStatement(expr_stmt)) =
-                arrow.body.statements.last_mut()
-            {
+        // Converting the wrapped expression into a `return` has to happen after
+        // the body has been traversed: the `ExpressionStatement` is what earns
+        // the statement counter, and the `return` replacing it is synthetic.
+        let was_expression = self.arrow_expression_bodies.pop().unwrap_or(false);
+        if was_expression
+            && let Some(block) = arrow.body.as_function_body_mut()
+            && !block.statements.is_empty()
+        {
+            // The wrapped expression is the last statement, not the first:
+            // `insert_function_counter` has already prepended `++cov.f[N];`.
+            if let Some(Statement::ExpressionStatement(expr_stmt)) = block.statements.last_mut() {
                 let dummy = dummy_expr(ctx);
                 let expr = mem::replace(&mut expr_stmt.expression, dummy);
-                let last_idx = arrow.body.statements.len() - 1;
-                arrow.body.statements[last_idx] =
-                    Statement::new_return_statement(SPAN, Some(expr), ctx);
+                let last_idx = block.statements.len() - 1;
+                block.statements[last_idx] = Statement::new_return_statement(SPAN, Some(expr), ctx);
             }
-            arrow.expression = false;
         }
         self.ignored_fn_stack.pop();
     }

@@ -450,14 +450,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         let mut args = ArenaVec::new_in(ctx);
         args.push(Argument::from(original));
         args.push(Argument::from(index_literal(ctx, branch_id)));
-        *object = Expression::new_call_expression(
-            SPAN,
-            callee,
-            None::<TSTypeParameterInstantiation>,
-            args,
-            false,
-            ctx,
-        );
+        *object = Expression::new_call_expression(SPAN, callee, None, args, false, ctx);
     }
 }
 

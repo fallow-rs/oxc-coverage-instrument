@@ -191,14 +191,7 @@ fn build_bt_call<'a>(
     args.push(Argument::from(inner));
     args.push(Argument::from(index_literal(ctx, state.branch_id)));
     args.push(Argument::from(index_literal(ctx, state.current_path_idx())));
-    Expression::new_call_expression(
-        SPAN,
-        callee,
-        None::<TSTypeParameterInstantiation>,
-        args,
-        false,
-        ctx,
-    )
+    Expression::new_call_expression(SPAN, callee, None, args, false, ctx)
 }
 
 fn wrap_logical_leaf<'a>(

@@ -257,3 +257,4 @@ conformance_test!(c29_directive_prologue, "29-directive-prologue");
 conformance_test!(c30_coverage_binding_collisions, "30-coverage-binding-collisions");
 conformance_test!(c31_class_fields, "31-class-fields");
 conformance_test!(c32_typescript_stripped, "32-typescript-stripped", ".ts");
+conformance_test!(c33_typescript_concise_arrows, "33-typescript-concise-arrows", ".ts");

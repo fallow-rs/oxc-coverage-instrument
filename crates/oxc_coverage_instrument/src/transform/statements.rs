@@ -253,7 +253,14 @@ pub(super) fn is_container_statement(stmt: &Statement<'_>) -> bool {
             | Statement::ClassDeclaration(_)
             | Statement::VariableDeclaration(_)
             | Statement::ImportDeclaration(_)
+            // Oxc 0.143 split the old combined `ExportNamedDeclaration` into
+            // `ExportDeclaration` (`export const x = 1`),
+            // `ExportNamedDeclaration` (`export { x }`) and
+            // `ExportFromDeclaration` (`export { x } from 'm'`). All three stay
+            // containers, as the single node was.
+            | Statement::ExportDeclaration(_)
             | Statement::ExportNamedDeclaration(_)
+            | Statement::ExportFromDeclaration(_)
             | Statement::ExportDefaultDeclaration(_)
             | Statement::ExportAllDeclaration(_)
             | Statement::TSTypeAliasDeclaration(_)
@@ -284,12 +291,12 @@ pub(super) fn enclosing_var_decl_hoist_target(ctx: &TraverseCtx<'_, CoverageStat
         | Ancestor::ForInStatementLeft(_)
         | Ancestor::ForOfStatementLeft(_) => None,
         // `export const fn = () => {}` wraps the `VariableDeclaration` in an
-        // `ExportNamedDeclaration`, and the export node is what occupies the
+        // `ExportDeclaration`, and the export node is what occupies the
         // statement slot. The counter has to target the export statement:
         // targeting the inner declaration's start never matches in
         // `exit_statements`, which would leave the counter at zero even though
         // the initializer runs at module evaluation.
-        Ancestor::ExportNamedDeclarationDeclaration(a) => Some(a.span().start),
+        Ancestor::ExportDeclarationDeclaration(a) => Some(a.span().start),
         _ => Some(var_decl_span.start),
     }
 }

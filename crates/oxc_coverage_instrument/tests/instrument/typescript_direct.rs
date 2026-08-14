@@ -83,6 +83,21 @@ fn ts_direct_ignore_file_pragmas_still_strip_typescript() {
         assert!(!result.code.contains(": number"), "{tool}: {code}", code = result.code);
         assert!(!result.code.contains("cov_"), "{tool}: ignored file must have no preamble");
         assert_reparses(&result.code, "app.js");
+        // Stripping the types is only half the contract: the arrow still has to
+        // return what it returned. An ignore-file pragma skips the coverage
+        // traverse, and that traverse is the only thing that turns a concise
+        // body wrapped into a block back into a `return`, so a body wrapped
+        // ahead of it is emitted as `(a, b) => { a + b; }`. That reparses,
+        // carries no annotation, and has no preamble, so every assertion above
+        // holds while `add(1, 2)` quietly yields `undefined`.
+        // `concise_arrow::ignore_file_concise_arrows_still_return_their_values_under_strip_typescript`
+        // runs the emitted code; this pins the shape at the point the failing
+        // input is already on the page.
+        assert!(
+            result.code.contains("=> a + b"),
+            "{tool}: the concise body must stay an expression the arrow returns: {code}",
+            code = result.code
+        );
         assert!(result.coverage_map.statement_map.is_empty(), "{tool}");
         assert!(result.coverage_map.fn_map.is_empty(), "{tool}");
         assert!(result.coverage_map.branch_map.is_empty(), "{tool}");
