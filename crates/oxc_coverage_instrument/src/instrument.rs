@@ -498,7 +498,14 @@ pub fn instrument(
     // the source wrote, keeps the arrow's `fnMap` `loc` and its statement entry
     // whole. Nothing else between parse and traverse moves a span, so the
     // non-stripping paths leave the wrapping to the traverse itself.
-    let pre_expanded_arrows = if options.strip_typescript {
+    //
+    // Wrapping is only half of the shape change: the `return` that keeps the
+    // arrow yielding its value is formed on the way out of the coverage
+    // traverse. An ignore-file pragma returns from
+    // `instrument_program_with_pragmas` before that traverse, so wrapping there
+    // would emit `(x) => { x; }` and silently return `undefined`. The gate below
+    // mirrors that early return: pre-expand only when the traverse will follow.
+    let pre_expanded_arrows = if options.strip_typescript && !pragmas.ignore_file {
         pre_expand_concise_arrow_bodies(&allocator, &mut parsed.program)
     } else {
         PreExpandedArrows::default()
@@ -618,6 +625,15 @@ fn instrument_program_with_pragmas(
     } = input;
     validate_coverage_variable(options)?;
     if pragmas.ignore_file {
+        // This return skips the traverse, and the traverse is what turns a
+        // wrapped concise arrow body back into a `return`. Any caller that
+        // pre-expands and then lands here would emit `(x) => { x; }`, so the
+        // pre-expansion gate in `instrument` has to keep this path out.
+        debug_assert!(
+            pre_expanded_arrows.is_empty(),
+            "concise arrow bodies were pre-expanded before an ignore-file return, \
+             which skips the traverse that forms their `return`"
+        );
         let coverage_map = empty_coverage(filename);
         let coverage_map_json = serialize_coverage_map(&coverage_map);
         return Ok(InstrumentProgramResult {

@@ -22,6 +22,12 @@
 //! span as the arrow's `fnMap` `loc` and as its statement entry, shrinking
 //! both. Wrapping before it puts the span in a block the strip pass does not
 //! touch, exactly as the 0.142 parser did.
+//!
+//! Wrapping is only half of the shape change. The block holds an
+//! `ExpressionStatement`, and the `return` that keeps the arrow yielding its
+//! value is formed on the way out of the coverage traverse. So the early pass
+//! may only run when that traverse will follow: wrapped without it,
+//! `(x) => x * 2` is emitted as `(x) => { x * 2; }` and returns `undefined`.
 
 use std::collections::BTreeSet;
 
@@ -75,6 +81,13 @@ impl PreExpandedArrows {
     /// pre-expansion pass.
     pub fn contains(&self, arrow_start: u32) -> bool {
         self.0.contains(&arrow_start)
+    }
+
+    /// Whether nothing was wrapped, which every path that skips pre-expansion
+    /// reports. Callers that bypass the coverage traverse assert on it: a
+    /// wrapped body with no traverse behind it never gets its `return`.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
