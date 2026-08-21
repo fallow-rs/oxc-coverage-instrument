@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786725000806,
+  "lastUpdate": 1787338914449,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2435,6 +2435,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 92520184,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2bf21918eccd23551a715e91a60ae9988952ce2",
+          "message": "chore(deps): bump Swatinem/rust-cache pin to f0d9c38 (#221)",
+          "timestamp": "2026-08-21T18:58:43Z",
+          "tree_id": "09d7be174dfbf16b112cc15eed58b5920d324c52",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/d2bf21918eccd23551a715e91a60ae9988952ce2"
+        },
+        "date": 1787338913660,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92512720,
             "unit": "bytes"
           }
         ]
