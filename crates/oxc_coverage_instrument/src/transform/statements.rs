@@ -266,7 +266,12 @@ pub(super) fn is_container_statement(stmt: &Statement<'_>) -> bool {
             | Statement::TSTypeAliasDeclaration(_)
             | Statement::TSInterfaceDeclaration(_)
             | Statement::TSEnumDeclaration(_)
-            | Statement::TSModuleDeclaration(_)
+            // Oxc 0.146 split the old combined `TSModuleDeclaration` into
+            // `TSExternalModuleDeclaration` (`declare module 'foo' {}`) and
+            // `TSNamespaceDeclaration` (`namespace Foo {}` / `module Foo {}`).
+            // Both stay containers, as the single node was.
+            | Statement::TSExternalModuleDeclaration(_)
+            | Statement::TSNamespaceDeclaration(_)
             | Statement::TSImportEqualsDeclaration(_)
             | Statement::TSExportAssignment(_)
             | Statement::TSNamespaceExportDeclaration(_)
