@@ -15,21 +15,42 @@ use serde::Deserialize;
 
 use oxc_coverage_instrument::{InstrumentOptions, instrument};
 
-/// The fields of the generate-reference.mjs output the suite compares against;
-/// the rest of the reference JSON is ignored on deserialization.
+/// Deserialized Istanbul reference data (from generate-reference.mjs output).
+///
+/// Fields the assertions never read are still declared: deserializing them is
+/// what fails the suite when a regenerated reference file loses a section or
+/// changes its shape.
 #[derive(Debug, Deserialize)]
 struct IstanbulReference {
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
+    path: String,
     statements: usize,
     functions: usize,
     branches: usize,
+    #[serde(rename = "statementMap")]
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
+    statement_map: BTreeMap<String, serde_json::Value>,
+    #[serde(rename = "fnMap")]
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
+    fn_map: BTreeMap<String, IstanbulFn>,
     #[serde(rename = "branchMap")]
     branch_map: BTreeMap<String, IstanbulBranch>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IstanbulFn {
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
+    name: String,
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
+    line: u32,
 }
 
 #[derive(Debug, Deserialize)]
 struct IstanbulBranch {
     #[serde(rename = "type")]
     branch_type: String,
+    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
+    line: u32,
     #[serde(rename = "locationCount")]
     location_count: usize,
 }
