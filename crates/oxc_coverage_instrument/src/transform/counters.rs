@@ -2,7 +2,7 @@
 
 use std::mem;
 
-use oxc_allocator::{GetAllocator, Vec as ArenaVec};
+use oxc_allocator::Vec as ArenaVec;
 use oxc_ast::ast::*;
 use oxc_span::SPAN;
 use oxc_syntax::operator::UpdateOperator;
@@ -59,10 +59,6 @@ impl<'a> CounterKind<'a> {
     }
 }
 
-fn alloc_str<'a>(s: &str, ctx: &TraverseCtx<'a, CoverageState>) -> &'a str {
-    ctx.allocator().alloc_str(s)
-}
-
 /// Build a `base.field` static member access.
 fn static_field<'a>(
     base: Expression<'a>,
@@ -102,7 +98,7 @@ fn build_counter_expr<'a>(
     let target = match kind {
         CounterKind::Slot { cov_fn_name, kind, id } => {
             let coverage = Expression::new_identifier(SPAN, cov_fn_name, ctx);
-            let field = static_field(coverage, alloc_str(kind, ctx), ctx);
+            let field = static_field(coverage, kind, ctx);
             computed_index(field, id, ctx)
         }
         CounterKind::Branch { cov_fn_name, branch_id, path_idx } => {

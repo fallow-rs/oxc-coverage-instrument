@@ -76,7 +76,6 @@ mod names;
 mod preamble;
 mod statements;
 
-use branches::OptionalChainLinkInput;
 use counters::PendingInsertion;
 use coverage_map::is_synthetic_span;
 use ignore::{
@@ -687,10 +686,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         if self.track_optional_chain && member.optional && !self.in_ignored_subtree() {
-            self.wrap_optional_chain_link(
-                OptionalChainLinkInput { object: &mut member.object, link_span: member.span },
-                ctx,
-            );
+            self.wrap_optional_chain_link(&mut member.object, member.span, ctx);
         }
     }
 
@@ -700,10 +696,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
         ctx: &mut TraverseCtx<'a, CoverageState>,
     ) {
         if self.track_optional_chain && member.optional && !self.in_ignored_subtree() {
-            self.wrap_optional_chain_link(
-                OptionalChainLinkInput { object: &mut member.object, link_span: member.span },
-                ctx,
-            );
+            self.wrap_optional_chain_link(&mut member.object, member.span, ctx);
         }
     }
 
@@ -720,10 +713,7 @@ impl<'a> Traverse<'a, CoverageState> for CoverageTransform<'_, 'a> {
             && call.callee.get_member_expr().is_none()
             && !self.in_ignored_subtree()
         {
-            self.wrap_optional_chain_link(
-                OptionalChainLinkInput { object: &mut call.callee, link_span: call.span },
-                ctx,
-            );
+            self.wrap_optional_chain_link(&mut call.callee, call.span, ctx);
         }
     }
 

@@ -238,18 +238,20 @@ mod tests {
     use oxc_ast::ast::Comment;
     use oxc_span::Span;
 
-    fn classify(text: &str) -> Option<PragmaResult> {
-        PragmaMap::parse_pragma(text)
-    }
-
     fn offset_of(source: &str, needle: &str) -> u32 {
         u32::try_from(source.find(needle).expect("needle occurs in source")).unwrap()
+    }
+
+    fn pragma_comment(source: &str) -> Comment {
+        let start = offset_of(source, "/* istanbul");
+        let end = offset_of(source, "*/") + 2;
+        Comment { span: Span::new(start, end), ..Default::default() }
     }
 
     #[test]
     fn parses_plain_block_pragma() {
         assert!(matches!(
-            classify(" istanbul ignore next "),
+            PragmaMap::parse_pragma(" istanbul ignore next "),
             Some(PragmaResult::Ignore(IgnoreType::Next))
         ));
     }
@@ -257,11 +259,11 @@ mod tests {
     #[test]
     fn parses_legal_block_pragma() {
         assert!(matches!(
-            classify("! istanbul ignore next "),
+            PragmaMap::parse_pragma("! istanbul ignore next "),
             Some(PragmaResult::Ignore(IgnoreType::Next))
         ));
         assert!(matches!(
-            classify("!istanbul ignore next"),
+            PragmaMap::parse_pragma("!istanbul ignore next"),
             Some(PragmaResult::Ignore(IgnoreType::Next))
         ));
     }
@@ -269,24 +271,24 @@ mod tests {
     #[test]
     fn parses_legal_line_pragma() {
         assert!(matches!(
-            classify("! v8 ignore next"),
+            PragmaMap::parse_pragma("! v8 ignore next"),
             Some(PragmaResult::Ignore(IgnoreType::Next))
         ));
         assert!(matches!(
-            classify("! istanbul ignore else"),
+            PragmaMap::parse_pragma("! istanbul ignore else"),
             Some(PragmaResult::Ignore(IgnoreType::Else))
         ));
     }
 
     #[test]
     fn rejects_bang_only() {
-        assert!(classify("!").is_none());
-        assert!(classify("!!!").is_none());
+        assert!(PragmaMap::parse_pragma("!").is_none());
+        assert!(PragmaMap::parse_pragma("!!!").is_none());
     }
 
     #[test]
     fn rejects_non_pragma_legal_comment() {
-        assert!(classify("! Copyright (c) 2026").is_none());
+        assert!(PragmaMap::parse_pragma("! Copyright (c) 2026").is_none());
     }
 
     #[test]
@@ -311,33 +313,29 @@ mod tests {
     #[test]
     fn pragma_target_start_hops_past_else_to_chained_if() {
         let source = "if (a) {} /* istanbul ignore else */ else if (b) {}";
-        let comment_start = offset_of(source, "/*");
-        let comment_end = offset_of(source, "*/") + 2;
-        let comment = Comment { span: Span::new(comment_start, comment_end), ..Default::default() };
-        let target = PragmaMap::pragma_target_start(source, &comment).unwrap();
-        let if_offset = offset_of(&source[comment_end as usize..], "if ") + comment_end;
-        assert_eq!(target, if_offset, "pragma must anchor on the chained `if`");
+        let target = PragmaMap::pragma_target_start(source, &pragma_comment(source)).unwrap();
+        assert_eq!(target, offset_of(source, "if (b)"), "pragma must anchor on the chained `if`");
     }
 
     #[test]
     fn pragma_target_start_hops_past_else_through_inline_comment() {
         let source = "if (a) {} /* istanbul ignore else */ else /*c*/ if (b) {}";
-        let comment_start = offset_of(source, "/* istanbul");
-        let comment_end = offset_of(source, "*/") + 2;
-        let comment = Comment { span: Span::new(comment_start, comment_end), ..Default::default() };
-        let target = PragmaMap::pragma_target_start(source, &comment).unwrap();
-        let if_offset = offset_of(source, "if (b)");
-        assert_eq!(target, if_offset, "pragma must hop past `else` and the inline comment to `if`");
+        let target = PragmaMap::pragma_target_start(source, &pragma_comment(source)).unwrap();
+        assert_eq!(
+            target,
+            offset_of(source, "if (b)"),
+            "pragma must hop past `else` and the inline comment to `if`"
+        );
     }
 
     #[test]
     fn pragma_target_start_keeps_else_when_followed_by_block() {
         let source = "if (a) {} /* istanbul ignore else */ else { x }";
-        let comment_start = offset_of(source, "/*");
-        let comment_end = offset_of(source, "*/") + 2;
-        let comment = Comment { span: Span::new(comment_start, comment_end), ..Default::default() };
-        let target = PragmaMap::pragma_target_start(source, &comment).unwrap();
-        let else_offset = offset_of(&source[comment_end as usize..], "else") + comment_end;
-        assert_eq!(target, else_offset, "pragma stays on `else` when no chained `if` follows");
+        let target = PragmaMap::pragma_target_start(source, &pragma_comment(source)).unwrap();
+        assert_eq!(
+            target,
+            offset_of(source, "else {"),
+            "pragma stays on `else` when no chained `if` follows"
+        );
     }
 }

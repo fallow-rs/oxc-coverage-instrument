@@ -6,7 +6,7 @@ use std::mem;
 
 use oxc_allocator::Vec as ArenaVec;
 use oxc_ast::ast::*;
-use oxc_span::{GetSpan, SPAN, Span};
+use oxc_span::{GetSpan, SPAN};
 use oxc_traverse::TraverseCtx;
 
 use crate::pragma::IgnoreType;
@@ -15,7 +15,6 @@ use super::counters::{
     CounterKind, CounterType, PendingInsertion, build_counter_stmt, prepend_counter,
 };
 use super::coverage_map::is_synthetic_span;
-use super::ignore::mark_ignored_declarator_fn;
 use super::names::declarator_function_name;
 use super::{CoverageState, CoverageTransform};
 
@@ -129,7 +128,12 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         // counter wrap and any inner function counter. Set `skip_next` so the
         // inner arrow/function hook consumes it.
         if self.skip_current_var_decl {
-            mark_ignored_declarator_fn(decl, &mut self.skip_next);
+            if matches!(
+                decl.init,
+                Some(Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
+            ) {
+                self.skip_next = true;
+            }
             return;
         }
 
@@ -165,36 +169,19 @@ impl<'arena> CoverageTransform<'_, 'arena> {
         if is_named_initializer
             && let Some(hoist_target_start) = enclosing_var_decl_hoist_target(ctx)
         {
-            self.try_hoist_named_initializer_counter(init_span, hoist_target_start);
+            if let Some(stmt_id) = self.add_statement(init_span) {
+                self.pending_insertions.push(PendingInsertion {
+                    target_start: hoist_target_start,
+                    counter_id: stmt_id,
+                    counter_type: CounterType::Statement,
+                });
+            }
             return;
         }
 
         if let Some(stmt_id) = self.add_statement(init_span) {
             prepend_counter(init, CounterKind::stmt(self.cov_fn_name, stmt_id), ctx);
         }
-    }
-
-    pub(super) fn try_hoist_named_initializer_counter(
-        &mut self,
-        init_span: Span,
-        hoist_target_start: u32,
-    ) {
-        if let Some(stmt_id) = self.add_statement(init_span) {
-            self.pending_insertions.push(PendingInsertion {
-                target_start: hoist_target_start,
-                counter_id: stmt_id,
-                counter_type: CounterType::Statement,
-            });
-        }
-    }
-
-    /// The caller must drive the iterator to completion. `extract_if` is
-    /// lazy, so dropping it early leaves matching items in `pending_insertions`.
-    fn drain_pending_insertions_for_target(
-        &mut self,
-        target_start: u32,
-    ) -> impl Iterator<Item = PendingInsertion> + '_ {
-        self.pending_insertions.extract_if(.., move |p| p.target_start == target_start)
     }
 
     pub(super) fn retarget_pending_insertions(&mut self, from_start: u32, to_start: u32) {
@@ -219,7 +206,8 @@ impl<'arena> CoverageTransform<'_, 'arena> {
             return;
         }
 
-        let pending: Vec<_> = self.drain_pending_insertions_for_target(span.start).collect();
+        let pending: Vec<_> =
+            self.pending_insertions.extract_if(.., |p| p.target_start == span.start).collect();
         if pending.is_empty() {
             return;
         }

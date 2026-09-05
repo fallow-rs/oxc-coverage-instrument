@@ -18,11 +18,6 @@ use super::coverage_map::{PendingArm, PendingBranch, is_synthetic_span};
 use super::ignore::{enclosing_destructure_property_pragma, is_ignored_case};
 use super::{CoverageState, CoverageTransform};
 
-pub(super) struct OptionalChainLinkInput<'arena, 'a> {
-    pub(super) object: &'a mut Expression<'arena>,
-    pub(super) link_span: Span,
-}
-
 impl<'arena> CoverageTransform<'_, 'arena> {
     /// Register the `if` branch and inject the counter for each arm the
     /// pragmas leave in place, synthesizing a missing `else` where needed.
@@ -412,16 +407,12 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     /// full span. Both run at the same source position; the convention
     /// keeps the JSON-shape consistent with two-arm branch types and
     /// lets reporters render either arm without divergent special cases.
-    #[expect(
-        clippy::needless_pass_by_ref_mut,
-        reason = "takes `&mut` so the three traverse hooks can pass their own `ctx` through unchanged"
-    )]
     pub(super) fn wrap_optional_chain_link(
         &mut self,
-        input: OptionalChainLinkInput<'arena, '_>,
-        ctx: &mut TraverseCtx<'arena, CoverageState>,
+        object: &mut Expression<'arena>,
+        link_span: Span,
+        ctx: &TraverseCtx<'arena, CoverageState>,
     ) {
-        let OptionalChainLinkInput { object, link_span } = input;
         // `gate_arms: false`: the `cov_fn_oc` helper references fixed arm
         // indices 0 and 1, so either both arms are registered or the link is
         // left unwrapped. Arm 0 is a zero-width anchor at the link's start;

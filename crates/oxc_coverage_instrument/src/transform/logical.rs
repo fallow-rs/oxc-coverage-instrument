@@ -139,7 +139,6 @@ fn collect_logical_leaves_inner(expr: &Expression, pragmas: &PragmaMap, spans: &
 /// slot identity every leaf shares, plus the arm index the walk is up to.
 pub(super) struct LogicalWrapState<'b> {
     cov_fn_name: &'b str,
-    /// Pre-interned `${cov_fn_name}_bt` helper, only set when `report_logic` is true.
     cov_fn_bt_name: Option<&'b str>,
     branch_id: usize,
     report_logic: bool,
@@ -155,27 +154,6 @@ impl<'b> LogicalWrapState<'b> {
     ) -> Self {
         Self { cov_fn_name, cov_fn_bt_name, branch_id, report_logic, path_idx: 0 }
     }
-
-    const fn current_path_idx(&self) -> usize {
-        self.path_idx
-    }
-
-    const fn advance_path(&mut self) {
-        self.path_idx += 1;
-    }
-}
-
-/// Wrap one operand with its branch counter: `(cov.b[id][pathIdx]++, operand)`.
-fn wrap_expression_with_branch_counter<'a>(
-    operand: &mut Expression<'a>,
-    state: &LogicalWrapState<'a>,
-    ctx: &TraverseCtx<'a, CoverageState>,
-) {
-    prepend_counter(
-        operand,
-        CounterKind::branch(state.cov_fn_name, state.branch_id, state.current_path_idx()),
-        ctx,
-    );
 }
 
 /// `inner` -> `cov_fn_bt(inner, branch_id, path_idx)`, the truthy-tracking
@@ -190,7 +168,7 @@ fn build_bt_call<'a>(
     let mut args = ArenaVec::new_in(ctx);
     args.push(Argument::from(inner));
     args.push(Argument::from(index_literal(ctx, state.branch_id)));
-    args.push(Argument::from(index_literal(ctx, state.current_path_idx())));
+    args.push(Argument::from(index_literal(ctx, state.path_idx)));
     Expression::new_call_expression(SPAN, callee, None, args, false, ctx)
 }
 
@@ -199,12 +177,16 @@ fn wrap_logical_leaf<'a>(
     state: &mut LogicalWrapState<'a>,
     ctx: &TraverseCtx<'a, CoverageState>,
 ) {
-    wrap_expression_with_branch_counter(operand, state, ctx);
+    prepend_counter(
+        operand,
+        CounterKind::branch(state.cov_fn_name, state.branch_id, state.path_idx),
+        ctx,
+    );
     if state.report_logic {
         let branch_wrapped = mem::replace(operand, dummy_expr(ctx));
         *operand = build_bt_call(branch_wrapped, state, ctx);
     }
-    state.advance_path();
+    state.path_idx += 1;
 }
 
 /// Recursively wrap each leaf operand in a chained logical expression with

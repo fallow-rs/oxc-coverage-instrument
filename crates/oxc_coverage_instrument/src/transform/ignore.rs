@@ -98,29 +98,13 @@ pub(super) fn jsx_child_ignored(child: &JSXChild, pragmas: &PragmaMap, skip_next
         || skip_next
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct MethodPragmaInput<'a> {
-    pub(super) method: &'a MethodDefinition<'a>,
-    pub(super) key_span: Span,
-    pub(super) skip_next: bool,
-}
-
 pub(super) fn method_ignored_by_pragma(
-    input: MethodPragmaInput<'_>,
-    ctx: &TraverseCtx<'_, CoverageState>,
+    method: &MethodDefinition<'_>,
+    pragmas: &PragmaMap,
+    skip_next: bool,
 ) -> bool {
-    let MethodPragmaInput { method, key_span, skip_next } = input;
     !matches!(method.key, PropertyKey::PrivateIdentifier(_))
-        && (ctx.state.pragmas.get(method.span.start) == Some(IgnoreType::Next)
-            || ctx.state.pragmas.get(key_span.start) == Some(IgnoreType::Next)
+        && (pragmas.get(method.span.start) == Some(IgnoreType::Next)
+            || pragmas.get(method.key.span().start) == Some(IgnoreType::Next)
             || skip_next)
-}
-
-pub(super) fn mark_ignored_declarator_fn(decl: &VariableDeclarator<'_>, skip_next: &mut bool) {
-    if matches!(
-        decl.init,
-        Some(Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
-    ) {
-        *skip_next = true;
-    }
 }
