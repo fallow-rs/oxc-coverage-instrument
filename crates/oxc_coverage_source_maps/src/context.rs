@@ -15,13 +15,9 @@ use srcmap_sourcemap::SourceMap;
 ///
 /// [`PositionRemapper`]: crate::PositionRemapper
 #[derive(Default)]
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) struct RemapCaches {
-    pub(crate) mapping_cache: BTreeMap<LocationKey, Option<MappedLocation>>,
-    pub(crate) original_line_columns: BTreeMap<OriginalLineKey, Vec<u32>>,
+pub struct RemapCaches {
+    pub mapping_cache: BTreeMap<LocationKey, Option<MappedLocation>>,
+    pub original_line_columns: BTreeMap<OriginalLineKey, Vec<u32>>,
     // Each cache belongs to one SourceMap, so source indices are stable keys.
     original_line_ends: BTreeMap<u32, OriginalLineEndCache>,
 }
@@ -30,12 +26,7 @@ impl RemapCaches {
     /// UTF-16 column that ends `line` of the original source, used to clamp
     /// istanbul's `column: Infinity` end. Resolved from `sourcesContent` when
     /// present, otherwise from the greatest original column mapped on that line.
-    pub(crate) fn original_line_end_column(
-        &mut self,
-        sm: &SourceMap,
-        source_idx: u32,
-        line: u32,
-    ) -> u32 {
+    pub fn original_line_end_column(&mut self, sm: &SourceMap, source_idx: u32, line: u32) -> u32 {
         let content = usize::try_from(source_idx)
             .ok()
             .and_then(|source_idx| sm.sources_content.get(source_idx))
@@ -154,38 +145,26 @@ fn utf16_line_len(text: &str) -> u32 {
 /// A remapped location together with the index of the original source it
 /// resolved to.
 #[derive(Clone)]
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) struct MappedLocation {
-    pub(crate) source: u32,
-    pub(crate) location: Location,
+pub struct MappedLocation {
+    pub source: u32,
+    pub location: Location,
 }
 
 /// The source map and caches a single remap pass looks positions up in.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) struct RemapContext<'a> {
-    pub(crate) sm: &'a SourceMap,
-    pub(crate) caches: &'a mut RemapCaches,
+pub struct RemapContext<'a> {
+    pub sm: &'a SourceMap,
+    pub caches: &'a mut RemapCaches,
 }
 
 impl<'a> RemapContext<'a> {
-    pub(crate) fn new(sm: &'a SourceMap, caches: &'a mut RemapCaches) -> Self {
+    pub fn new(sm: &'a SourceMap, caches: &'a mut RemapCaches) -> Self {
         Self { sm, caches }
     }
 }
 
 /// Cache key for one `getMapping` lookup: the generated span it resolves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) struct LocationKey {
+pub struct LocationKey {
     start_line: u32,
     start_column: u32,
     end_line: u32,
@@ -205,11 +184,7 @@ impl From<&Location> for LocationKey {
 
 /// Cache key for the sorted original-column index of one `(source, line)` pair.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) struct OriginalLineKey {
-    pub(crate) source: u32,
-    pub(crate) line: u32,
+pub struct OriginalLineKey {
+    pub source: u32,
+    pub line: u32,
 }

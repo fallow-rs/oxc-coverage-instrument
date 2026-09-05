@@ -407,13 +407,7 @@ where
     D: serde::Deserializer<'de>,
 {
     let raw: BTreeMap<String, Option<Vec<Option<u32>>>> = Deserialize::deserialize(deserializer)?;
-    Ok(raw
-        .into_iter()
-        .map(|(k, v)| {
-            let vec = v.unwrap_or_default().into_iter().map(|x| x.unwrap_or(0)).collect();
-            (k, vec)
-        })
-        .collect())
+    Ok(zero_vec_map(raw))
 }
 
 /// Deserialize an `Option<BTreeMap<String, Vec<u32>>>` with null-tolerance.
@@ -429,14 +423,13 @@ where
 {
     let opt: Option<BTreeMap<String, Option<Vec<Option<u32>>>>> =
         Deserialize::deserialize(deserializer)?;
-    Ok(opt.map(|raw| {
-        raw.into_iter()
-            .map(|(k, v)| {
-                let vec = v.unwrap_or_default().into_iter().map(|x| x.unwrap_or(0)).collect();
-                (k, vec)
-            })
-            .collect()
-    }))
+    Ok(opt.map(zero_vec_map))
+}
+
+fn zero_vec_map(raw: BTreeMap<String, Option<Vec<Option<u32>>>>) -> BTreeMap<String, Vec<u32>> {
+    raw.into_iter()
+        .map(|(k, v)| (k, v.unwrap_or_default().into_iter().map(|x| x.unwrap_or(0)).collect()))
+        .collect()
 }
 
 /// Retain only the map entries whose key passes `keep`, returning how many were

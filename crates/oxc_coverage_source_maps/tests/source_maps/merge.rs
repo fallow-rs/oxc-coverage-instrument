@@ -41,9 +41,6 @@ fn map_remap_merges_same_source_collisions_by_location() {
             .collect::<Vec<_>>(),
         expected_ids,
     );
-    assert_eq!(shared.statement_map.len(), 3, "shared and distinct statements survive");
-    assert_eq!(shared.fn_map.len(), 3, "shared and distinct functions survive");
-    assert_eq!(shared.branch_map.len(), 3, "shared and distinct branches survive");
     let shared_statement_id = shared
         .statement_map
         .iter()

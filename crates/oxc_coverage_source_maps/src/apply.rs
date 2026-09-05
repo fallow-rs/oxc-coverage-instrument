@@ -14,32 +14,43 @@ use crate::{
     get_mapping::{direct_remap_location, get_mapped_location_cached, get_mapping_location_cached},
     merge::{empty_file_coverage, merge_file_coverage, numeric_id_order},
     options::RemapOptions,
-    sources::resolve_source_path,
+    sources::{resolve_source_path, sole_resolved_source_path},
 };
 
-/// Remap `coverage` against a map whose sources all resolve to `path`, keeping
-/// the input's metadata ids.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn apply_source_map_single(
+/// Remap `coverage` to a single output file, keeping the input's metadata ids.
+///
+/// Returns `None` when the map declares no usable source or when the mappings
+/// resolve to several original files.
+pub fn apply_source_map_single_result(
     coverage: &FileCoverage,
     sm: &SourceMap,
     options: RemapOptions,
-    path: String,
-) -> FileCoverage {
+) -> Option<FileCoverage> {
     let mut caches = RemapCaches::default();
-    apply_source_map_single_with_caches(coverage, sm, options, path, &mut caches)
+    apply_source_map_single_result_with_caches(coverage, sm, options, &mut caches)
 }
 
-/// Remap a single-source coverage object while reusing lookup caches owned by
-/// a prepared source map.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn apply_source_map_single_with_caches(
+/// [`apply_source_map_single_result`] reusing lookup caches owned by a prepared
+/// source map.
+pub fn apply_source_map_single_result_with_caches(
+    coverage: &FileCoverage,
+    sm: &SourceMap,
+    options: RemapOptions,
+    caches: &mut RemapCaches,
+) -> Option<FileCoverage> {
+    if let Some(path) = sole_resolved_source_path(sm) {
+        return Some(apply_source_map_single_with_caches(coverage, sm, options, path, caches));
+    }
+    let mut remapped = apply_source_map_to_map_with_caches(coverage, sm, options, false, caches)?;
+    if remapped.len() != 1 {
+        return None;
+    }
+    remapped.pop_first().map(|(_, coverage)| coverage)
+}
+
+/// Remap `coverage` against a map whose sources all resolve to `path`, keeping
+/// the input's metadata ids.
+fn apply_source_map_single_with_caches(
     coverage: &FileCoverage,
     sm: &SourceMap,
     options: RemapOptions,
@@ -75,14 +86,9 @@ pub(crate) fn apply_source_map_single_with_caches(
 }
 
 fn remap_single_source_location(location: &mut Location, ctx: &mut RemapContext<'_>) {
-    if location.start.line != 0
-        && location.end.line != 0
-        && let Some(mapped) = get_mapping_location_cached(ctx, location)
-    {
-        *location = mapped;
-        return;
+    if !try_remap_single_source_location(location, ctx) {
+        direct_remap_location(location, ctx.sm);
     }
-    direct_remap_location(location, ctx.sm);
 }
 
 fn try_remap_single_source_location(location: &mut Location, ctx: &mut RemapContext<'_>) -> bool {
@@ -177,47 +183,19 @@ fn project_branch_counters(
 
 /// Fan `coverage` out into one entry per original source, with metadata ids
 /// renumbered contiguously per output file.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn apply_source_map_to_map(
+pub fn apply_source_map_to_map(
     coverage: &FileCoverage,
     sm: &SourceMap,
     options: RemapOptions,
 ) -> Option<BTreeMap<String, FileCoverage>> {
-    apply_source_map_to_map_internal(coverage, sm, options, true)
+    let mut caches = RemapCaches::default();
+    apply_source_map_to_map_with_caches(coverage, sm, options, true, &mut caches)
 }
 
 /// Fan-out with `canonicalize_ids` controlling whether output ids are
 /// renumbered. The single-result callers keep the input ids so a caller reading
 /// back one file still recognises its own keys.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn apply_source_map_to_map_internal(
-    coverage: &FileCoverage,
-    sm: &SourceMap,
-    options: RemapOptions,
-    canonicalize_ids: bool,
-) -> Option<BTreeMap<String, FileCoverage>> {
-    let mut caches = RemapCaches::default();
-    apply_source_map_to_map_internal_with_caches(
-        coverage,
-        sm,
-        options,
-        canonicalize_ids,
-        &mut caches,
-    )
-}
-
-/// Fan-out implementation that reuses lookup caches owned by a prepared map.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn apply_source_map_to_map_internal_with_caches(
+fn apply_source_map_to_map_with_caches(
     coverage: &FileCoverage,
     sm: &SourceMap,
     options: RemapOptions,
