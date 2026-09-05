@@ -158,13 +158,10 @@ fn overlay_path_change_changes_id() {
 
 #[test]
 fn overlay_handles_computed_key_method_with_special_chars_in_name() {
-    // Smoke test: a computed-key method whose name contains separator-like
-    // characters must still produce a valid `fallow:fn:<8 hex>` id.
-    // The formula now matches fallow-cov-protocol exactly (SHA-256 of
-    // path + name + start_line + literal "function" salt), which inherits
-    // the protocol's deliberate trade-off: producers with different
-    // positional fidelity MUST agree on the id, so columns are excluded.
-    // Cross-protocol parity is asserted in coverage_builder.rs unit tests.
+    // A computed-key method whose name contains separator-like characters
+    // must still produce a valid `fallow:fn:<8 hex>` id: the id is SHA-256 of
+    // path + name + start_line + a "function" salt, as in fallow-cov-protocol,
+    // so the name is hashed verbatim rather than split on it.
     let src = "class C { ['x|y']() { return 1; } }\n";
     let result = instrument(src, "app.js", &opts_with_overlay()).expect("instrument");
     let overlay = result.coverage_map.x_fallow_function_map.expect("overlay");

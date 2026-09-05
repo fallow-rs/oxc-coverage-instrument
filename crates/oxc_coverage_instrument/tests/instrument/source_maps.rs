@@ -13,20 +13,20 @@ use oxc_coverage_instrument::{
     remap_coverage_map_with_options, remap_coverage_with_loader, remap_coverage_with_options,
 };
 
-/// Three-line TypeScript file post type-strip, with an identity-line source map.
-/// Each line of intermediate JS maps back to the same line of original TS.
-fn three_line_inputs() -> (String, String, String) {
+/// Three-line TypeScript file post type-strip, with an identity-line source map
+/// back to `src/app.ts`: `(intermediate JS, input source map JSON)`.
+fn three_line_inputs() -> (String, String) {
     let original_ts = "const x: number = 1;\nconst y: number = 2;\nconst z: number = 3;\n";
     let intermediate_js = "const x = 1;\nconst y = 2;\nconst z = 3;\n";
     let input_sm = format!(
         r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{original_ts:?}],"mappings":"AAAA;AACA;AACA","names":[]}}"#,
     );
-    (original_ts.to_string(), intermediate_js.to_string(), input_sm)
+    (intermediate_js.to_string(), input_sm)
 }
 
 #[test]
 fn remap_coverage_rewrites_path_to_original_source() {
-    let (_, intermediate, input_sm) = three_line_inputs();
+    let (intermediate, input_sm) = three_line_inputs();
     let opts =
         InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() };
     let result = instrument(&intermediate, "intermediate.js", &opts).unwrap();
@@ -43,7 +43,7 @@ fn remap_coverage_rewrites_path_to_original_source() {
 
 #[test]
 fn remap_coverage_resolves_statement_positions_to_original_lines() {
-    let (_, intermediate, input_sm) = three_line_inputs();
+    let (intermediate, input_sm) = three_line_inputs();
     let opts =
         InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() };
     let result = instrument(&intermediate, "intermediate.js", &opts).unwrap();
@@ -109,7 +109,7 @@ fn remap_coverage_returns_none_when_input_sources_empty() {
 
 #[test]
 fn remap_coverage_map_rewrites_keys_to_original_paths() {
-    let (_, intermediate, input_sm) = three_line_inputs();
+    let (intermediate, input_sm) = three_line_inputs();
     let opts =
         InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() };
     let result = instrument(&intermediate, "intermediate.js", &opts).unwrap();
@@ -144,7 +144,7 @@ fn remap_coverage_map_passes_through_entries_without_input_map() {
 fn remap_coverage_round_trips_through_parse_coverage_map() {
     // Simulate the wire shape: serialize to coverage-final.json, parse back,
     // remap. This is the path Vitest's istanbul reporter actually exercises.
-    let (_, intermediate, input_sm) = three_line_inputs();
+    let (intermediate, input_sm) = three_line_inputs();
     let opts =
         InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() };
     let result = instrument(&intermediate, "intermediate.js", &opts).unwrap();
@@ -171,16 +171,9 @@ fn remap_coverage_round_trips_through_parse_coverage_map() {
 fn remap_coverage_with_loader_falls_back_to_external_map() {
     // No embedded inputSourceMap; the loader supplies the map JSON keyed
     // by the FileCoverage path. Matches nyc's sourceStore disk-read flow.
-    let intermediate_js = "const x = 1;\nconst y = 2;\nconst z = 3;\n";
-    let original_ts = "const x: number = 1;\nconst y: number = 2;\nconst z: number = 3;\n";
-    let input_sm = format!(
-        r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{original_ts:?}],"mappings":"AAAA;AACA;AACA","names":[]}}"#,
-    );
-
-    // Instrument WITHOUT input_source_map so the resulting FileCoverage has
-    // no embedded map. The loader must fill the gap.
+    let (intermediate, input_sm) = three_line_inputs();
     let result =
-        instrument(intermediate_js, "intermediate.js", &InstrumentOptions::default()).unwrap();
+        instrument(&intermediate, "intermediate.js", &InstrumentOptions::default()).unwrap();
     assert!(
         result.coverage_map.input_source_map.is_none(),
         "precondition: no inputSourceMap on the FileCoverage"
@@ -202,14 +195,10 @@ fn remap_coverage_with_loader_prefers_embedded_map() {
     // When the FileCoverage already carries an embedded inputSourceMap, the
     // loader is not consulted. This matches istanbul-lib-source-maps's
     // semantics: the sourceStore only fires when the map is missing.
-    let intermediate_js = "const x = 1;\nconst y = 2;\nconst z = 3;\n";
-    let original_ts = "const x: number = 1;\nconst y: number = 2;\nconst z: number = 3;\n";
-    let input_sm = format!(
-        r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{original_ts:?}],"mappings":"AAAA;AACA;AACA","names":[]}}"#,
-    );
+    let (intermediate, input_sm) = three_line_inputs();
     let opts =
         InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() };
-    let result = instrument(intermediate_js, "intermediate.js", &opts).unwrap();
+    let result = instrument(&intermediate, "intermediate.js", &opts).unwrap();
 
     let remapped =
         remap_coverage_with_loader(&result.coverage_map, |_| panic!("loader must not run"))
@@ -257,14 +246,9 @@ fn source_map_store_transforms_via_registered_map() {
     // Mode B: caller registers a map per file as it's instrumented, then
     // applies the store to a FileCoverage at report time. Store takes
     // precedence over any embedded map and over the no-loader fallback.
-    let intermediate_js = "const x = 1;\nconst y = 2;\nconst z = 3;\n";
-    let original_ts = "const x: number = 1;\nconst y: number = 2;\nconst z: number = 3;\n";
-    let input_sm_json = format!(
-        r#"{{"version":3,"sources":["src/app.ts"],"sourcesContent":[{original_ts:?}],"mappings":"AAAA;AACA;AACA","names":[]}}"#,
-    );
-
+    let (intermediate, input_sm_json) = three_line_inputs();
     let result =
-        instrument(intermediate_js, "intermediate.js", &InstrumentOptions::default()).unwrap();
+        instrument(&intermediate, "intermediate.js", &InstrumentOptions::default()).unwrap();
 
     let mut store = SourceMapStore::new();
     assert!(store.is_empty(), "freshly constructed store is empty");
@@ -345,7 +329,7 @@ fn source_map_store_passes_through_when_no_map_available() {
 
 #[test]
 fn compose_input_source_map_rewrites_path_and_positions() {
-    let (_, intermediate, input_sm) = three_line_inputs();
+    let (intermediate, input_sm) = three_line_inputs();
     let opts = InstrumentOptions {
         input_source_map: Some(input_sm),
         compose_input_source_map: true,
@@ -379,7 +363,7 @@ fn compose_input_source_map_equals_instrument_then_remap() {
     // land on one original location, so inputs where spans collapse compare
     // against `remap_coverage_map_with_options` instead; see the
     // `compose_merges_*` tests below.
-    let (_, intermediate, input_sm) = three_line_inputs();
+    let (intermediate, input_sm) = three_line_inputs();
 
     let eager = instrument(
         &intermediate,
@@ -547,31 +531,10 @@ fn compose_merges_branches_collapsing_to_one_arm_vector() {
         "eager branchMap must equal the canonicalizing remap (one cond-expr entry)"
     );
     assert_eq!(eager.coverage_map.branch_map.len(), 1, "both ternaries fold to one entry");
-}
-
-#[test]
-fn compose_merges_branches_share_one_counter_id() {
-    // Both ternaries increment the same shared branch slot, so `b[0]` is
-    // referenced by all four arms and no second branch id is claimed.
-    let generated = "const x = a ? 1 : 2, y = b ? 3 : 4;\n";
-    let (eager, _) = eager_and_canonical_lazy(generated);
-
+    // Both ternaries increment the shared slot: all four arms address `b[0]`.
     assert!(eager.code.contains(".b[0]"), "shared branch counter is emitted");
     assert!(!eager.code.contains(".b[1]"), "folded ternaries must not claim a second branch id");
-}
-
-#[test]
-fn compose_merges_branches_emit_no_dangling_counter() {
-    // Every `b[id]` referenced in the emitted code must exist in the folded
-    // branch map, or the increment throws at runtime against an absent slot.
-    let generated = "const x = a ? 1 : 2, y = b ? 3 : 4;\n";
-    let (eager, _) = eager_and_canonical_lazy(generated);
-
-    let branch_ids: std::collections::BTreeSet<usize> =
-        eager.coverage_map.branch_map.keys().map(|k| k.parse().unwrap()).collect();
-    let dangling: Vec<_> =
-        counter_ids_in_code(&eager.code, 'b').difference(&branch_ids).copied().collect();
-    assert!(dangling.is_empty(), "dangling branch counters after fold: {dangling:?}");
+    assert_no_dangling_branch_counters(&eager);
 }
 
 #[test]
@@ -664,11 +627,7 @@ fn compose_merges_optional_chain_branches_collapsing() {
         3,
         "the two folded links plus the helper definition reference _oc"
     );
-    let branch_ids: std::collections::BTreeSet<usize> =
-        eager.coverage_map.branch_map.keys().map(|k| k.parse().unwrap()).collect();
-    let dangling: Vec<_> =
-        counter_ids_in_code(&eager.code, 'b').difference(&branch_ids).copied().collect();
-    assert!(dangling.is_empty(), "no dangling branch counter after the fold: {dangling:?}");
+    assert_no_dangling_branch_counters(&eager);
 }
 
 #[test]
@@ -818,11 +777,7 @@ fn compose_drops_all_arms_unmapped_branch_and_renumbers() {
         eager.coverage_map.branch_map["0"].branch_type, "cond-expr",
         "the all-arms-unmapped switch is dropped; only the ternary remains"
     );
-    let branch_ids: std::collections::BTreeSet<usize> =
-        eager.coverage_map.branch_map.keys().map(|k| k.parse().unwrap()).collect();
-    let dangling: Vec<_> =
-        counter_ids_in_code(&eager.code, 'b').difference(&branch_ids).copied().collect();
-    assert!(dangling.is_empty(), "no dangling branch counter after the drop: {dangling:?}");
+    assert_no_dangling_branch_counters(&eager);
 }
 
 #[test]
@@ -1098,9 +1053,9 @@ fn plain_with_map(intermediate: &str, input_sm: &str) -> FileCoverage {
 /// emitted code, for kind in `s` / `f` / `b`. This is the runtime address space
 /// the counter increments touch; every id here must have a matching slot in the
 /// baked coverage data, or the code throws at runtime.
-fn counter_ids_in_code(code: &str, kind: char) -> std::collections::BTreeSet<usize> {
+fn counter_ids_in_code(code: &str, kind: char) -> BTreeSet<usize> {
     let needle = format!(".{kind}[");
-    let mut ids = std::collections::BTreeSet::new();
+    let mut ids = BTreeSet::new();
     let mut rest = code;
     while let Some(pos) = rest.find(&needle) {
         let after = &rest[pos + needle.len()..];
@@ -1111,6 +1066,16 @@ fn counter_ids_in_code(code: &str, kind: char) -> std::collections::BTreeSet<usi
         rest = &after[digits.len()..];
     }
     ids
+}
+
+/// Every `b[id]` the emitted code increments must have a slot in the baked
+/// branch map, or the increment throws at runtime against `undefined`.
+fn assert_no_dangling_branch_counters(result: &oxc_coverage_instrument::InstrumentResult) {
+    let branch_ids: BTreeSet<usize> =
+        result.coverage_map.branch_map.keys().map(|k| k.parse().unwrap()).collect();
+    let dangling: Vec<_> =
+        counter_ids_in_code(&result.code, 'b').difference(&branch_ids).copied().collect();
+    assert!(dangling.is_empty(), "dangling branch counters in code: {dangling:?}");
 }
 
 #[test]
@@ -1148,22 +1113,17 @@ fn compose_input_source_map_emits_no_dangling_counters() {
     .unwrap();
 
     // Every counter id referenced in the emitted code must exist in the map.
-    let stmt_ids: std::collections::BTreeSet<usize> =
+    let stmt_ids: BTreeSet<usize> =
         eager.coverage_map.statement_map.keys().map(|k| k.parse().unwrap()).collect();
-    let branch_ids: std::collections::BTreeSet<usize> =
-        eager.coverage_map.branch_map.keys().map(|k| k.parse().unwrap()).collect();
-    let fn_ids: std::collections::BTreeSet<usize> =
+    let fn_ids: BTreeSet<usize> =
         eager.coverage_map.fn_map.keys().map(|k| k.parse().unwrap()).collect();
-
     let dangling_s: Vec<_> =
         counter_ids_in_code(&eager.code, 's').difference(&stmt_ids).copied().collect();
-    let dangling_b: Vec<_> =
-        counter_ids_in_code(&eager.code, 'b').difference(&branch_ids).copied().collect();
     let dangling_f: Vec<_> =
         counter_ids_in_code(&eager.code, 'f').difference(&fn_ids).copied().collect();
     assert!(dangling_s.is_empty(), "dangling statement counters in code: {dangling_s:?}");
-    assert!(dangling_b.is_empty(), "dangling branch counters in code: {dangling_b:?}");
     assert!(dangling_f.is_empty(), "dangling function counters in code: {dangling_f:?}");
+    assert_no_dangling_branch_counters(&eager);
 
     // The unmapped ternary branch must be entirely absent (not instrumented).
     assert!(eager.coverage_map.branch_map.is_empty(), "unmapped branch must not be instrumented");
@@ -1195,11 +1155,7 @@ fn compose_input_source_map_keeps_mapped_branch_consistent() {
     )
     .unwrap();
     assert_eq!(eager.coverage_map.branch_map.len(), 1, "mapped branch is kept");
-    let branch_ids: std::collections::BTreeSet<usize> =
-        eager.coverage_map.branch_map.keys().map(|k| k.parse().unwrap()).collect();
-    let dangling_b: Vec<_> =
-        counter_ids_in_code(&eager.code, 'b').difference(&branch_ids).copied().collect();
-    assert!(dangling_b.is_empty(), "mapped branch counters must be consistent: {dangling_b:?}");
+    assert_no_dangling_branch_counters(&eager);
     // Both arms survive (line maps), so the kept branch has 2 arm locations.
     assert_eq!(eager.coverage_map.branch_map["0"].locations.len(), 2);
 }
@@ -1210,7 +1166,7 @@ fn compose_input_source_map_bakes_original_positions_into_preamble() {
     // `coverageData` literal in the preamble injected into `code`) already
     // carries the original-source path, so an E2E collector can dump it
     // verbatim. The preamble keys the coverage object by `coverage.path`.
-    let (_, intermediate, input_sm) = three_line_inputs();
+    let (intermediate, input_sm) = three_line_inputs();
 
     let composed = instrument(
         &intermediate,
@@ -1253,7 +1209,7 @@ fn compose_input_source_map_no_op_without_input_map() {
 fn compose_input_source_map_off_keeps_embedded_map() {
     // Default (flag off) preserves the legacy behavior: the input map stays
     // embedded for downstream remap and positions remain generated.
-    let (_, intermediate, input_sm) = three_line_inputs();
+    let (intermediate, input_sm) = three_line_inputs();
     let opts =
         InstrumentOptions { input_source_map: Some(input_sm), ..InstrumentOptions::default() };
     let result = instrument(&intermediate, "intermediate.js", &opts).unwrap();
@@ -1377,7 +1333,7 @@ fn compose_input_source_map_does_not_double_compose_output_source_map() {
     // `finalize_source_map` whatever the flag says. AST-emitted coverage setup
     // can occupy a different number of generated lines when its embedded map
     // changes, but both maps must still resolve to the same original lines.
-    let (_, intermediate, input_sm) = three_line_inputs();
+    let (intermediate, input_sm) = three_line_inputs();
 
     let without_compose = instrument(
         &intermediate,

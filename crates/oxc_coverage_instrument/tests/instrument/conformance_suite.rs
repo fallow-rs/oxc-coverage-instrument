@@ -15,53 +15,27 @@ use serde::Deserialize;
 
 use oxc_coverage_instrument::{InstrumentOptions, instrument};
 
-/// Deserialized Istanbul reference data (from generate-reference.mjs output).
+/// The fields of the generate-reference.mjs output the suite compares against;
+/// the rest of the reference JSON is ignored on deserialization.
 #[derive(Debug, Deserialize)]
 struct IstanbulReference {
-    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
-    path: String,
     statements: usize,
     functions: usize,
     branches: usize,
-    #[serde(rename = "statementMap")]
-    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
-    statement_map: BTreeMap<String, serde_json::Value>,
-    #[serde(rename = "fnMap")]
-    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
-    fn_map: BTreeMap<String, IstanbulFn>,
     #[serde(rename = "branchMap")]
     branch_map: BTreeMap<String, IstanbulBranch>,
-}
-
-#[derive(Debug, Deserialize)]
-struct IstanbulFn {
-    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
-    name: String,
-    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
-    line: u32,
 }
 
 #[derive(Debug, Deserialize)]
 struct IstanbulBranch {
     #[serde(rename = "type")]
     branch_type: String,
-    #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
-    line: u32,
     #[serde(rename = "locationCount")]
     location_count: usize,
 }
 
-fn fixtures_dir() -> String {
-    format!("{}/tests/conformance/fixtures", env!("CARGO_MANIFEST_DIR"))
-}
-
-fn reference_dir() -> String {
-    format!("{}/tests/conformance/reference", env!("CARGO_MANIFEST_DIR"))
-}
-
-/// Load the istanbul reference data generated for `name`.
 fn load_reference(name: &str) -> IstanbulReference {
-    let path = format!("{}/{name}.json", reference_dir());
+    let path = format!("{}/tests/conformance/reference/{name}.json", env!("CARGO_MANIFEST_DIR"));
     let content = std::fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
             "Missing reference file {path}: {e}. Run: node crates/oxc_coverage_instrument/tests/conformance/generate-reference.mjs"
@@ -71,7 +45,7 @@ fn load_reference(name: &str) -> IstanbulReference {
 }
 
 fn load_fixture(filename: &str) -> String {
-    let path = format!("{}/{filename}", fixtures_dir());
+    let path = format!("{}/tests/conformance/fixtures/{filename}", env!("CARGO_MANIFEST_DIR"));
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Missing fixture {path}: {e}"))
 }
 

@@ -6,12 +6,8 @@
 
 use oxc_coverage_instrument::{InstrumentOptions, instrument};
 
-fn default_opts() -> InstrumentOptions {
-    InstrumentOptions::default()
-}
-
 fn instrument_js(source: &str) -> oxc_coverage_instrument::InstrumentResult {
-    instrument(source, "test.js", &default_opts()).unwrap()
+    instrument(source, "test.js", &InstrumentOptions::default()).unwrap()
 }
 
 const ECMASCRIPT_LINE_TERMINATORS: [(&str, &str); 5] =
@@ -60,18 +56,15 @@ fn pragma_ignore_if_on_no_else_branch_anchors_surviving_arm() {
 }
 
 #[test]
-fn pragma_istanbul_ignore_file() {
-    let result = instrument_js("/* istanbul ignore file */\nfunction f() { return 1; }");
-    assert!(result.coverage_map.fn_map.is_empty());
-    assert!(result.coverage_map.statement_map.is_empty());
-    assert!(result.coverage_map.branch_map.is_empty());
-    assert!(!result.code.contains("cov_"), "an ignored file is returned unmodified");
-}
-
-#[test]
-fn pragma_v8_ignore_file() {
-    let result = instrument_js("/* v8 ignore file */\nfunction f() { return 1; }");
-    assert!(result.coverage_map.fn_map.is_empty());
+fn pragma_ignore_file_supports_istanbul_v8_and_c8() {
+    for tool in ["istanbul", "v8", "c8"] {
+        let result =
+            instrument_js(&format!("/* {tool} ignore file */\nfunction f() {{ return 1; }}"));
+        assert!(result.coverage_map.fn_map.is_empty(), "{tool}");
+        assert!(result.coverage_map.statement_map.is_empty(), "{tool}");
+        assert!(result.coverage_map.branch_map.is_empty(), "{tool}");
+        assert!(!result.code.contains("cov_"), "{tool}: an ignored file is returned unmodified");
+    }
 }
 
 #[test]
@@ -143,12 +136,6 @@ fn pragma_ignore_if_without_else_skips_consequent_statement_counter() {
 }
 
 #[test]
-fn known_pragmas_not_in_unhandled() {
-    let result = instrument_js("/* istanbul ignore next */\nfunction f() { return 1; }");
-    assert!(result.unhandled_pragmas.is_empty());
-}
-
-#[test]
 fn block_ignore_pragmas_skip_statements_between_start_and_stop() {
     let source = "function f(x) {\n  /* v8 ignore start */\n  if (x) { return 1; }\n  return 2;\n  /* v8 ignore stop */\n}\nf(false);";
     let result = instrument_js(source);
@@ -192,12 +179,6 @@ fn pragma_v8_ignore_next() {
 }
 
 #[test]
-fn pragma_c8_ignore_file() {
-    let result = instrument_js("/* c8 ignore file */\nfunction f() { return 1; }");
-    assert!(result.coverage_map.fn_map.is_empty());
-}
-
-#[test]
 fn pragma_ignore_next_skips_class_property_initializer_subtree() {
     let source = "class C {\n  /* istanbul ignore next */\n  x = () => 1;\n}\na();";
     let result = instrument_js(source);
@@ -220,8 +201,10 @@ fn pragma_ignore_next_skips_class_property_initializer_subtree() {
 fn ignore_class_methods_with_pragma_no_leak() {
     // When both ignoreClassMethods AND a pragma target the same method,
     // skip_next must not leak to the next statement after the method.
-    let opts =
-        InstrumentOptions { ignore_class_methods: vec!["render".to_string()], ..default_opts() };
+    let opts = InstrumentOptions {
+        ignore_class_methods: vec!["render".to_string()],
+        ..InstrumentOptions::default()
+    };
     let result = instrument(
         "class App { /* istanbul ignore next */ render() { return 1; } update() { return 2; } }",
         "test.js",
@@ -511,27 +494,12 @@ fn pragma_ignore_next_prunes_empty_ternary_branch() {
 }
 
 #[test]
-fn pragma_ignore_next_skips_logical_expression_leaf() {
-    let source = "function f(a, b) {\n  return a && /* v8 ignore next */ b;\n}";
-    let result = instrument_js(source);
-    assert!(result.unhandled_pragmas.is_empty());
-    // Istanbul preserves the binary-expression branch entry, dropping just
-    // the ignored leaf from the locations array so the surviving leaf is
-    // still counted.
-    assert_eq!(result.coverage_map.branch_map.len(), 1);
-    let entry = result.coverage_map.branch_map.values().next().unwrap();
-    assert_eq!(entry.locations.len(), 1);
-    assert_eq!(result.coverage_map.b.get("0").map(Vec::len), Some(1));
-    assert!(result.code.contains(".b[0][0]"));
-    assert!(!result.code.contains(".b[0][1]"));
-}
-
-#[test]
 fn pragma_ignore_next_keeps_branch_entry_when_one_arm_is_ignored() {
     let cases = [
         "function f(x) { return x ?? /* v8 ignore next -- @preserve */ [] }",
         "function f(x) { return x || /* v8 ignore next -- @preserve */ true }",
         "function f(x) { return x && /* v8 ignore next -- @preserve */ true }",
+        "function f(x) { return x && /* v8 ignore next */ true }",
         "function f(x) { return x ? 1 : /* v8 ignore next -- @preserve */ 2 }",
     ];
 
@@ -769,33 +737,14 @@ fn pragma_block_ignore_start_without_stop_extends_to_end_of_file() {
 }
 
 #[test]
-fn pragma_with_unsupported_tool_word_is_ignored() {
-    // Comments whose first token is not istanbul/v8/c8 must not register as
-    // pragmas, even if the rest looks pragma-shaped.
-    let source = "/* eslint ignore next */\nconst x = 1;\n";
-    let result = instrument(source, "test.js", &InstrumentOptions::default()).unwrap();
-    assert_eq!(result.coverage_map.statement_map.len(), 1);
-    assert!(result.unhandled_pragmas.is_empty());
-}
-
-#[test]
-fn pragma_with_only_tool_word_does_not_register() {
-    // `/* istanbul */` is missing the `ignore` keyword and therefore is not a
-    // recognised pragma; the following statement should still be counted.
-    let source = "/* istanbul */\nconst x = 1;\n";
-    let result = instrument(source, "test.js", &InstrumentOptions::default()).unwrap();
-    assert_eq!(result.coverage_map.statement_map.len(), 1);
-    assert!(result.unhandled_pragmas.is_empty());
-}
-
-#[test]
-fn pragma_with_tool_and_non_ignore_keyword_does_not_register() {
-    // `/* istanbul something-else */` has the right tool prefix but the second
-    // token isn't `ignore`, so it should not match.
-    let source = "/* istanbul something-else */\nconst x = 1;\n";
-    let result = instrument(source, "test.js", &InstrumentOptions::default()).unwrap();
-    assert_eq!(result.coverage_map.statement_map.len(), 1);
-    assert!(result.unhandled_pragmas.is_empty());
+fn pragma_shaped_comments_without_a_tool_and_ignore_prefix_do_not_register() {
+    // A comment needs a known tool word followed by `ignore` to count as a
+    // pragma, known or unknown; anything else leaves the next statement counted.
+    for comment in ["/* eslint ignore next */", "/* istanbul */", "/* istanbul something-else */"] {
+        let result = instrument_js(&format!("{comment}\nconst x = 1;\n"));
+        assert_eq!(result.coverage_map.statement_map.len(), 1, "{comment}");
+        assert!(result.unhandled_pragmas.is_empty(), "{comment}");
+    }
 }
 
 #[test]
