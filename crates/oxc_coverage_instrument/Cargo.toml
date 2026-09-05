@@ -16,10 +16,6 @@ description = "Istanbul-compatible JavaScript/TypeScript coverage instrumentatio
 [lints]
 workspace = true
 
-[lib]
-# The crate-level docs and `instrument` carry runnable examples.
-doctest = true
-
 [features]
 ast-api = []
 codspeed = ["criterion2/codspeed"]

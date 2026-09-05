@@ -321,11 +321,6 @@ require_vitest_example() {
   require_dir "$VITEST_DIR/node_modules" "Run 'npm --prefix examples/vitest-typescript install'."
 }
 
-require_vitest_runtime() {
-  require_vitest_example
-  require_native_napi
-}
-
 run_vitest_typecheck() {
   require_vitest_example
   echo "[check:vitest-typecheck] (cd examples/vitest-typescript && npm run typecheck)"
@@ -333,7 +328,8 @@ run_vitest_typecheck() {
 }
 
 run_vitest_coverage() {
-  require_vitest_runtime
+  require_vitest_example
+  require_native_napi
   echo "[check:vitest-coverage] (cd examples/vitest-typescript && npm run coverage)"
   (cd "$VITEST_DIR" && npm run coverage)
 }

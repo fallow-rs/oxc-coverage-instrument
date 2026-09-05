@@ -1,7 +1,6 @@
 //! Performance benchmarks for coverage instrumentation.
 //!
-//! Measures instrumentation throughput across different file sizes
-//! and complexity levels. Run with: `cargo bench`
+//! Run with: `cargo bench -p oxc_coverage_instrument --features codspeed`
 
 use std::fmt::Write as _;
 

@@ -6,16 +6,7 @@ set -euo pipefail
 VERSION="${2:-$1}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-update_version() {
-  node -e "
-    const fs = require('fs');
-    const pkg = JSON.parse(fs.readFileSync('$1', 'utf8'));
-    pkg.version = '$VERSION';
-    fs.writeFileSync('$1', JSON.stringify(pkg, null, 2) + '\n');
-  "
-}
-
-update_optional_deps() {
+update_manifest() {
   node -e "
     const fs = require('fs');
     const pkg = JSON.parse(fs.readFileSync('$1', 'utf8'));
@@ -62,14 +53,12 @@ update_lockfile() {
 
 echo "Syncing npm versions to $VERSION..."
 
-# Main package (with optionalDependencies)
-update_optional_deps "$ROOT/crates/oxc_coverage_instrument_napi/package.json"
+update_manifest "$ROOT/crates/oxc_coverage_instrument_napi/package.json"
 update_lockfile "$ROOT/crates/oxc_coverage_instrument_napi/package-lock.json"
 
-# Platform packages
 for dir in "$ROOT/crates/oxc_coverage_instrument_napi/npm"/*/; do
   if [ -f "$dir/package.json" ]; then
-    update_version "$dir/package.json"
+    update_manifest "$dir/package.json"
   fi
 done
 

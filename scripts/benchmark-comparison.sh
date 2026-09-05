@@ -126,16 +126,6 @@ print(f"{statistics.median(samples):.1f}")
 PY
 }
 
-median_values() {
-  python3 - "$@" <<'PY'
-import statistics
-import sys
-
-values = [float(value) for value in sys.argv[1:]]
-print(f"{statistics.median(values):.1f}")
-PY
-}
-
 time_oxc() {
   measure_command_median "$RUNS" "$OXC" "$1"
 }
@@ -189,11 +179,6 @@ benchmark_self_test() {
   temp="$(mktemp -d)"
   trap 'rm -rf "$temp"' RETURN
 
-  [[ "$(median_values 3 1 2)" == "2.0" ]]
-  [[ "$(median_values 4 1 3 2)" == "2.5" ]]
-  [[ "$(median_values 2 2 2 2)" == "2.0" ]]
-  [[ "$(median_values 1.25 1.75)" == "1.5" ]]
-
   if measure_command_median 1 /usr/bin/false >/dev/null 2>&1; then
     echo "benchmark self-test: failed subprocess became a timing sample" >&2
     return 1
@@ -245,7 +230,6 @@ write_istanbul_bench() {
   cat > "${BENCH_DIR}/istanbul/bench.js" << 'EOF'
 const { createInstrumenter } = require('istanbul-lib-instrument');
 const fs = require('fs');
-const path = require('path');
 const file = process.argv[2];
 const runs = parseInt(process.argv[3] || '5', 10);
 const code = fs.readFileSync(file, 'utf8');
@@ -266,7 +250,6 @@ write_babel_bench() {
   cat > "${BENCH_DIR}/babel/bench.js" << 'EOF'
 const babel = require('@babel/core');
 const fs = require('fs');
-const path = require('path');
 const file = process.argv[2];
 const runs = parseInt(process.argv[3] || '5', 10);
 const code = fs.readFileSync(file, 'utf8');
@@ -315,7 +298,6 @@ write_napi_bench() {
   cat > "${BENCH_DIR}/napi-bench.cjs" << EOF
 const { instrument } = require('${NAPI_DIR}');
 const fs = require('fs');
-const path = require('path');
 const file = process.argv[2];
 const runs = parseInt(process.argv[3] || '5', 10);
 const code = fs.readFileSync(file, 'utf8');

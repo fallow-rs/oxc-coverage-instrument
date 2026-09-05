@@ -86,7 +86,7 @@ the [Node.js package README](crates/oxc_coverage_instrument_napi/README.md).
 ## Compatibility
 
 - Rust 1.95 or newer, 2024 edition
-- Oxc 0.140.x
+- Oxc 0.146.x
 - Istanbul `coverage-final.json` v3 or newer
 - Node.js 18 or newer, through napi-rs
 

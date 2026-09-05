@@ -83,7 +83,7 @@ references.
 
 ```toml
 [dependencies]
-oxc_coverage_instrument = { version = "0.11", features = ["ast-api"] }
+oxc_coverage_instrument = { version = "0.12", features = ["ast-api"] }
 ```
 
 The source-to-source `instrument` function uses the same internal AST pass and
@@ -200,7 +200,7 @@ always reached and right conditional. `istanbul-lib-instrument` has no
 
 The strict Istanbul profile disables these entries.
 
-Pinned by `conformance_test.rs::logical_assignment_is_intentional_branch_superset`.
+Pinned by `conformance.rs::logical_assignment_is_intentional_branch_superset`.
 
 A codebase that uses `??=`, `||=`, or `&&=` heavily will see a higher branch
 denominator, and so a slightly lower branch percentage, after switching from
@@ -224,7 +224,7 @@ class method, this instrumenter uses the name the JavaScript runtime assigns to
 | `class C { bar() {} }` | `bar` | `(anonymous_0)` |
 | `(function() {})()` | `(anonymous_0)` | `(anonymous_0)` |
 
-Pinned by `conformance_test.rs::fn_name_inference_is_intentional_superset`.
+Pinned by `conformance.rs::fn_name_inference_is_intentional_superset`.
 
 The strict Istanbul profile uses `(anonymous_N)` instead.
 
