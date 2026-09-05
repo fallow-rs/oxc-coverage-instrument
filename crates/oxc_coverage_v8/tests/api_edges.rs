@@ -129,6 +129,14 @@ fn inline_source_map_returns_none_on_malformed_payloads() {
     assert!(
         extract_inline_source_map("//# sourceMappingURL=data:application/json;base64,A").is_none()
     );
+
+    // A `%HH` escape truncated by the end of the payload.
+    assert!(
+        extract_inline_source_map("//# sourceMappingURL=data:application/json,payload%").is_none()
+    );
+    assert!(
+        extract_inline_source_map("//# sourceMappingURL=data:application/json,payload%4").is_none()
+    );
 }
 
 #[test]
