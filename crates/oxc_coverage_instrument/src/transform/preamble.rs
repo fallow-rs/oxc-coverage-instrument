@@ -55,17 +55,20 @@ pub fn generate_preamble_source(inputs: &PreambleInputs<'_>) -> String {
     );
     let _ = write!(buf, "; var gcv = '{coverage_var}'; var coverageData = ");
     buf.push_str(coverage_json);
+    buf.push_str(
+        "; coverageData.hash = hash; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) { coverage[gcv] = {}; } "
+    );
+    // A path that is literally `__proto__` cannot be installed with
+    // `coverage[gcv][path] = ...`: that write would reach `Object.prototype`
+    // instead of adding a key, so it goes through `Object.defineProperty`.
     if coverage.path == "__proto__" {
-        let _ = writeln!(
-            buf,
-            "; coverageData.hash = hash; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!Object.prototype.hasOwnProperty.call(coverage[gcv], path) || !coverage[gcv][path] || coverage[gcv][path].hash !== hash) {{ Object.defineProperty(coverage[gcv], path, {{ value: coverageData, enumerable: true, writable: true, configurable: true }}); }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }})();"
+        buf.push_str(
+            "if (!Object.prototype.hasOwnProperty.call(coverage[gcv], path) || !coverage[gcv][path] || coverage[gcv][path].hash !== hash) { Object.defineProperty(coverage[gcv], path, { value: coverageData, enumerable: true, writable: true, configurable: true }); }"
         );
     } else {
-        let _ = writeln!(
-            buf,
-            "; coverageData.hash = hash; var coverage = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this; if (!coverage[gcv]) {{ coverage[gcv] = {{}}; }} if (!coverage[gcv][path] || coverage[gcv][path].hash !== hash) {{ coverage[gcv][path] = coverageData; }} var actualCoverage = coverage[gcv][path]; return actualCoverage; }})();"
-        );
+        buf.push_str("if (!coverage[gcv][path] || coverage[gcv][path].hash !== hash) { coverage[gcv][path] = coverageData; }");
     }
+    buf.push_str(" var actualCoverage = coverage[gcv][path]; return actualCoverage; })();\n");
     if report_logic {
         append_logic_helper(&mut buf, cov_fn_name);
     }
