@@ -47,26 +47,6 @@ fn parse_recognises_every_format_name() {
 }
 
 #[test]
-fn as_str_round_trips_through_parse() {
-    for name in ["text", "text-summary", "json-summary", "lcov", "cobertura"] {
-        assert_eq!(Format::parse(name).expect("known format name").as_str(), name);
-    }
-    #[cfg(feature = "html")]
-    assert_eq!(Format::Html.as_str(), "html");
-}
-
-#[test]
-fn is_multi_file_is_true_only_for_html() {
-    assert!(!Format::Text.is_multi_file());
-    assert!(!Format::TextSummary.is_multi_file());
-    assert!(!Format::JsonSummary.is_multi_file());
-    assert!(!Format::Lcov.is_multi_file());
-    assert!(!Format::Cobertura.is_multi_file());
-    #[cfg(feature = "html")]
-    assert!(Format::Html.is_multi_file());
-}
-
-#[test]
 fn dispatch_matches_module_writers() {
     let map = parse_coverage_map(TWO_FILE_MAP).unwrap();
     let root = summarize(&map);

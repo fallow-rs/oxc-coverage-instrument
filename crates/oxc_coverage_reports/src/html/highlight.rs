@@ -123,6 +123,9 @@ mod tests {
         assert!(lines[0].contains("&lt;world&gt;"));
         assert!(lines[0].contains("&amp;"));
         assert!(!lines[0].contains("stok-"), "fallback should not emit token spans: {}", lines[0]);
+
+        // A path with no extension at all takes the same fallback branch.
+        assert_eq!(highlight_lines("hello <world> & friends", Path::new("")), lines);
     }
 
     #[test]

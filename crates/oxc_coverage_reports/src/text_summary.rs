@@ -71,6 +71,13 @@ mod tests {
     }
 
     #[test]
+    fn empty_map_renders_all_one_hundred_percent() {
+        let out = render("{}");
+        assert!(out.contains("Statements   : 100% ( 0/0 )"), "got: {out}");
+        assert!(out.contains("Lines        : 100% ( 0/0 )"), "got: {out}");
+    }
+
+    #[test]
     fn fractional_pct_keeps_two_decimals() {
         // 1/3 statements covered = 33.33%
         let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"1":{"start":{"line":2,"column":0},"end":{"line":2,"column":1}},"2":{"start":{"line":3,"column":0},"end":{"line":3,"column":1}}},"fnMap":{},"branchMap":{},"s":{"0":1,"1":0,"2":0},"f":{},"b":{}}}"#;
