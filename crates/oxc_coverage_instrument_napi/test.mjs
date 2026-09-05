@@ -6,7 +6,9 @@ import {
   v8ToIstanbul,
   v8ToIstanbulWithLoader,
 } from './index.js';
+import { createOxcInstrumenter } from './vitest.js';
 import { strict as assert } from 'node:assert';
+import libCoverage from 'istanbul-lib-coverage';
 import { createInstrumenter } from 'istanbul-lib-instrument';
 import { existsSync, statSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -14,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const { createCoverageMap } = libCoverage;
 console.log('Testing oxc-coverage-instrument napi bindings...\n');
 
 // Log which local napi artifacts exist before the binding loader runs. This
@@ -116,20 +119,6 @@ function runInstrumented(result, filename, callExpression) {
     assert(e.message.includes('parse error'), `Expected parse error, got: ${e.message}`);
     console.log('  [PASS] Parse error handling');
   }
-}
-
-// Test: Performance
-{
-  const source = 'function f(x) { if (x > 0) { return x; } else { return -x; } }\n'.repeat(100);
-  const start = performance.now();
-  const iterations = 1000;
-  for (let i = 0; i < iterations; i++) {
-    instrument(source, 'perf.js');
-  }
-  const elapsed = performance.now() - start;
-  const avgMs = elapsed / iterations;
-  const throughput = (source.length / 1024 / 1024) / (avgMs / 1000);
-  console.log(`  [PASS] Performance: ${avgMs.toFixed(3)}ms avg, ${throughput.toFixed(1)} MiB/s`);
 }
 
 // Test: Istanbul format compliance
@@ -435,7 +424,7 @@ function runInstrumented(result, filename, callExpression) {
   console.log('  [PASS] Issue regression runtime parity');
 }
 
-// Test: No-block loop bodies increment their own statement counters
+// Test: No-block loop and statement-child bodies increment their own statement counters
 {
   const cases = [
     {
@@ -468,31 +457,6 @@ function runInstrumented(result, filename, callExpression) {
       source: 'function f() { let i = 0; do i++; while (i < 3); return i; }',
       call: "eval('f')();",
     },
-  ];
-
-  for (const item of cases) {
-    const result = instrument(item.source, item.filename);
-    const map = JSON.parse(result.coverageMap);
-    const emittedStatementCounters = result.code.match(/\+\+cov_[a-f0-9]+\.s\[\d+\]/g) ?? [];
-    assert.equal(
-      emittedStatementCounters.length,
-      Object.keys(map.statementMap).length,
-      `${item.name} should emit every statementMap counter`,
-    );
-
-    const coverage = runInstrumented(result, item.filename, item.call);
-    assert(
-      Object.entries(coverage.s).every(([, hits]) => hits > 0),
-      `${item.name} should hit every statement counter when the body runs`,
-    );
-  }
-
-  console.log('  [PASS] No-block loop body statement counters');
-}
-
-// Test: Other no-block statement-child containers increment body counters
-{
-  const cases = [
     {
       name: 'with',
       filename: 'with-no-block.js',
@@ -536,7 +500,7 @@ function runInstrumented(result, filename, callExpression) {
     );
   }
 
-  console.log('  [PASS] No-block statement-child body counters');
+  console.log('  [PASS] No-block loop and statement-child body counters');
 }
 
 // Test: reportLogic adds bT (truthy-value tracking) for logical operands
@@ -888,7 +852,6 @@ function runInstrumented(result, filename, callExpression) {
 
 // Multi-source fan-out and same-source collision parity with Istanbul.
 {
-  const { createCoverageMap } = (await import('istanbul-lib-coverage')).default;
   const { createSourceMapStore } = (await import('istanbul-lib-source-maps')).default;
   const { GenMapping, addMapping, setSourceContent, toEncodedMap } = await import(
     '@jridgewell/gen-mapping'
@@ -1333,14 +1296,12 @@ function runInstrumented(result, filename, callExpression) {
     () => instrument('const value = 1;', 'compat.js', { compat: 'other' }),
     /unknown variant `other`.*`istanbul`/,
   );
-  const { createOxcInstrumenter } = await import('./vitest.js');
   assert.throws(() => createOxcInstrumenter({ compat: 'other' }), /compat.*'istanbul'/);
   console.log('  [PASS] compatibility profiles reject unknown values');
 }
 
 // Test: createOxcInstrumenter auto-detects .ts as raw TypeScript when no inputSourceMap
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   const inst = createOxcInstrumenter();
   const code = inst.instrumentSync('const x: number = 1;\nconsole.log(x);\n', 'app.ts');
   assert(!code.includes(': number'), 'auto-detect must strip TS on .ts without inputSourceMap');
@@ -1350,7 +1311,6 @@ function runInstrumented(result, filename, callExpression) {
 
 // Test: createOxcInstrumenter auto-detects .tsx and preserves JSX
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   const inst = createOxcInstrumenter();
   const code = inst.instrumentSync(
     'const el: JSX.Element = <div>hi</div>;\nconsole.log(el);\n',
@@ -1363,7 +1323,6 @@ function runInstrumented(result, filename, callExpression) {
 
 // Test: createOxcInstrumenter does NOT auto-strip when inputSourceMap is provided
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   const inst = createOxcInstrumenter();
   // Pass raw TS source WITH an inputSourceMap. In real Vite/Vitest usage the
   // source would already be transformed JS by this point, but feeding raw TS
@@ -1381,7 +1340,6 @@ function runInstrumented(result, filename, callExpression) {
 
 // Test: createOxcInstrumenter does NOT auto-strip .js files
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   const inst = createOxcInstrumenter();
   const code = inst.instrumentSync('const x = 1;\nconsole.log(x);\n', 'app.js');
   assert(code.includes('const x ='), '.js must pass through as executable JS');
@@ -1390,7 +1348,6 @@ function runInstrumented(result, filename, callExpression) {
 
 // Test: explicit stripTypescript: false overrides auto-detect on .ts
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   const inst = createOxcInstrumenter({ stripTypescript: false });
   const code = inst.instrumentSync('const x: number = 1;\n', 'app.ts');
   assert(
@@ -1405,7 +1362,6 @@ function runInstrumented(result, filename, callExpression) {
 // signals "already transformed upstream"), but explicit true forces the strip
 // pass anyway. Observable via the TS annotation disappearing from the output.
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   const inst = createOxcInstrumenter({ stripTypescript: true });
   const fakeMap = { version: 3, sources: ['orig.ts'], mappings: '', names: [] };
   const code = inst.instrumentSync('const x: number = 1;\n', 'app.ts', fakeMap);
@@ -1420,7 +1376,6 @@ function runInstrumented(result, filename, callExpression) {
 // coercing. Catches the 'auto' string case (a prior tri-state design shape)
 // that Boolean coercion would turn into force-strip.
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   let caught = null;
   try {
     createOxcInstrumenter({ stripTypescript: 'auto' });
@@ -1442,7 +1397,6 @@ function runInstrumented(result, filename, callExpression) {
 // the strip; the parser then rejects the TS syntax because the filename
 // extension (.bak / .mtsx) means SourceType::from_path falls back to JS.
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   const inst = createOxcInstrumenter();
   // .ts.bak: actual extension is .bak; strip must not auto-engage.
   let caughtBak = null;
@@ -1477,7 +1431,6 @@ function runInstrumented(result, filename, callExpression) {
 // so vitest+NestJS users with only emitDecoratorMetadata configured do not
 // see a runtime throw on the first instrumented file.
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   const inst = createOxcInstrumenter({ emitDecoratorMetadata: true });
   const code = inst.instrumentSync(
     "@Injectable() export class S { constructor(private readonly b: B) {} }\n",
@@ -1638,7 +1591,6 @@ function runInstrumented(result, filename, callExpression) {
 // Test: createOxcInstrumenter forwards functionIdentityOverlay to the native
 // instrumenter so Vitest users can opt into the same downstream identity data.
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   const inst = createOxcInstrumenter({ functionIdentityOverlay: true });
   inst.instrumentSync('function handler() { return 1; }\n', 'app.js');
   const fc = inst.lastFileCoverage();
@@ -1831,7 +1783,6 @@ function runInstrumented(result, filename, callExpression) {
 // instrumenter incremented `cov.s[id]` against a slot later pruned from the map
 // (NaN serializes back as `null`, re-ingested as an orphan key).
 {
-  const libCoverage = (await import('istanbul-lib-coverage')).default;
 
   // The exact malformed shape from the issue: statementMap is missing "1", but
   // s has key "1" (value null, the NaN a dangling `++cov.s[1]` produced).
@@ -1934,7 +1885,6 @@ function runInstrumented(result, filename, callExpression) {
 // downstream istanbul-lib-coverage merge that nyc runs no longer crashes. This
 // is the reporter's exact shape (names mocked) captured from window.__coverage__.
 {
-  const libCoverage = (await import('istanbul-lib-coverage')).default;
   const raw = JSON.parse(
     readFileSync(join(__dirname, '__fixtures__', 'issue-107-orphan-statement.json'), 'utf8'),
   );
@@ -2018,7 +1968,6 @@ function runInstrumented(result, filename, callExpression) {
 
 // Test: createOxcInstrumenter forwards trackOptionalChainBranches and validates it
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   const source = 'export function f(e) { return e?.a?.b; }';
 
   const on = createOxcInstrumenter();
@@ -2112,7 +2061,6 @@ globalThis.__result = {
 
 // Test: createOxcInstrumenter forwards nameCallbackArguments and validates it
 {
-  const { createOxcInstrumenter } = await import('./vitest.js');
   const source = 'export const f = (arr) => arr.filter((x) => x > 0);';
 
   const off = createOxcInstrumenter();
@@ -2153,7 +2101,6 @@ globalThis.__result = {
 {
   // istanbul-lib-coverage / -source-maps are CommonJS: named exports surface on
   // the dynamic-import `default` namespace, not the top level.
-  const { createCoverageMap } = (await import('istanbul-lib-coverage')).default;
   const { createSourceMapStore } = (await import('istanbul-lib-source-maps')).default;
   const { GenMapping, addMapping, setSourceContent, toEncodedMap } = await import(
     '@jridgewell/gen-mapping'
@@ -2503,7 +2450,6 @@ globalThis.__result = {
     'omitting strictNullChecks must default to true (tsc under `strict`)',
   );
 
-  const { createOxcInstrumenter } = await import('./vitest.js');
   assert.throws(
     () => createOxcInstrumenter({ strictNullChecks: 'yes' }),
     /strictNullChecks.*must be a boolean or undefined/,

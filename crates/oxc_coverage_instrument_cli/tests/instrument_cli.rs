@@ -306,18 +306,7 @@ fn instrument_help_flag_prints_subcommand_specific_usage() {
 }
 
 #[test]
-fn instrument_help_flag_prints_usage_and_exits_success() {
-    for args in [vec!["instrument", "--help"], vec!["instrument", "-h"]] {
-        let out = cli().args(&args).output().unwrap();
-        assert!(out.status.success(), "`{args:?}` should exit 0");
-        let combined = format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        );
-        assert!(combined.contains("USAGE"), "`{args:?}` should print USAGE, got:\n{combined}");
-    }
-
+fn instrument_help_flag_mid_args_short_circuits() {
     let src = write_temp("help_mid_args.js", "const x = 1;");
     let out = cli().arg(&src).arg("--help").output().unwrap();
     assert!(out.status.success(), "mid-args --help should exit 0");

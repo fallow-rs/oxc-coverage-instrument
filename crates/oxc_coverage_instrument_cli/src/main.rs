@@ -199,14 +199,14 @@ impl ReportArgsDraft {
         if format.is_multi_file() && self.output_file.is_some() {
             eprintln!(
                 "error: --format {} produces a directory tree; use --output-dir instead of -o",
-                format_name(format)
+                format.as_str()
             );
             return Err(ExitCode::FAILURE);
         }
         if !format.is_multi_file() && self.output_dir.is_some() {
             eprintln!(
                 "error: --output-dir is only valid for multi-file formats (html); use -o for --format {}",
-                format_name(format)
+                format.as_str()
             );
             return Err(ExitCode::FAILURE);
         }
@@ -352,17 +352,6 @@ fn parse_report_args(args: &[String]) -> Result<ReportArgs, ExitCode> {
     }
 
     report.finish()
-}
-
-fn format_name(format: Format) -> &'static str {
-    match format {
-        Format::Text => "text",
-        Format::TextSummary => "text-summary",
-        Format::JsonSummary => "json-summary",
-        Format::Lcov => "lcov",
-        Format::Cobertura => "cobertura",
-        Format::Html => "html",
-    }
 }
 
 fn take_value(args: &[String], i: &mut usize, flag: &str) -> Result<String, ExitCode> {

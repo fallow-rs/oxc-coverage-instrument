@@ -719,89 +719,26 @@ fn report_threshold_rejected_on_non_html_formats() {
 }
 
 #[test]
-fn report_text_rejects_output_dir_with_friendly_error() {
-    let cov = write_temp("report_text_dash_dir.json", SAMPLE_COVERAGE);
-    let out = cli()
-        .arg("report")
-        .arg("--format")
-        .arg("text")
-        .arg("--output-dir")
-        .arg("/tmp/should_not_be_used")
-        .arg(&cov)
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("only valid for multi-file formats"), "got: {stderr}");
-}
-
-#[test]
-fn report_lcov_rejects_output_dir_with_friendly_error() {
-    let cov = write_temp("report_lcov_dir.json", SAMPLE_COVERAGE);
-    let out = cli()
-        .arg("report")
-        .arg("--format")
-        .arg("lcov")
-        .arg("--output-dir")
-        .arg(temp_path("lcov_dir_out"))
-        .arg(&cov)
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("--format lcov"), "format name must reach the error, got: {stderr}");
-    assert!(stderr.contains("only valid for multi-file formats"), "got: {stderr}");
-}
-
-#[test]
-fn report_cobertura_rejects_output_dir_with_friendly_error() {
-    let cov = write_temp("report_cobertura_dir.json", SAMPLE_COVERAGE);
-    let out = cli()
-        .arg("report")
-        .arg("--format")
-        .arg("cobertura")
-        .arg("--output-dir")
-        .arg(temp_path("cobertura_dir_out"))
-        .arg(&cov)
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("--format cobertura"), "got: {stderr}");
-}
-
-#[test]
-fn report_text_summary_rejects_output_dir_with_friendly_error() {
-    let cov = write_temp("report_text_summary_dir.json", SAMPLE_COVERAGE);
-    let out = cli()
-        .arg("report")
-        .arg("--format")
-        .arg("text-summary")
-        .arg("--output-dir")
-        .arg(temp_path("text_summary_dir_out"))
-        .arg(&cov)
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("--format text-summary"), "got: {stderr}");
-}
-
-#[test]
-fn report_json_summary_rejects_output_dir_with_friendly_error() {
-    let cov = write_temp("report_json_summary_dir.json", SAMPLE_COVERAGE);
-    let out = cli()
-        .arg("report")
-        .arg("--format")
-        .arg("json-summary")
-        .arg("--output-dir")
-        .arg(temp_path("json_summary_dir_out"))
-        .arg(&cov)
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("--format json-summary"), "got: {stderr}");
+fn report_single_file_formats_reject_output_dir_with_friendly_error() {
+    let cov = write_temp("report_single_file_dir.json", SAMPLE_COVERAGE);
+    for format in ["text", "text-summary", "json-summary", "lcov", "cobertura"] {
+        let out = cli()
+            .arg("report")
+            .arg("--format")
+            .arg(format)
+            .arg("--output-dir")
+            .arg(temp_path("single_file_dir_out"))
+            .arg(&cov)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "--output-dir must be rejected for --format {format}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("only valid for multi-file formats"), "got: {stderr}");
+        assert!(
+            stderr.contains(&format!("--format {format}")),
+            "format name must reach the error, got: {stderr}"
+        );
+    }
 }
 
 #[test]
