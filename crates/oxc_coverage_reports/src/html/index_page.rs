@@ -10,16 +10,12 @@ use super::page::{SummaryHeaderInput, pct_class, render_page, render_summary_hea
 use super::paths::PhysicalPaths;
 use crate::escape::{html_attr, html_text};
 
-#[derive(Clone, Copy)]
-pub(super) struct FolderIndexInput<'a> {
-    pub(super) node: &'a ReportNode,
-    pub(super) children: &'a [ReportNode],
-    pub(super) ctx: &'a RenderContext<'a>,
-    pub(super) depth: usize,
-}
-
-pub(super) fn render_folder_index(input: FolderIndexInput<'_>) -> String {
-    let FolderIndexInput { node, children, ctx, depth } = input;
+pub(super) fn render_folder_index(
+    node: &ReportNode,
+    children: &[ReportNode],
+    ctx: &RenderContext<'_>,
+    depth: usize,
+) -> String {
     let title = if node.relative_path.is_empty() {
         "All files".to_owned()
     } else {
@@ -115,23 +111,15 @@ fn render_summary_row(child: &ReportNode, threshold: f64, paths: &PhysicalPaths)
         ("Lines", child.summary.lines),
     ];
     for (idx, (label, metric)) in metrics.iter().enumerate() {
-        out.push_str(&render_summary_metric_cell(SummaryMetricCell {
+        out.push_str(&render_summary_metric_cell(
             label,
-            metric: *metric,
+            *metric,
             threshold,
-            include_meter: idx == metrics.len() - 1,
-        }));
+            idx == metrics.len() - 1,
+        ));
     }
     out.push_str("          </tr>\n");
     out
-}
-
-#[derive(Clone, Copy)]
-struct SummaryMetricCell<'a> {
-    label: &'a str,
-    metric: Metric,
-    threshold: f64,
-    include_meter: bool,
 }
 
 #[expect(
@@ -139,8 +127,12 @@ struct SummaryMetricCell<'a> {
     clippy::cast_sign_loss,
     reason = "pct is clamped to 0.0..=100.0 before the cast"
 )]
-fn render_summary_metric_cell(input: SummaryMetricCell<'_>) -> String {
-    let SummaryMetricCell { label, metric, threshold, include_meter } = input;
+fn render_summary_metric_cell(
+    label: &str,
+    metric: Metric,
+    threshold: f64,
+    include_meter: bool,
+) -> String {
     let mc = pct_class(metric.pct, threshold);
     let meter = if include_meter {
         let pct = metric.pct.clamp(0.0, 100.0);

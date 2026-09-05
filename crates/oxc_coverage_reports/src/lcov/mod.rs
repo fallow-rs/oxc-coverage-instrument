@@ -57,24 +57,18 @@ struct LcovEmitter<'a, W: io::Write> {
 impl<W: io::Write> Visitor for LcovEmitter<'_, W> {
     fn on_detail(&mut self, node: &ReportNode) -> io::Result<()> {
         if let NodeKind::File { coverage } = &node.kind {
-            write_file_record(
-                self.out,
-                FileRecordInput { file: coverage, node, root_dir: self.root_dir },
-            )?;
+            write_file_record(self.out, coverage, node, self.root_dir)?;
         }
         Ok(())
     }
 }
 
-#[derive(Clone, Copy)]
-struct FileRecordInput<'a> {
-    file: &'a FileCoverage,
-    node: &'a ReportNode,
-    root_dir: &'a Path,
-}
-
-fn write_file_record<W: io::Write>(out: &mut W, input: FileRecordInput<'_>) -> io::Result<()> {
-    let FileRecordInput { file, node, root_dir } = input;
+fn write_file_record<W: io::Write>(
+    out: &mut W,
+    file: &FileCoverage,
+    node: &ReportNode,
+    root_dir: &Path,
+) -> io::Result<()> {
     let sf = source_path(file, node, root_dir);
     writeln!(out, "TN:")?;
     writeln!(out, "SF:{sf}")?;

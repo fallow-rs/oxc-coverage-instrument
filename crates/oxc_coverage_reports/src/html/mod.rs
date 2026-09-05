@@ -62,8 +62,8 @@ use oxc_coverage_source_maps::remap_coverage_map;
 use rayon::prelude::*;
 
 use assets::{BASE_CSS, BASE_JS, COVERAGE_TOKENS_CSS};
-use detail_page::{RenderDetailInput, render_detail};
-use index_page::{FolderIndexInput, render_folder_index};
+use detail_page::render_detail;
+use index_page::render_folder_index;
 use output::OutputDir;
 use paths::PhysicalPaths;
 
@@ -135,7 +135,7 @@ fn write_report(
     output_opened()?;
 
     let ctx = RenderContext { root_dir, options, physical_paths: &physical_paths };
-    render_node(RenderNodeInput { node: &root, ctx: &ctx, output: &output, depth: 0 })?;
+    render_node(&root, &ctx, &output, 0)?;
 
     output.write(Path::new("base.css"), BASE_CSS.as_bytes())?;
     output.write(Path::new("coverage-tokens.css"), COVERAGE_TOKENS_CSS.as_bytes())?;
@@ -180,19 +180,18 @@ struct RenderContext<'a> {
     physical_paths: &'a PhysicalPaths,
 }
 
-#[derive(Clone, Copy)]
-struct RenderNodeInput<'a> {
-    node: &'a ReportNode,
-    ctx: &'a RenderContext<'a>,
-    output: &'a OutputDir,
+/// `depth` drives the `../` prefix on stylesheet, script and breadcrumb
+/// hrefs: a folder's `index.html` sits one directory deeper than its parent's,
+/// while a file's page renders beside it.
+fn render_node(
+    node: &ReportNode,
+    ctx: &RenderContext<'_>,
+    output: &OutputDir,
     depth: usize,
-}
-
-fn render_node(input: RenderNodeInput<'_>) -> io::Result<()> {
-    let RenderNodeInput { node, ctx, output, depth } = input;
+) -> io::Result<()> {
     match &node.kind {
         NodeKind::Folder { children } => {
-            let html = render_folder_index(FolderIndexInput { node, children, ctx, depth });
+            let html = render_folder_index(node, children, ctx, depth);
             output.write(ctx.physical_paths.output_path(node), html.as_bytes())?;
 
             // Detail pages are CPU-bound on syntect tokenization, so fanning
@@ -201,29 +200,16 @@ fn render_node(input: RenderNodeInput<'_>) -> io::Result<()> {
             children
                 .par_iter()
                 .map(|child| {
-                    render_node(RenderNodeInput {
-                        node: child,
-                        ctx,
-                        output,
-                        depth: depth + child_depth_delta(child),
-                    })
+                    render_node(child, ctx, output, depth + usize::from(child.is_folder()))
                 })
                 .collect::<io::Result<Vec<_>>>()?;
         }
         NodeKind::File { coverage } => {
-            let html = render_detail(RenderDetailInput { node, coverage, ctx, depth });
+            let html = render_detail(node, coverage, ctx, depth);
             output.write(ctx.physical_paths.output_path(node), html.as_bytes())?;
         }
     }
     Ok(())
-}
-
-/// `1` when `child` is a folder, whose `index.html` sits one directory
-/// deeper, and `0` for a file, which renders beside its parent's
-/// `index.html`. Page depth drives the `../` prefix on stylesheet, script
-/// and breadcrumb hrefs.
-fn child_depth_delta(child: &ReportNode) -> usize {
-    usize::from(matches!(child.kind, NodeKind::Folder { .. }))
 }
 
 #[cfg(test)]

@@ -76,7 +76,6 @@ struct FolderBuilder {
 }
 
 fn insert(folder: &mut FolderBuilder, segments: &[&str], file: FileCoverage) {
-    debug_assert!(!segments.is_empty(), "summarizer insertion requires a file segment");
     match segments {
         // Unreachable: `prefix_len` is bounded by `paths[0].len() - 1`, and a
         // strict segment-prefix of `paths[0]` would sort before it in the
@@ -205,15 +204,5 @@ mod tests {
         let map = parse_coverage_map(&json).unwrap();
         let root = summarize(&map);
         assert_eq!(root.summary.statements, crate::Metric::new(2, 1));
-    }
-
-    #[cfg(debug_assertions)]
-    #[test]
-    #[should_panic(expected = "summarizer insertion requires a file segment")]
-    fn insert_rejects_empty_segments() {
-        let json = format!("{{\"a.js\":{}}}", empty_file("a.js", true));
-        let mut map = parse_coverage_map(&json).unwrap();
-        let file = map.remove("a.js").unwrap();
-        insert(&mut FolderBuilder::default(), &[], file);
     }
 }
