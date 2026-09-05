@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Sync npm package.json versions with the Rust workspace version.
-# Usage: ./scripts/sync-npm-versions.sh <old_version> <new_version>
+# Usage: ./scripts/sync-npm-versions.sh <new_version>
+# Release tooling calls it as `<old_version> <new_version>`; only the last
+# argument is used.
 set -euo pipefail
 
 VERSION="${2:-$1}"
