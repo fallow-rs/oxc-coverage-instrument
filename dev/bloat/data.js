@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787338914449,
+  "lastUpdate": 1788659565415,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2464,6 +2464,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 92512720,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "08df9defdb6de7c874730b73732b1b1803648d4e",
+          "message": "refactor: remove dead code and redundant tests across the workspace\n\n* refactor(instrument): drop redundant comments and indirection\n\nRemoves narration comments, single-use wrappers and dead branches in the\ninstrumenter core. Instrumented output and coverage-map shape are unchanged;\nthe Istanbul parity gates stay green.\n\n* test(instrument): remove tests that restate the implementation\n\nDrops duplicate and assertion-free cases from the instrumenter test suite.\nConformance fixtures, reference JSON and insta snapshots are untouched.\n\n* refactor(reports): trim report emitter tests and parameter structs\n\nRemoves duplicate emitter tests and the single-use parameter structs in the\nHTML detail page, restoring plain argument lists. Emitted report bytes are\nunchanged.\n\n* refactor(source-maps): remove restating comments and dead helpers\n\nTrims comments that repeat the code and unused helpers across the source-map,\ntypes and v8 crates. Remapping behaviour is unchanged.\n\n* refactor(napi): trim cli and napi tests and comments\n\nRemoves duplicate CLI and N-API test cases plus narration comments in the\nWASI patch scripts. The generated package surface is unchanged.\n\n* chore(scripts): simplify check scripts and trim stale docs\n\nInlines single-caller shell helpers, replaces two bespoke awk validators with\nthe existing generic ones, and drops unused exports from the corpus script.\nAlso corrects the documented Oxc compatibility range in README.md from 0.140.x\nto 0.146.x, which is what the workspace manifest already pins.\n\n* refactor(instrument): inline the preamble string and drop the duplicate profiling example\n\nThe preamble body is assembled with push_str instead of two near-identical writeln templates, keeping the emitted bytes identical while the __proto__ branch carries the only real difference. profile_detail.rs duplicated what examples/profile.rs already reports.\n\n* test(instrument): keep the conformance reference struct a shape check\n\nDeserializing every reference section is what fails the suite when a regenerated reference file loses a section, so the unread fields stay with an explicit reason.\n\n* test(report): drop the default-callback walk test\n\n* test(reports): trim format accessor tests and cover the empty-map edges\n\n* test(v8): cover truncated percent escapes in inline source maps\n\n* docs(napi): point the vitest jsdoc at the typed options\n\nThe option prose lived twice, in vitest.js and vitest.d.ts. The typed declaration keeps it and the adapter refers to it. The single-threaded package validator drops the duplicate required-file list: every file except the two worker shims is already read and inspected.\n\n* docs(scripts): correct the sync-npm-versions usage line\n\n* ci: work around the npm arborist crash in the vitest example",
+          "timestamp": "2026-09-06T03:49:53+02:00",
+          "tree_id": "53601929315cd485d13d35fb984fc0ac62d250b1",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/08df9defdb6de7c874730b73732b1b1803648d4e"
+        },
+        "date": 1788659564424,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92402008,
             "unit": "bytes"
           }
         ]
