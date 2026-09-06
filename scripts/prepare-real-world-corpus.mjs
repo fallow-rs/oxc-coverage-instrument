@@ -17,8 +17,8 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(scriptDir, '..');
 
-export const defaultManifestPath = join(scriptDir, 'real-world-corpus.json');
-export const defaultFilesDir = join(rootDir, '.bench-tmp', 'files');
+const defaultManifestPath = join(scriptDir, 'real-world-corpus.json');
+const defaultFilesDir = join(rootDir, '.bench-tmp', 'files');
 
 const manifestKeys = new Set(['schemaVersion', 'projects']);
 const projectKeys = new Set(['name', 'version', 'url', 'sha256', 'filename', 'license']);
@@ -104,7 +104,7 @@ export const validateManifest = (manifest) => {
   return manifest;
 };
 
-export const loadCorpusManifest = (manifestPath = defaultManifestPath) => {
+const loadCorpusManifest = (manifestPath = defaultManifestPath) => {
   let manifest;
   try {
     manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -114,7 +114,7 @@ export const loadCorpusManifest = (manifestPath = defaultManifestPath) => {
   return validateManifest(manifest);
 };
 
-export const sha256 = (content) => createHash('sha256').update(content).digest('hex');
+const sha256 = (content) => createHash('sha256').update(content).digest('hex');
 
 const verifyProjectFile = (project, filesDir) => {
   const path = join(filesDir, project.filename);
@@ -150,17 +150,14 @@ export const loadVerifiedCorpus = ({
   manifestPath = defaultManifestPath,
   filesDir = defaultFilesDir,
   limit,
-  rejectExtras = true,
 } = {}) => {
   const manifest = loadCorpusManifest(manifestPath);
   const projects = limit === undefined ? manifest.projects : manifest.projects.slice(0, limit);
-  if (rejectExtras) {
-    const extras = unexpectedFiles(manifest.projects, filesDir);
-    if (extras.length > 0) {
-      throw new Error(
-        `real-world corpus contains untracked entry ${JSON.stringify(extras[0])} under ${filesDir}`,
-      );
-    }
+  const extras = unexpectedFiles(manifest.projects, filesDir);
+  if (extras.length > 0) {
+    throw new Error(
+      `real-world corpus contains untracked entry ${JSON.stringify(extras[0])} under ${filesDir}`,
+    );
   }
   return projects.map((project) => verifyProjectFile(project, filesDir));
 };

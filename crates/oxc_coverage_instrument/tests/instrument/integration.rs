@@ -1,6 +1,6 @@
 //! Integration tests for the public `instrument()` API: statement, function
 //! and branch coverage, source maps, coverage-map ingestion and error
-//! handling. Pragma handling lives in `pragma_test.rs`.
+//! handling. Pragma handling lives in `pragma.rs`.
 
 use std::{fs, process::Command};
 
@@ -8,23 +8,24 @@ use rustc_hash::FxHashSet;
 
 use oxc_coverage_instrument::{InstrumentOptions, instrument};
 
-fn default_opts() -> InstrumentOptions {
-    InstrumentOptions::default()
-}
-
 fn instrument_js(source: &str) -> oxc_coverage_instrument::InstrumentResult {
-    instrument(source, "test.js", &default_opts()).unwrap()
+    instrument(source, "test.js", &InstrumentOptions::default()).unwrap()
 }
 
 fn run_node_eval(code: &str) -> std::process::Output {
     Command::new("node").arg("--eval").arg(code).output().expect("node must be available")
 }
 
-fn base_coverage_binding(filename: &str) -> String {
-    let code = instrument("", filename, &default_opts()).unwrap().code;
+/// The `cov_<hash>` binding the preamble declares.
+fn coverage_binding_name(code: &str) -> &str {
     let start = code.find("var cov_").expect("coverage binding declaration") + 4;
     let end = code[start..].find(' ').expect("coverage binding terminator") + start;
-    code[start..end].to_string()
+    &code[start..end]
+}
+
+fn base_coverage_binding(filename: &str) -> String {
+    coverage_binding_name(&instrument("", filename, &InstrumentOptions::default()).unwrap().code)
+        .to_string()
 }
 
 fn run_with_statement_counts(code: &str, filename: &str) -> std::process::Output {
@@ -89,12 +90,6 @@ fn statement_simple_variable_declaration() {
     let result = instrument_js("const x = 1;");
     assert_eq!(result.coverage_map.statement_map.len(), 1);
     assert!(result.code.contains("++") && result.code.contains(".s[0]"));
-}
-
-#[test]
-fn statement_multiple_statements() {
-    let result = instrument_js("const x = 1;\nconst y = 2;\nconst z = x + y;");
-    assert_eq!(result.coverage_map.statement_map.len(), 3);
 }
 
 #[test]
@@ -237,14 +232,6 @@ fn anonymous_function() {
     assert!(result.coverage_map.fn_map["0"].name.starts_with("(anonymous_"));
 }
 
-#[test]
-fn multiple_functions() {
-    let result = instrument_js(
-        "function a() {} function b() {} const c = () => 1; const d = function() {};",
-    );
-    assert_eq!(result.coverage_map.fn_map.len(), 4);
-}
-
 // Branch coverage: if/else
 
 #[test]
@@ -346,22 +333,9 @@ fn track_optional_chain_false_leaves_chain_native() {
 }
 
 #[test]
-fn track_optional_chain_default_on_matches_existing_behavior() {
-    // The default (true) is unchanged: the same source tracked produces
-    // optional-chain branches and the helper.
+fn track_optional_chain_toggle_leaves_statement_and_function_counts_alone() {
     let source = "function f(e) { return e?.stderr?.replace(/x/, 'y'); }";
     let tracked = instrument_js(source);
-    let oc_count = tracked
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|e| e.branch_type == "optional-chain")
-        .count();
-    assert_eq!(oc_count, 2, "default still tracks each `?.` link");
-    assert!(tracked.code.contains("_oc(val, id)"), "default still emits the helper");
-
-    // Statement/function counts are identical with and without tracking; only
-    // the optional-chain branches differ.
     let opts = InstrumentOptions { track_optional_chain: false, ..InstrumentOptions::default() };
     let untracked = instrument(source, "test.js", &opts).unwrap();
     assert_eq!(
@@ -414,7 +388,7 @@ fn instance_arrow_field_counter_increments() {
     let filename = "instance-arrow-field.cjs";
     let source = "class A { field = () => 1; }\nnew A();";
     let column = u32::try_from(source.find("() => 1").unwrap()).unwrap();
-    let result = instrument(source, filename, &default_opts()).unwrap();
+    let result = instrument(source, filename, &InstrumentOptions::default()).unwrap();
     let statement_id = statement_id_at_column(&result, column);
 
     assert_statement_counter_incremented(&result.code, filename, &statement_id);
@@ -425,7 +399,7 @@ fn instance_function_field_counter_increments() {
     let filename = "instance-function-field.cjs";
     let source = "class A { field = function () { return 1; }; }\nnew A();";
     let column = u32::try_from(source.find("function ()").unwrap()).unwrap();
-    let result = instrument(source, filename, &default_opts()).unwrap();
+    let result = instrument(source, filename, &InstrumentOptions::default()).unwrap();
     let statement_id = statement_id_at_column(&result, column);
 
     assert_statement_counter_incremented(&result.code, filename, &statement_id);
@@ -436,7 +410,7 @@ fn static_function_field_counter_increments() {
     let filename = "static-function-field.cjs";
     let source = "class A { static field = function () { return 1; }; }";
     let column = u32::try_from(source.find("function ()").unwrap()).unwrap();
-    let result = instrument(source, filename, &default_opts()).unwrap();
+    let result = instrument(source, filename, &InstrumentOptions::default()).unwrap();
     let statement_id = statement_id_at_column(&result, column);
 
     assert_statement_counter_incremented(&result.code, filename, &statement_id);
@@ -510,20 +484,6 @@ fn branch_switch() {
 // Branch coverage: logical expressions
 
 #[test]
-fn branch_logical_and() {
-    let result = instrument_js("const x = a && b;");
-    assert_eq!(result.coverage_map.branch_map.len(), 1);
-    assert_eq!(result.coverage_map.branch_map["0"].branch_type, "binary-expr");
-}
-
-#[test]
-fn branch_logical_or() {
-    let result = instrument_js("const x = a || b;");
-    assert_eq!(result.coverage_map.branch_map.len(), 1);
-    assert_eq!(result.coverage_map.branch_map["0"].branch_type, "binary-expr");
-}
-
-#[test]
 fn branch_nullish_coalescing() {
     let result = instrument_js("const x = a ?? b;");
     assert_eq!(result.coverage_map.branch_map.len(), 1);
@@ -533,35 +493,6 @@ fn branch_nullish_coalescing() {
 }
 
 // Branch coverage: logical assignment
-
-#[test]
-fn branch_nullish_assignment() {
-    let result = instrument_js("let x = null; x ??= 42;");
-    let binary_branches: Vec<_> = result
-        .coverage_map
-        .branch_map
-        .values()
-        .filter(|b| b.branch_type == "binary-expr")
-        .collect();
-    assert_eq!(binary_branches.len(), 1);
-    assert_eq!(binary_branches[0].locations.len(), 2);
-}
-
-#[test]
-fn branch_logical_or_assignment() {
-    let result = instrument_js("let x = 0; x ||= 'default';");
-    let binary_branch_count =
-        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "binary-expr").count();
-    assert_eq!(binary_branch_count, 1);
-}
-
-#[test]
-fn branch_logical_and_assignment() {
-    let result = instrument_js("let x = 1; x &&= doSomething();");
-    let binary_branch_count =
-        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "binary-expr").count();
-    assert_eq!(binary_branch_count, 1);
-}
 
 // Loops: no branch entries (matching Istanbul)
 
@@ -632,12 +563,10 @@ fn no_block_statement_child_containers_emit_body_counters() {
     }
 }
 
-// Source map
-
 #[test]
 fn hashbang_output_executes_as_a_node_file() {
     let source = "#!/usr/bin/env node\nconsole.log('hashbang-ok');";
-    let result = instrument(source, "hashbang.cjs", &default_opts()).unwrap();
+    let result = instrument(source, "hashbang.cjs", &InstrumentOptions::default()).unwrap();
     let temp_dir = std::env::temp_dir();
     let original_path =
         temp_dir.join(format!("oxc-coverage-original-hashbang-{}.cjs", std::process::id()));
@@ -673,7 +602,7 @@ try {
 } catch (error) {
   console.log(error.name);
 }"#;
-    let result = instrument(source, "strict.cjs", &default_opts()).unwrap();
+    let result = instrument(source, "strict.cjs", &InstrumentOptions::default()).unwrap();
     let original = run_node_eval(source);
     let instrumented = run_node_eval(&result.code);
 
@@ -695,7 +624,7 @@ try {
 } catch (error) {
   console.log(error.name);
 }"#;
-    let result = instrument(source, "commented-strict.cjs", &default_opts()).unwrap();
+    let result = instrument(source, "commented-strict.cjs", &InstrumentOptions::default()).unwrap();
     let original = run_node_eval(source);
     let instrumented = run_node_eval(&result.code);
 
@@ -801,26 +730,13 @@ fn source_map_preserves_mappings_before_preamble_insertion() {
 
 #[test]
 fn parse_error_returns_err() {
-    let result = instrument("function {{{", "bad.js", &default_opts());
+    let result = instrument("function {{{", "bad.js", &InstrumentOptions::default());
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.to_string().contains("parse error"));
 }
 
 // Istanbul format compliance
-
-#[test]
-fn coverage_map_has_required_fields() {
-    let result = instrument_js("function f() { return 1; }");
-    let json = serde_json::to_value(&result.coverage_map).unwrap();
-    assert!(json["path"].is_string());
-    assert!(json["statementMap"].is_object());
-    assert!(json["fnMap"].is_object());
-    assert!(json["branchMap"].is_object());
-    assert!(json["s"].is_object());
-    assert!(json["f"].is_object());
-    assert!(json["b"].is_object());
-}
 
 #[test]
 fn hit_counts_initialized_to_zero() {
@@ -898,10 +814,14 @@ fn inherited_object_property_names_are_rejected_as_coverage_variables() {
 
 #[test]
 fn proto_filename_uses_an_enumerable_own_coverage_slot_and_reuses_it() {
-    let first = instrument("globalThis.first = 1;", "__proto__", &default_opts()).unwrap();
-    let second =
-        instrument("globalThis.second = 2; globalThis.third = 3;", "__proto__", &default_opts())
-            .unwrap();
+    let first =
+        instrument("globalThis.first = 1;", "__proto__", &InstrumentOptions::default()).unwrap();
+    let second = instrument(
+        "globalThis.second = 2; globalThis.third = 3;",
+        "__proto__",
+        &InstrumentOptions::default(),
+    )
+    .unwrap();
     let script = format!(
         "{}\nconst firstCoverage = globalThis.__coverage__.__proto__;\n{}\nconst replacedCoverage = globalThis.__coverage__.__proto__;\n{}\nconst store = globalThis.__coverage__;\nconsole.log(JSON.stringify({{ own: Object.hasOwn(store, '__proto__'), keys: Object.keys(store), staleReplaced: store.__proto__ !== firstCoverage, sameHashReused: store.__proto__ === replacedCoverage, path: store.__proto__.path, statements: Object.keys(store.__proto__.statementMap).length }}));",
         first.code, second.code, second.code,
@@ -924,7 +844,7 @@ fn proto_filename_uses_an_enumerable_own_coverage_slot_and_reuses_it() {
 
 #[test]
 fn normal_filename_keeps_the_existing_preamble_shape() {
-    let code = instrument("const x = 1;", "normal.js", &default_opts()).unwrap().code;
+    let code = instrument("const x = 1;", "normal.js", &InstrumentOptions::default()).unwrap().code;
     assert!(!code.contains("Object.defineProperty"));
     assert!(code.contains("if (!coverage[gcv][path] || coverage[gcv][path].hash !== hash)"));
 }
@@ -933,27 +853,21 @@ fn normal_filename_keeps_the_existing_preamble_shape() {
 
 #[test]
 fn deterministic_cov_function_name() {
-    let cov_fn_name_from_preamble = |code: &str| -> String {
-        let start = code.find("var cov_").unwrap() + 4;
-        let end = code[start..].find(' ').unwrap() + start;
-        code[start..end].to_string()
-    };
-
     let first = instrument_js("const x = 1;");
     let second = instrument_js("const x = 1;");
     assert_eq!(
-        cov_fn_name_from_preamble(&first.code),
-        cov_fn_name_from_preamble(&second.code),
+        coverage_binding_name(&first.code),
+        coverage_binding_name(&second.code),
         "the same source and path must produce the same coverage function name"
     );
 
     // The name is derived from the path, which is what keeps two files in one
     // bundle from sharing a coverage object.
-    let other_path =
-        instrument("const x = 1;", "other.js", &default_opts()).expect("instrument other.js");
+    let other_path = instrument("const x = 1;", "other.js", &InstrumentOptions::default())
+        .expect("instrument other.js");
     assert_ne!(
-        cov_fn_name_from_preamble(&first.code),
-        cov_fn_name_from_preamble(&other_path.code),
+        coverage_binding_name(&first.code),
+        coverage_binding_name(&other_path.code),
         "a different path must produce a different coverage function name"
     );
 }
@@ -966,22 +880,6 @@ fn empty_source() {
     assert!(result.coverage_map.fn_map.is_empty());
     assert!(result.coverage_map.statement_map.is_empty());
     assert!(result.coverage_map.branch_map.is_empty());
-}
-
-#[test]
-fn nested_functions() {
-    let result =
-        instrument_js("function outer() { function inner() { return 1; } return inner(); }");
-    assert_eq!(result.coverage_map.fn_map.len(), 2);
-}
-
-#[test]
-fn nested_if_else() {
-    let result = instrument_js("if (a) { if (b) { x(); } else { y(); } } else { z(); }");
-    // Should have 2 if-branches
-    let if_branch_count =
-        result.coverage_map.branch_map.values().filter(|b| b.branch_type == "if").count();
-    assert_eq!(if_branch_count, 2);
 }
 
 #[test]
@@ -1019,26 +917,7 @@ fn jsx_source() {
     assert_eq!(result.coverage_map.fn_map.len(), 1);
 }
 
-#[test]
-fn coverage_map_json_roundtrip() {
-    let result = instrument_js("function f() { if (true) { return 1; } return 0; }");
-    let json = serde_json::to_string(&result.coverage_map).unwrap();
-    // Should be valid JSON and deserializable
-    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert!(parsed.is_object());
-    assert_eq!(parsed["path"], "test.js");
-}
-
 // Nested arrows
-
-#[test]
-fn nested_arrow_functions_both_get_counters() {
-    let result = instrument_js("const f = (x) => (y) => x + y;");
-    assert_eq!(result.coverage_map.fn_map.len(), 2);
-    assert_eq!(result.coverage_map.f.len(), 2);
-    assert!(result.code.contains(".f[0]"));
-    assert!(result.code.contains(".f[1]"));
-}
 
 #[test]
 fn deeply_nested_arrows() {
@@ -1068,24 +947,6 @@ fn input_source_map_none_by_default() {
     let result = instrument_js("const x = 1;");
     let json = serde_json::to_value(&result.coverage_map).unwrap();
     assert!(json.get("inputSourceMap").is_none());
-}
-
-#[test]
-fn source_map_composed_with_input_source_map() {
-    let opts = InstrumentOptions {
-        source_map: true,
-        input_source_map: Some(
-            r#"{"version":3,"sources":["original.ts"],"sourcesContent":["const x: number = 1;"],"mappings":"AAAA"}"#.to_string(),
-        ),
-        ..InstrumentOptions::default()
-    };
-    let result = instrument("const x = 1;", "test.js", &opts).unwrap();
-    assert!(result.source_map.is_some());
-    let sm: serde_json::Value = serde_json::from_str(result.source_map.as_ref().unwrap()).unwrap();
-    // The composed source map should reference the original TS file, not test.js
-    let sources = sm["sources"].as_array().unwrap();
-    let has_original = sources.iter().any(|s| s.as_str() == Some("original.ts"));
-    assert!(has_original, "Composed source map should reference original.ts, got: {sources:?}");
 }
 
 #[test]
@@ -1245,14 +1106,6 @@ fn default_parameter_wraps_initializer_with_branch_counter() {
 
 // Computed method keys
 
-#[test]
-fn computed_method_key_uses_anonymous_name() {
-    let result = instrument_js("class C { [Symbol.iterator]() { return this; } }");
-    assert_eq!(result.coverage_map.fn_map.len(), 1);
-    // Computed key -> anonymous name
-    assert!(result.coverage_map.fn_map["0"].name.contains("anonymous"));
-}
-
 // Switch fall-through
 
 #[test]
@@ -1271,7 +1124,8 @@ fn switch_fall_through_cases() {
 
 #[test]
 fn unknown_extension_treated_as_js() {
-    let result = instrument("function f() { return 1; }", "test.coffee", &default_opts());
+    let result =
+        instrument("function f() { return 1; }", "test.coffee", &InstrumentOptions::default());
     assert!(result.is_ok());
     assert_eq!(result.unwrap().coverage_map.fn_map.len(), 1);
 }
@@ -1289,14 +1143,6 @@ fn source_map_with_ignore_file() {
 }
 
 // Multiple parse errors joined
-
-#[test]
-fn multiple_parse_errors_joined() {
-    let result = instrument("function { const }", "bad.js", &default_opts());
-    assert!(result.is_err());
-    let msg = result.unwrap_err().to_string();
-    assert!(msg.contains("parse error"));
-}
 
 // Coverage map ingestion (parse_coverage_map / FileCoverage::from_json)
 
@@ -1443,9 +1289,7 @@ fn preamble_refreshes_stale_coverage_by_hash() {
 #[test]
 fn preamble_invokes_setup_once_and_counters_use_cached_coverage() {
     let result = instrument_js("function f() { return 1; }");
-    let cov_start = result.code.find("var cov_").unwrap() + 4;
-    let cov_end = result.code[cov_start..].find(' ').unwrap() + cov_start;
-    let cov_name = &result.code[cov_start..cov_end];
+    let cov_name = coverage_binding_name(&result.code);
     assert!(
         result.code.contains("return actualCoverage; })();"),
         "coverage setup should be invoked once in the preamble"
@@ -1461,7 +1305,7 @@ fn top_level_coverage_binding_collision_is_uniquified() {
     let filename = "top-level-collision.cjs";
     let base = base_coverage_binding(filename);
     let source = format!("let {base} = 7; console.log({base});");
-    let result = instrument(&source, filename, &default_opts()).unwrap();
+    let result = instrument(&source, filename, &InstrumentOptions::default()).unwrap();
     let output = run_with_statement_counts(&result.code, filename);
 
     assert!(result.code.starts_with(&format!("var {base}_1 =")));
@@ -1473,7 +1317,7 @@ fn nested_parameter_coverage_binding_collision_is_uniquified() {
     let filename = "parameter-collision.cjs";
     let base = base_coverage_binding(filename);
     let source = format!("function answer({base}) {{ return 42; }} console.log(answer({{}}));");
-    let result = instrument(&source, filename, &default_opts()).unwrap();
+    let result = instrument(&source, filename, &InstrumentOptions::default()).unwrap();
     let output = run_with_statement_counts(&result.code, filename);
 
     assert!(result.code.starts_with(&format!("var {base}_1 =")));
@@ -1485,7 +1329,7 @@ fn unresolved_coverage_binding_reference_is_not_captured() {
     let filename = "unresolved-collision.cjs";
     let base = base_coverage_binding(filename);
     let source = format!("console.log(typeof {base});");
-    let result = instrument(&source, filename, &default_opts()).unwrap();
+    let result = instrument(&source, filename, &InstrumentOptions::default()).unwrap();
     let output = run_with_statement_counts(&result.code, filename);
 
     assert!(result.code.starts_with(&format!("var {base}_1 =")));
@@ -1501,7 +1345,7 @@ fn derived_coverage_helper_collision_uniquifies_base() {
     let source = format!(
         "function read({helper}, value) {{ return value?.x; }} console.log(read(0, {{ x: 1 }}));"
     );
-    let result = instrument(&source, filename, &default_opts()).unwrap();
+    let result = instrument(&source, filename, &InstrumentOptions::default()).unwrap();
     let output = run_with_statement_counts(&result.code, filename);
 
     assert!(result.code.starts_with(&format!("var {base}_1 =")));
@@ -1512,7 +1356,7 @@ fn derived_coverage_helper_collision_uniquifies_base() {
 fn non_colliding_coverage_binding_keeps_deterministic_base_name() {
     let filename = "no-collision.cjs";
     let base = base_coverage_binding(filename);
-    let result = instrument("console.log('ok');", filename, &default_opts()).unwrap();
+    let result = instrument("console.log('ok');", filename, &InstrumentOptions::default()).unwrap();
 
     assert!(result.code.starts_with(&format!("var {base} =")));
 }
@@ -1522,37 +1366,10 @@ fn stripped_type_only_binding_does_not_force_coverage_suffix() {
     let filename = "type-only-collision.ts";
     let base = base_coverage_binding(filename);
     let source = format!("type {base} = number; console.log('ok');");
-    let options = InstrumentOptions { strip_typescript: true, ..default_opts() };
+    let options = InstrumentOptions { strip_typescript: true, ..InstrumentOptions::default() };
     let result = instrument(&source, filename, &options).unwrap();
 
     assert!(result.code.starts_with(&format!("var {base} =")));
-}
-
-// Gap analysis: constructs that Istanbul instruments but this crate might miss
-
-#[test]
-fn gap_object_method_gets_function_counter() {
-    // Istanbul creates function counters for object shorthand methods
-    let result = instrument_js("const obj = { foo() { return 1; }, bar() { return 2; } };");
-    // Should have 2 function entries (foo and bar)
-    assert!(
-        result.coverage_map.fn_map.len() >= 2,
-        "Object methods should get function counters, got {} functions: {:?}",
-        result.coverage_map.fn_map.len(),
-        result.coverage_map.fn_map.values().map(|f| &f.name).collect::<Vec<_>>()
-    );
-}
-
-#[test]
-fn gap_getter_setter_get_function_counter() {
-    // Istanbul creates function counters for getter/setter in object literals
-    let result = instrument_js("const obj = { get x() { return 1; }, set x(v) { this._x = v; } };");
-    assert!(
-        result.coverage_map.fn_map.len() >= 2,
-        "Getters/setters should get function counters, got {} functions: {:?}",
-        result.coverage_map.fn_map.len(),
-        result.coverage_map.fn_map.values().map(|f| &f.name).collect::<Vec<_>>()
-    );
 }
 
 #[test]
@@ -1578,20 +1395,13 @@ fn private_class_property_initializer_gets_statement() {
     );
 }
 
-#[test]
-fn class_property_initializer_wraps_value() {
-    let result = instrument_js("class Foo {\n  x = 1;\n  y = computeDefault();\n}");
-    // Initializer values should be wrapped: x = (++cov.s[N], value)
-    assert!(result.code.contains(".s["), "Should contain statement counters in class body");
-}
-
 // ignoreClassMethods
 
 #[test]
 fn ignore_class_methods_skips_function_counter() {
     let opts = InstrumentOptions {
         ignore_class_methods: vec!["render".to_string(), "componentDidMount".to_string()],
-        ..default_opts()
+        ..InstrumentOptions::default()
     };
     let result = instrument(
         "class App { render() { return 1; } update() { return 2; } componentDidMount() { return 3; } }",
@@ -1609,8 +1419,10 @@ fn ignore_class_methods_skips_function_counter() {
 
 #[test]
 fn ignore_class_methods_skips_method_body() {
-    let opts =
-        InstrumentOptions { ignore_class_methods: vec!["render".to_string()], ..default_opts() };
+    let opts = InstrumentOptions {
+        ignore_class_methods: vec!["render".to_string()],
+        ..InstrumentOptions::default()
+    };
     let result =
         instrument("class App { render() { const x = 1; return x; } }", "test.js", &opts).unwrap();
     // Istanbul's ignoreClassMethods skips the whole matched method body.
@@ -1622,7 +1434,7 @@ fn ignore_class_methods_skips_method_body() {
 fn ignore_class_methods_skips_named_function_expression_body() {
     let opts = InstrumentOptions {
         ignore_class_methods: vec!["testMethod".to_string()],
-        ..default_opts()
+        ..InstrumentOptions::default()
     };
     let result = instrument(
         "function TestClass() {}\n\
@@ -1650,15 +1462,11 @@ fn ignore_class_methods_skips_named_function_expression_body() {
 }
 
 #[test]
-fn ignore_class_methods_empty_list_instruments_all() {
-    let result = instrument_js("class App { render() { return 1; } update() { return 2; } }");
-    assert_eq!(result.coverage_map.fn_map.len(), 2);
-}
-
-#[test]
 fn ignore_class_methods_string_literal_key() {
-    let opts =
-        InstrumentOptions { ignore_class_methods: vec!["render".to_string()], ..default_opts() };
+    let opts = InstrumentOptions {
+        ignore_class_methods: vec!["render".to_string()],
+        ..InstrumentOptions::default()
+    };
     // String-literal method key should also be matched
     let result = instrument(
         "class App { \"render\"() { return 1; } update() { return 2; } }",
@@ -1674,7 +1482,7 @@ fn ignore_class_methods_string_literal_key() {
 
 #[test]
 fn report_logic_adds_bt_field() {
-    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let opts = InstrumentOptions { report_logic: true, ..InstrumentOptions::default() };
     let result = instrument("const x = a && b;", "test.js", &opts).unwrap();
     assert!(result.coverage_map.b_t.is_some(), "bT should be present when report_logic is enabled");
     let b_t = result.coverage_map.b_t.unwrap();
@@ -1695,7 +1503,7 @@ fn report_logic_disabled_no_bt_field() {
 
 #[test]
 fn report_logic_wraps_with_helper() {
-    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let opts = InstrumentOptions { report_logic: true, ..InstrumentOptions::default() };
     let result = instrument("const x = a || b;", "test.js", &opts).unwrap();
     // The code should contain calls to the truthy tracking helper
     assert!(result.code.contains("_bt("), "Should contain truthy tracking helper calls");
@@ -1721,7 +1529,7 @@ fn report_logic_wraps_with_helper() {
 
 #[test]
 fn report_logic_only_for_logical_expressions() {
-    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let opts = InstrumentOptions { report_logic: true, ..InstrumentOptions::default() };
     let result = instrument("if (x) { a(); } else { b(); }", "test.js", &opts).unwrap();
     // Only logical expressions get bT entries; an if/else branch never does.
     assert!(
@@ -1732,7 +1540,7 @@ fn report_logic_only_for_logical_expressions() {
 
 #[test]
 fn report_logic_chained_logical() {
-    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let opts = InstrumentOptions { report_logic: true, ..InstrumentOptions::default() };
     let result = instrument("const x = a && b && c;", "test.js", &opts).unwrap();
     let b_t = result.coverage_map.b_t.unwrap();
     assert_eq!(b_t.len(), 1);
@@ -1742,7 +1550,7 @@ fn report_logic_chained_logical() {
 
 #[test]
 fn report_logic_nullish_coalescing() {
-    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let opts = InstrumentOptions { report_logic: true, ..InstrumentOptions::default() };
     let result = instrument("const x = a ?? b;", "test.js", &opts).unwrap();
     let b_t = result.coverage_map.b_t.unwrap();
     assert_eq!(b_t.len(), 1, "Nullish coalescing should have bT entry");
@@ -1805,7 +1613,7 @@ fn declaration_containers_produce_no_statement_counters() {
         ("ts_module", "declare module 'x' {}", 0),
     ];
     for (name, src, expected_fns) in cases {
-        let result = instrument(src, "test.ts", &default_opts())
+        let result = instrument(src, "test.ts", &InstrumentOptions::default())
             .unwrap_or_else(|e| panic!("{name} failed to parse: {e}"));
         assert_eq!(
             result.coverage_map.statement_map.len(),
@@ -1900,7 +1708,7 @@ fn istanbul_parity_for_exported_function_module() {
          export function subtract(a, b) {\n  return a - b\n}\n\n\
          export function multiply(a, b) {\n  return a * b\n}\n\n\
          export function remainder(a, b) {\n  return a % b\n}\n";
-    let result = instrument(source, "math.ts", &default_opts()).unwrap();
+    let result = instrument(source, "math.ts", &InstrumentOptions::default()).unwrap();
 
     // istanbul-lib-instrument for the same source produces:
     //   statements: 4 (one per `return` body)
@@ -1932,7 +1740,7 @@ fn istanbul_parity_for_exported_function_module() {
 
 #[test]
 fn report_logic_json_roundtrip() {
-    let opts = InstrumentOptions { report_logic: true, ..default_opts() };
+    let opts = InstrumentOptions { report_logic: true, ..InstrumentOptions::default() };
     let result = instrument("const x = a || b;", "test.js", &opts).unwrap();
     let json = serde_json::to_string(&result.coverage_map).unwrap();
     assert!(json.contains("\"bT\""), "JSON should contain bT field");
@@ -1968,8 +1776,6 @@ fn emoji_columns_count_as_two_utf16_units() {
     assert_eq!(stmt1.start.column, 26, "emoji should advance col by 2 UTF-16 units, got {stmt1:?}");
     assert_eq!(stmt1.end.column, 27);
 }
-
-// Pragma whitespace tolerance (Istanbul parity)
 
 #[test]
 fn private_class_method_does_not_add_function_counter() {

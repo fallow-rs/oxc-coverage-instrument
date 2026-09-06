@@ -7,10 +7,9 @@ use oxc_coverage_types::FileCoverage;
 use srcmap_sourcemap::SourceMap;
 
 use crate::{
-    apply::{apply_source_map_single, apply_source_map_to_map, apply_source_map_to_map_internal},
-    merge::insert_or_merge_coverage,
+    apply::{apply_source_map_single_result, apply_source_map_to_map},
+    merge::fold_remap_result,
     options::RemapOptions,
-    sources::sole_resolved_source_path,
 };
 
 /// Remap a single `FileCoverage` through its embedded `inputSourceMap`.
@@ -70,11 +69,7 @@ where
     L: Fn(&str) -> Option<String>,
 {
     let sm = source_map_with_loader(coverage, loader)?;
-    if let Some(path) = sole_resolved_source_path(&sm) {
-        return Some(apply_source_map_single(coverage, &sm, options, path));
-    }
-    let remapped = apply_source_map_to_map_internal(coverage, &sm, options, false)?;
-    select_single_remap(remapped)
+    apply_source_map_single_result(coverage, &sm, options)
 }
 
 /// Remap one `FileCoverage` into every original source represented by its
@@ -134,21 +129,6 @@ where
     SourceMap::from_json(&input_sm_json).ok()
 }
 
-/// Collapse a fan-out result to a single file, or `None` when the mappings
-/// resolved to several original sources.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn select_single_remap(
-    mut remapped: BTreeMap<String, FileCoverage>,
-) -> Option<FileCoverage> {
-    if remapped.len() != 1 {
-        return None;
-    }
-    remapped.pop_first().map(|(_, coverage)| coverage)
-}
-
 /// Remap every `FileCoverage` in a coverage map.
 ///
 /// Entries without an `inputSourceMap` pass through unchanged under their
@@ -203,21 +183,8 @@ where
 {
     let mut out = BTreeMap::new();
     for (path, fc) in coverage_map {
-        if let Some(remapped) = remap_coverage_to_map_with_loader_and_options(fc, &loader, options)
-        {
-            for coverage in remapped.into_values() {
-                insert_or_merge_coverage(&mut out, coverage);
-            }
-        } else {
-            // No usable map, so the entry passes through under its original key.
-            // The Istanbul merge invariant is still enforced: an already-composed
-            // entry carrying a runtime orphan counter would otherwise slip through
-            // unchanged and crash a downstream `nyc` merge.
-            let mut passthrough = fc.clone();
-            passthrough.prune_orphan_counters();
-            passthrough.path.clone_from(path);
-            insert_or_merge_coverage(&mut out, passthrough);
-        }
+        let remapped = remap_coverage_to_map_with_loader_and_options(fc, &loader, options);
+        fold_remap_result(&mut out, path, fc, remapped);
     }
     out
 }

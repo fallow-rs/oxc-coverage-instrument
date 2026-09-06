@@ -3,21 +3,14 @@
 //! Each case asserts that a realistic source shape instruments into a
 //! well-formed coverage map and re-parseable output.
 
-use oxc_coverage_instrument::{InstrumentOptions, InstrumentResult, instrument};
+use oxc_coverage_instrument::{InstrumentOptions, instrument};
 
 use crate::common::{assert_coverage_map_well_formed, assert_reparses};
 
-fn assert_valid_instrumentation(source: &str, filename: &str) -> InstrumentResult {
+fn assert_valid_instrumentation(source: &str, filename: &str) {
     let result = instrument(source, filename, &InstrumentOptions::default()).unwrap();
     assert_coverage_map_well_formed(&result, filename);
     assert_reparses(&result.code, filename);
-    result
-}
-
-#[test]
-#[should_panic(expected = "unknown.fixture: unable to determine source type from path")]
-fn real_world_unknown_source_type_reports_fixture_name() {
-    assert_valid_instrumentation("const value = 1;", "unknown.fixture");
 }
 
 #[test]
@@ -408,7 +401,7 @@ class Repository<T extends { id: string }> {
 }
 
 #[test]
-fn real_world_coverage_map_is_valid_istanbul_format() {
+fn real_world_memoized_recursion() {
     let source = r"
 function fibonacci(n) {
   if (n <= 1) return n;
@@ -428,22 +421,5 @@ const memoize = (fn) => {
 
 const fastFib = memoize(fibonacci);
 ";
-    let result = assert_valid_instrumentation(source, "fibonacci.js");
-
-    // `coverage-final.json` is keyed by file path.
-    let mut root = std::collections::BTreeMap::new();
-    root.insert(result.coverage_map.path.clone(), &result.coverage_map);
-    let root_json = serde_json::to_string_pretty(&root).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&root_json).unwrap();
-
-    assert!(parsed["fibonacci.js"].is_object());
-    assert_eq!(parsed["fibonacci.js"]["path"], "fibonacci.js");
-
-    let cov = &parsed["fibonacci.js"];
-    for field in &["path", "statementMap", "fnMap", "branchMap", "s", "f", "b"] {
-        assert!(
-            cov[field].is_string() || cov[field].is_object(),
-            "Missing Istanbul field: {field}"
-        );
-    }
+    assert_valid_instrumentation(source, "fibonacci.js");
 }

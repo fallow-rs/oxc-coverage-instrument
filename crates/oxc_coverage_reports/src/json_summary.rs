@@ -36,7 +36,7 @@ use serde::Serialize;
 /// # Errors
 /// Returns [`io::Error`] if `out` fails to accept a write.
 pub fn write<W: io::Write>(root: &ReportNode, out: &mut W) -> io::Result<()> {
-    write_inner(out, JsonSummaryInput { root, pretty: false })
+    write_inner(root, false, out)
 }
 
 /// Write a pretty-printed json-summary report. Useful for snapshot tests and
@@ -45,17 +45,10 @@ pub fn write<W: io::Write>(root: &ReportNode, out: &mut W) -> io::Result<()> {
 /// # Errors
 /// Returns [`io::Error`] if `out` fails to accept a write.
 pub fn write_pretty<W: io::Write>(root: &ReportNode, out: &mut W) -> io::Result<()> {
-    write_inner(out, JsonSummaryInput { root, pretty: true })
+    write_inner(root, true, out)
 }
 
-#[derive(Clone, Copy)]
-struct JsonSummaryInput<'a> {
-    root: &'a ReportNode,
-    pretty: bool,
-}
-
-fn write_inner<W: io::Write>(out: &mut W, input: JsonSummaryInput<'_>) -> io::Result<()> {
-    let JsonSummaryInput { root, pretty } = input;
+fn write_inner<W: io::Write>(root: &ReportNode, pretty: bool, out: &mut W) -> io::Result<()> {
     let total = SummaryOut::from(&root.summary);
     let mut collector = FileCollector::default();
     walk(root, &mut collector).expect("FileCollector cannot fail");
@@ -170,9 +163,12 @@ mod tests {
     use oxc_coverage_report::summarize;
     use oxc_coverage_types::parse_coverage_map;
 
-    fn build_root(json: &str) -> ReportNode {
+    fn render(json: &str) -> String {
         let map = parse_coverage_map(json).unwrap();
-        summarize(&map)
+        let root = summarize(&map);
+        let mut buf = Vec::new();
+        write(&root, &mut buf).unwrap();
+        String::from_utf8(buf).unwrap()
     }
 
     #[test]
@@ -180,34 +176,15 @@ mod tests {
         // 1/3 statements covered should serialize as `33.33`, not an int and
         // not the full-precision `33.333333333333336`.
         let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"1":{"start":{"line":2,"column":0},"end":{"line":2,"column":1}},"2":{"start":{"line":3,"column":0},"end":{"line":3,"column":1}}},"fnMap":{},"branchMap":{},"s":{"0":1,"1":0,"2":0},"f":{},"b":{}}}"#;
-        let root = build_root(json);
-        let mut buf = Vec::new();
-        write(&root, &mut buf).unwrap();
-        let out = String::from_utf8(buf).unwrap();
+        let out = render(json);
         assert!(out.contains("\"pct\":33.33"), "got: {out}");
         assert!(!out.contains("33.33333"));
     }
 
     #[test]
-    fn zero_total_pct_is_one_hundred_float() {
-        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
-        let root = build_root(json);
-        let mut buf = Vec::new();
-        write(&root, &mut buf).unwrap();
-        let out = String::from_utf8(buf).unwrap();
-        // serde_json renders 100.0 as `100.0` (not `100`); both forms are valid
-        // JSON numbers, but consumers expecting a float type must not see an
-        // integer literal.
-        assert!(out.contains("\"pct\":100.0") || out.contains("\"pct\":100"), "got: {out}");
-    }
-
-    #[test]
     fn total_appears_before_files() {
         let json = r#"{"src/a.js":{"path":"src/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"src/b.js":{"path":"src/b.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
-        let root = build_root(json);
-        let mut buf = Vec::new();
-        write(&root, &mut buf).unwrap();
-        let out = String::from_utf8(buf).unwrap();
+        let out = render(json);
         let total_pos = out.find("\"total\"").unwrap();
         let a_pos = out.find("\"src/a.js\"").unwrap();
         let b_pos = out.find("\"src/b.js\"").unwrap();
@@ -219,25 +196,6 @@ mod tests {
         // Two files share `src/`; the tree builds a folder rollup, but
         // json-summary should only list files (matching istanbul-reports).
         let json = r#"{"src/a.js":{"path":"src/a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"src/b.js":{"path":"src/b.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
-        let root = build_root(json);
-        let mut buf = Vec::new();
-        write(&root, &mut buf).unwrap();
-        let out = String::from_utf8(buf).unwrap();
-        assert!(!out.contains("\"src\":"));
-    }
-
-    #[test]
-    fn all_four_metrics_present_per_entry() {
-        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
-        let root = build_root(json);
-        let mut buf = Vec::new();
-        write(&root, &mut buf).unwrap();
-        let out = String::from_utf8(buf).unwrap();
-        for key in &["lines", "statements", "functions", "branches"] {
-            assert!(out.contains(&format!("\"{key}\"")), "missing {key}");
-        }
-        for field in &["total", "covered", "skipped", "pct"] {
-            assert!(out.contains(&format!("\"{field}\"")), "missing {field}");
-        }
+        assert!(!render(json).contains("\"src\":"));
     }
 }

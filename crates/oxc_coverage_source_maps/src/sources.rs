@@ -5,20 +5,12 @@ use std::collections::BTreeSet;
 use srcmap_sourcemap::SourceMap;
 
 /// Whether at least one `sources` entry resolves to a coverage path.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn has_resolved_source(sm: &SourceMap) -> bool {
+pub fn has_resolved_source(sm: &SourceMap) -> bool {
     sm.sources.iter().any(|source| !source.is_empty())
 }
 
 /// Coverage path for one `sources` entry, `None` when it is absent or empty.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn resolve_source_path(sm: &SourceMap, source: u32) -> Option<String> {
+pub fn resolve_source_path(sm: &SourceMap, source: u32) -> Option<String> {
     let source = sm.sources.get(source as usize)?;
     if source.is_empty() {
         return None;
@@ -43,11 +35,7 @@ pub(crate) fn resolve_source_path(sm: &SourceMap, source: u32) -> Option<String>
 
 /// The one coverage path every `sources` entry resolves to, or `None` when the
 /// map declares several distinct sources.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn sole_resolved_source_path(sm: &SourceMap) -> Option<String> {
+pub fn sole_resolved_source_path(sm: &SourceMap) -> Option<String> {
     let mut paths: BTreeSet<String> = sm
         .sources
         .iter()

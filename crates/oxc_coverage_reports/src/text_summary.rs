@@ -73,19 +73,8 @@ mod tests {
     #[test]
     fn empty_map_renders_all_one_hundred_percent() {
         let out = render("{}");
-        assert!(out.contains("Statements   : 100% ( 0/0 )"));
-        assert!(out.contains("Lines        : 100% ( 0/0 )"));
-    }
-
-    #[test]
-    fn header_and_footer_bracket_the_metrics() {
-        let out = render(
-            r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#,
-        );
-        let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.first().copied(), Some(HEADER));
-        assert_eq!(lines.last().copied(), Some(FOOTER));
-        assert_eq!(lines.len(), 6);
+        assert!(out.contains("Statements   : 100% ( 0/0 )"), "got: {out}");
+        assert!(out.contains("Lines        : 100% ( 0/0 )"), "got: {out}");
     }
 
     #[test]

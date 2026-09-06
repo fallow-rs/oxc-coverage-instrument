@@ -45,44 +45,6 @@ assert_file_equal() {
   assert_equal "$(<"$file")" "$expected" "$context"
 }
 
-workflow_check_has_self_test_step() {
-  local workflow="$1"
-
-  awk \
-    -v target_name="      - name: Verification runner self-test" \
-    -v target_if="        if: runner.os == 'Linux'" \
-    -v target_run="        run: ./scripts/check.sh self-test" '
-    function finish_step() {
-      if (in_target && has_if && has_run) {
-        found = 1
-      }
-    }
-
-    $0 == "  check:" {
-      in_job = 1
-      next
-    }
-    in_job && $0 ~ /^  [[:alnum:]_-]+:$/ {
-      finish_step()
-      exit
-    }
-    in_job && $0 ~ /^      - / {
-      finish_step()
-      in_target = ($0 == target_name)
-      has_if = 0
-      has_run = 0
-      next
-    }
-    in_target && $0 == target_if { has_if = 1 }
-    in_target && $0 == target_run { has_run = 1 }
-
-    END {
-      finish_step()
-      exit(found ? 0 : 1)
-    }
-  ' "$workflow"
-}
-
 workflow_check_has_linux_profile_step() {
   local workflow="$1"
   local step_name="$2"
@@ -119,26 +81,6 @@ workflow_real_world_job_is_gated() {
     }
     in_job && $0 == "        run: ./scripts/check.sh real-world-gates" { has_gate = 1 }
     END { exit(has_cache_key && has_prepare && has_gate ? 0 : 1) }
-  ' "$workflow"
-}
-
-workflow_ci_ok_needs_version_sync() {
-  local workflow="$1"
-
-  awk '
-    $0 == "  ci-ok:" {
-      in_job = 1
-      next
-    }
-    in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
-    in_job && $0 == "    needs:" {
-      in_needs = 1
-      next
-    }
-    in_needs && $0 ~ /^    [^ ]/ { exit }
-    in_needs && $0 == "      - version-sync" { found = 1 }
-
-    END { exit(found ? 0 : 1) }
   ' "$workflow"
 }
 
@@ -200,12 +142,8 @@ workflow_job_has_need() {
   ' "$workflow"
 }
 
-workflow_job_has_deterministic_npm() {
-  local workflow="$1"
-  local job="$2"
-  local allow_bootstrap="$3"
-
-  awk -v job="$job" -v allow_bootstrap="$allow_bootstrap" '
+# Shared awk prelude: strip a trailing shell comment while honouring quotes.
+STRIP_SHELL_COMMENT_AWK='
     function strip_shell_comment(text, i, ch, quote, escaped, previous) {
       quote = ""
       escaped = 0
@@ -242,6 +180,14 @@ workflow_job_has_deterministic_npm() {
       }
       return text
     }
+'
+
+workflow_job_has_deterministic_npm() {
+  local workflow="$1"
+  local job="$2"
+  local allow_bootstrap="$3"
+
+  awk -v job="$job" -v allow_bootstrap="$allow_bootstrap" "$STRIP_SHELL_COMMENT_AWK"'
 
     function has_npm_token(text) {
       return text ~ /(^|[^[:alnum:]_])npm([^[:alnum:]_]|$)/
@@ -300,43 +246,7 @@ release_workflow_has_deterministic_npm() {
 
 release_workflow_is_provenance_only() {
   local workflow="$1"
-  awk '
-    function strip_shell_comment(text, i, ch, quote, escaped, previous) {
-      quote = ""
-      escaped = 0
-      for (i = 1; i <= length(text); i++) {
-        ch = substr(text, i, 1)
-        if (escaped) {
-          escaped = 0
-          continue
-        }
-        if (quote == "\047") {
-          if (ch == "\047") quote = ""
-          continue
-        }
-        if (quote == "\"") {
-          if (ch == "\\") {
-            escaped = 1
-          } else if (ch == "\"") {
-            quote = ""
-          }
-          continue
-        }
-        if (ch == "\\") {
-          escaped = 1
-          continue
-        }
-        if (ch == "\047" || ch == "\"") {
-          quote = ch
-          continue
-        }
-        previous = i == 1 ? "" : substr(text, i - 1, 1)
-        if (ch == "#" && (i == 1 || previous ~ /[[:space:];|&()]/)) {
-          return substr(text, 1, i - 1)
-        }
-      }
-      return text
-    }
+  awk "$STRIP_SHELL_COMMENT_AWK"'
 
     $0 == "  publish:" { in_job = 1; next }
     in_job && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
@@ -685,7 +595,7 @@ assert_contains \
   "node scripts/npm-pack-surface-check.mjs --metadata-only"
 
 workflow="$ROOT/.github/workflows/ci.yml"
-if ! workflow_check_has_self_test_step "$workflow"; then
+if ! workflow_check_has_linux_profile_step "$workflow" "Verification runner self-test" self-test; then
   fail "CI check job is missing the Linux-only verification runner self-test step"
 fi
 if ! workflow_check_has_linux_profile_step "$workflow" "Check experimental AST API" "ast-api"; then
@@ -697,7 +607,7 @@ fi
 if ! workflow_job_has_need "$workflow" ci-ok real-world-parity; then
   fail "ci-ok.needs is missing real-world-parity"
 fi
-if ! workflow_ci_ok_needs_version_sync "$workflow"; then
+if ! workflow_job_has_need "$workflow" ci-ok version-sync; then
   fail "ci-ok.needs is missing version-sync"
 fi
 if ! workflow_version_sync_has_node_and_profile "$workflow"; then
@@ -733,7 +643,7 @@ printf '%s\n' \
   '  msrv:' \
   '    runs-on: ubuntu-latest' \
   >"$invalid_self_test_workflow"
-if workflow_check_has_self_test_step "$invalid_self_test_workflow"; then
+if workflow_check_has_linux_profile_step "$invalid_self_test_workflow" "Verification runner self-test" self-test; then
   fail "CI self-test validator accepted fields split across steps"
 fi
 
@@ -745,7 +655,7 @@ printf '%s\n' \
   '      # - version-sync' \
   '    runs-on: ubuntu-latest' \
   >"$commented_need_workflow"
-if workflow_ci_ok_needs_version_sync "$commented_need_workflow"; then
+if workflow_job_has_need "$commented_need_workflow" ci-ok version-sync; then
   fail "ci-ok.needs validator accepted a commented version-sync entry"
 fi
 
@@ -759,7 +669,7 @@ printf '%s\n' \
   '      - version-sync' \
   '    runs-on: ubuntu-latest' \
   >"$unrelated_need_workflow"
-if workflow_ci_ok_needs_version_sync "$unrelated_need_workflow"; then
+if workflow_job_has_need "$unrelated_need_workflow" ci-ok version-sync; then
   fail "ci-ok.needs validator accepted version-sync from an unrelated property"
 fi
 

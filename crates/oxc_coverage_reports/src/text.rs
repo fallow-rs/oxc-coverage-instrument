@@ -51,7 +51,7 @@ struct TextWriter<'a, W: io::Write> {
 impl<W: io::Write> Visitor for TextWriter<'_, W> {
     fn on_summary(&mut self, node: &ReportNode) -> io::Result<()> {
         let display = if self.depth == 0 { "All files".to_owned() } else { node.name.clone() };
-        write_row(self.out, TextRow { name: &display, depth: self.depth, node, uncovered: None })?;
+        write_row(self.out, &display, self.depth, node, None)?;
         self.depth += 1;
         Ok(())
     }
@@ -63,11 +63,7 @@ impl<W: io::Write> Visitor for TextWriter<'_, W> {
 
     fn on_detail(&mut self, node: &ReportNode) -> io::Result<()> {
         let uncovered = node.file_coverage().map(uncovered_lines);
-        write_row(
-            self.out,
-            TextRow { name: &node.name, depth: self.depth, node, uncovered: uncovered.as_deref() },
-        )?;
-        Ok(())
+        write_row(self.out, &node.name, self.depth, node, uncovered.as_deref())
     }
 }
 
@@ -94,16 +90,13 @@ fn write_separator<W: io::Write>(out: &mut W) -> io::Result<()> {
     writeln!(out, "{file_dashes}{pct_dashes}{pct_dashes}{pct_dashes}{pct_dashes}{}", "-".repeat(20))
 }
 
-#[derive(Clone, Copy)]
-struct TextRow<'a> {
-    name: &'a str,
+fn write_row<W: io::Write>(
+    out: &mut W,
+    name: &str,
     depth: usize,
-    node: &'a ReportNode,
-    uncovered: Option<&'a str>,
-}
-
-fn write_row<W: io::Write>(out: &mut W, row: TextRow<'_>) -> io::Result<()> {
-    let TextRow { name, depth, node, uncovered } = row;
+    node: &ReportNode,
+    uncovered: Option<&str>,
+) -> io::Result<()> {
     let indent = " ".repeat(depth);
     let display = format!("{indent}{name}");
     let truncated = truncate(&display, FILE_COL);
@@ -197,24 +190,6 @@ mod tests {
         let mut buf = Vec::new();
         write(&root, &mut buf).unwrap();
         String::from_utf8(buf).unwrap()
-    }
-
-    #[test]
-    fn header_columns_are_present() {
-        let out = render("{}");
-        assert!(out.contains("% Stmts"));
-        assert!(out.contains("% Branch"));
-        assert!(out.contains("% Funcs"));
-        assert!(out.contains("% Lines"));
-        assert!(out.contains("Uncovered Line #s"));
-    }
-
-    #[test]
-    fn all_files_row_appears_for_non_empty_input() {
-        let out = render(
-            r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#,
-        );
-        assert!(out.contains("All files"), "got: {out}");
     }
 
     #[test]

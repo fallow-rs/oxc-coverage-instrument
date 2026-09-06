@@ -56,9 +56,7 @@ export function patchSingleThreadedWasm(buffer) {
     while (offset < bytes.length) {
       const opcode = bytes[offset++];
       if (opcode === 0x0b) return;
-      if (opcode === 0x23 || opcode === 0x41) {
-        readU32();
-      } else if (opcode === 0x42) {
+      if (opcode === 0x23 || opcode === 0x41 || opcode === 0x42) {
         readU32();
       } else if (opcode === 0x43) {
         offset += 4;
@@ -89,8 +87,7 @@ export function patchSingleThreadedWasm(buffer) {
         } else if (kind === 2) {
           skipLimits();
         } else if (kind === 3) {
-          offset += 1;
-          offset += 1;
+          offset += 2;
           importedGlobals += 1;
         } else {
           throw new Error(`unsupported wasm import kind ${kind}`);

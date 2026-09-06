@@ -59,13 +59,16 @@ fn assert_real_v8_if_functions(calls: &str, functions: &[V8FunctionCoverage], ex
 
 fn assert_if_counts(source: &str, functions: &[V8FunctionCoverage], expected: &[u32]) {
     let fc = v8_to_istanbul(source, "real-inspector-if.js", functions, 0).unwrap();
-    let arm_counts = fc
-        .branch_map
+    assert_eq!(arm_counts(&fc, "if"), expected);
+}
+
+/// The hit vector of the first `branch_type` branch in `fc`.
+fn arm_counts(fc: &oxc_coverage_instrument::FileCoverage, branch_type: &str) -> Vec<u32> {
+    fc.branch_map
         .iter()
-        .find(|(_, branch)| branch.branch_type == "if")
-        .and_then(|(id, _)| fc.b.get(id))
-        .expect("if branch must appear in branchMap");
-    assert_eq!(arm_counts, expected);
+        .find(|(_, branch)| branch.branch_type == branch_type)
+        .and_then(|(id, _)| fc.b.get(id).cloned())
+        .unwrap_or_else(|| panic!("{branch_type} branch must appear in branchMap"))
 }
 
 #[test]
@@ -160,57 +163,13 @@ fn assigns_branch_arm_counts_from_block_coverage() {
     )];
 
     let fc = v8_to_istanbul(source, "ifelse.js", &functions, 0).unwrap();
-    let (_, arm_counts) = fc
-        .branch_map
-        .iter()
-        .find(|(_, b)| b.branch_type == "if")
-        .map(|(id, _b)| (id.clone(), fc.b.get(id).cloned().unwrap_or_default()))
-        .expect("if branch must appear in branchMap");
+    let arm_counts = arm_counts(&fc, "if");
     assert_eq!(arm_counts.len(), 2, "if has two arms");
     assert_eq!(
         arm_counts[0], 1,
         "arm[0] resolves through the collected then-block body span; predicate truthy once"
     );
     assert_eq!(arm_counts[1], 0, "else arm should report zero hits");
-}
-
-#[test]
-fn branch_arm_count_picks_tight_inner_range_over_enclosing_outer() {
-    // V8 emits ranges outermost-first. If the arm-resolver returned the first
-    // tolerance match, a naive walk would prefer the enclosing block (with the
-    // function's or module's higher count) over the actual arm block. Pin the
-    // tightest-match rule: when the else range itself reports a non-zero hit
-    // (e.g., the function ran 5 times and the else arm was taken 2 times),
-    // arm[1] must reflect the else range's count, not the outer's.
-    let source = "function f(x) {\n  if (x) {\n    a();\n  } else {\n    b();\n  }\n}\n";
-    let module_end = byte_len(source);
-    let then_start = byte_offset_of(source, "if (x) {") + 7;
-    let then_end = byte_offset_of(source, "} else") + 1;
-    let else_start = byte_offset_of(source, "else {") + 5;
-    let else_end = last_byte_offset_of(source, "\n  }") + 4;
-
-    // Outer function ran 5 times; else arm taken 2 of those; then arm taken 3.
-    let functions = vec![function(
-        "f",
-        vec![
-            range(0, module_end, 5),
-            range(then_start, then_end, 3),
-            range(else_start, else_end, 2),
-        ],
-        true,
-    )];
-
-    let fc = v8_to_istanbul(source, "tight.js", &functions, 0).unwrap();
-    let (_, arm_counts) = fc
-        .branch_map
-        .iter()
-        .find(|(_, b)| b.branch_type == "if")
-        .map(|(id, _b)| (id.clone(), fc.b.get(id).cloned().unwrap_or_default()))
-        .expect("if branch must appear in branchMap");
-    assert_eq!(
-        arm_counts[1], 2,
-        "tightest match must win: else arm should resolve to else range count (2), not outer (5)"
-    );
 }
 
 #[test]
@@ -227,12 +186,7 @@ fn ternary_arms_report_zero_when_no_block_range_matches() {
     let functions = vec![function("f", vec![range(0, end, 1)], true)];
 
     let fc = v8_to_istanbul(source, "ternary.js", &functions, 0).unwrap();
-    let (_, arm_counts) = fc
-        .branch_map
-        .iter()
-        .find(|(_, b)| b.branch_type == "cond-expr")
-        .map(|(id, _b)| (id.clone(), fc.b.get(id).cloned().unwrap_or_default()))
-        .expect("cond-expr branch must appear in branchMap");
+    let arm_counts = arm_counts(&fc, "cond-expr");
     assert_eq!(arm_counts.len(), 2, "ternary has two arms");
     assert!(
         arm_counts.iter().all(|&c| c == 0),
@@ -296,7 +250,7 @@ fn extracts_inline_base64_source_map() {
     assert_eq!(attached["version"], 3);
 }
 
-/// Test helper: encode a byte slice as base64 using the standard alphabet.
+/// Standard-alphabet base64, so the test needs no encoder dependency.
 fn encode_base64(bytes: &[u8]) -> String {
     const ALPHA: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
@@ -472,7 +426,9 @@ fn function_counts_track_call_counts() {
 fn if_arm_zero_reports_then_block_count_with_mixed_arms() {
     // arm[0] reports how many times the predicate was truthy, resolved from
     // the consequent-body byte span against V8's then-block range. Five calls,
-    // three truthy and two falsy, therefore give [3, 2].
+    // three truthy and two falsy, therefore give [3, 2]. V8 emits ranges
+    // outermost-first, so a first-tolerance-match walk would take the
+    // enclosing function range (count 5) for both arms.
     let source = "function f(x) {\n  if (x) {\n    a();\n  } else {\n    b();\n  }\n}\n";
     let module_end = byte_len(source);
     let then_start = byte_offset_of(source, "if (x) {") + 7;
@@ -491,16 +447,11 @@ fn if_arm_zero_reports_then_block_count_with_mixed_arms() {
     )];
 
     let fc = v8_to_istanbul(source, "ifelse-counts.js", &functions, 0).unwrap();
-    let (_, arm_counts) = fc
-        .branch_map
-        .iter()
-        .find(|(_, b)| b.branch_type == "if")
-        .map(|(id, _b)| (id.clone(), fc.b.get(id).cloned().unwrap_or_default()))
-        .expect("if branch must appear in branchMap");
     assert_eq!(
-        arm_counts,
+        arm_counts(&fc, "if"),
         vec![3, 2],
-        "arm[0] = then-block count (3), arm[1] = else-block count (2)"
+        "tightest match wins: arm[0] = then-block count (3), arm[1] = else-block count (2), \
+         not the enclosing function's 5"
     );
 }
 
@@ -518,12 +469,7 @@ fn if_arm_zero_resolves_when_alternate_is_missing() {
         vec![function("f", vec![range(0, module_end, 4), range(then_start, then_end, 4)], true)];
 
     let fc = v8_to_istanbul(source, "if-only.js", &functions, 0).unwrap();
-    let (_, arm_counts) = fc
-        .branch_map
-        .iter()
-        .find(|(_, b)| b.branch_type == "if")
-        .map(|(id, _b)| (id.clone(), fc.b.get(id).cloned().unwrap_or_default()))
-        .expect("if branch must appear in branchMap");
+    let arm_counts = arm_counts(&fc, "if");
     assert_eq!(arm_counts.len(), 2, "if without else still has two arms");
     assert_eq!(arm_counts[0], 4, "arm[0] reflects then-block count");
     assert_eq!(arm_counts[1], 0, "synthetic else-arm honestly reports zero");

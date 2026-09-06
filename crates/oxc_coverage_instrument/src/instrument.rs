@@ -510,12 +510,7 @@ pub fn instrument(
     } else {
         PreExpandedArrows::default()
     };
-    let scoping = prepare_scoping(PrepareScopingInput {
-        allocator: &allocator,
-        filename,
-        program: &mut parsed.program,
-        options,
-    })?;
+    let scoping = prepare_scoping(&allocator, filename, &mut parsed.program, options)?;
     let program_result = instrument_program_with_pragmas(InstrumentProgramInput {
         allocator: &allocator,
         program: &mut parsed.program,
@@ -800,15 +795,12 @@ fn validate_coverage_variable(options: &InstrumentOptions) -> Result<(), Instrum
     Err(InstrumentError::InvalidCoverageVariable(options.coverage_variable.clone()))
 }
 
-struct PrepareScopingInput<'arena, 'a> {
+fn prepare_scoping<'arena>(
     allocator: &'arena Allocator,
-    filename: &'a str,
-    program: &'a mut Program<'arena>,
-    options: &'a InstrumentOptions,
-}
-
-fn prepare_scoping(input: PrepareScopingInput<'_, '_>) -> Result<Scoping, InstrumentError> {
-    let PrepareScopingInput { allocator, filename, program, options } = input;
+    filename: &str,
+    program: &mut Program<'arena>,
+    options: &InstrumentOptions,
+) -> Result<Scoping, InstrumentError> {
     // `with_enum_eval` pre-computes TypeScript enum member values into `Scoping`.
     // Since oxc 0.140 the transformer asserts on it when lowering an `enum`, so
     // this is required on the scoping handed to `strip_typescript_pass` below.
@@ -819,14 +811,7 @@ fn prepare_scoping(input: PrepareScopingInput<'_, '_>) -> Result<Scoping, Instru
     if !options.strip_typescript {
         return Ok(scoping);
     }
-    strip_typescript_pass(StripTypescriptInput {
-        allocator,
-        filename,
-        program,
-        scoping,
-        decorator_mode: options.decorator_mode,
-        strict_null_checks: options.strict_null_checks,
-    })
+    strip_typescript_pass(allocator, filename, program, scoping, options)
 }
 
 struct CoverageTransformRun<'src, 'arena, 'a> {
@@ -897,15 +882,6 @@ fn build_instrument_preamble(
     (coverage_json, preamble)
 }
 
-struct StripTypescriptInput<'arena, 'a> {
-    allocator: &'arena Allocator,
-    filename: &'a str,
-    program: &'a mut Program<'arena>,
-    scoping: Scoping,
-    decorator_mode: DecoratorMode,
-    strict_null_checks: bool,
-}
-
 /// Run `oxc_transformer`'s TypeScript-strip pass on the parsed program in
 /// place. Returns the updated `Scoping` produced by the transformer (the
 /// semantic state changes as type-only nodes are removed). Surviving nodes
@@ -916,15 +892,13 @@ struct StripTypescriptInput<'arena, 'a> {
 ///
 /// Returns [`InstrumentError::TransformError`] if the transformer reports a
 /// diagnostic at error severity.
-fn strip_typescript_pass(input: StripTypescriptInput<'_, '_>) -> Result<Scoping, InstrumentError> {
-    let StripTypescriptInput {
-        allocator,
-        filename,
-        program,
-        scoping,
-        decorator_mode,
-        strict_null_checks,
-    } = input;
+fn strip_typescript_pass<'arena>(
+    allocator: &'arena Allocator,
+    filename: &str,
+    program: &mut Program<'arena>,
+    scoping: Scoping,
+    options: &InstrumentOptions,
+) -> Result<Scoping, InstrumentError> {
     // `JsxOptions::default()` calls `JsxOptions::enable()`, which would
     // rewrite `<div>` to `React.createElement` / `_jsx` on `.tsx` input.
     // Strip-pass only removes type syntax; JSX must round-trip unchanged
@@ -937,17 +911,17 @@ fn strip_typescript_pass(input: StripTypescriptInput<'_, '_>) -> Result<Scoping,
     // Callers can opt into legacy lowering and metadata emission via
     // `InstrumentOptions::decorator_mode`, and control how nullable unions are
     // written into that metadata via `InstrumentOptions::strict_null_checks`.
-    let options = TransformOptions {
+    let transform_options = TransformOptions {
         typescript: TypeScriptOptions::default(),
         jsx: JsxOptions::disable(),
         decorator: DecoratorOptions {
-            legacy: decorator_mode.legacy(),
-            emit_decorator_metadata: decorator_mode.emit_metadata(),
-            strict_null_checks,
+            legacy: options.decorator_mode.legacy(),
+            emit_decorator_metadata: options.decorator_mode.emit_metadata(),
+            strict_null_checks: options.strict_null_checks,
         },
         ..TransformOptions::default()
     };
-    let transformer = Transformer::new(allocator, Path::new(filename), &options);
+    let transformer = Transformer::new(allocator, Path::new(filename), &transform_options);
     let ret = transformer.build_with_scoping(scoping, program);
     // `diagnostics` carries warnings as well as errors, so gate on error
     // severity: a warning-only transform is not a failure.
@@ -1059,17 +1033,13 @@ fn finalize_coverage_map(
 /// resolve V8 hit counts; the body byte spans solve the if-arm 0 case where
 /// the istanbul-reported location (the whole `IfStatement`) does not match
 /// any V8 block range.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) struct V8CollectResult {
+pub struct V8CollectResult {
     /// Location maps with all hit counts still zero.
-    pub(crate) coverage_map: FileCoverage,
+    pub coverage_map: FileCoverage,
     /// `arm_body_byte_spans["<branch_id>"][<arm_idx>]` is the `(start, end)`
     /// byte range of the arm body when known, or `(0, 0)` when the body span
     /// is synthetic / unknown (e.g. a synthesized else-arm).
-    pub(crate) arm_body_byte_spans: BTreeMap<String, Vec<(u32, u32)>>,
+    pub arm_body_byte_spans: BTreeMap<String, Vec<(u32, u32)>>,
 }
 
 /// Parse, scan pragmas, traverse the AST, and build the `FileCoverage` map
@@ -1082,11 +1052,7 @@ pub(crate) struct V8CollectResult {
 /// # Errors
 ///
 /// Returns [`InstrumentError::ParseError`] if `source` cannot be parsed.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn collect_for_v8_to_istanbul(
+pub fn collect_for_v8_to_istanbul(
     source: &str,
     filename: &str,
 ) -> Result<V8CollectResult, InstrumentError> {
@@ -1095,7 +1061,10 @@ pub(crate) fn collect_for_v8_to_istanbul(
 
     let (pragmas, _unhandled_pragmas) = PragmaMap::from_program(&parsed.program, source);
     if pragmas.ignore_file {
-        return Ok(empty_v8_collect_result(filename));
+        return Ok(V8CollectResult {
+            coverage_map: empty_coverage(filename),
+            arm_body_byte_spans: BTreeMap::new(),
+        });
     }
 
     let scoping = SemanticBuilder::new().build(&parsed.program).semantic.into_scoping();
@@ -1133,10 +1102,6 @@ pub(crate) fn collect_for_v8_to_istanbul(
 
     let coverage_map = build_coverage_map(filename, transform);
     Ok(V8CollectResult { coverage_map, arm_body_byte_spans })
-}
-
-fn empty_v8_collect_result(filename: &str) -> V8CollectResult {
-    V8CollectResult { coverage_map: empty_coverage(filename), arm_body_byte_spans: BTreeMap::new() }
 }
 
 fn collect_arm_body_byte_spans(

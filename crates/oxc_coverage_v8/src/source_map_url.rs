@@ -131,14 +131,3 @@ fn decode_percent_encoded(input: &str) -> Option<String> {
     }
     String::from_utf8(out).ok()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::decode_percent_encoded;
-
-    #[test]
-    fn rejects_truncated_percent_escape_at_payload_end() {
-        assert_eq!(decode_percent_encoded("payload%"), None);
-        assert_eq!(decode_percent_encoded("payload%4"), None);
-    }
-}

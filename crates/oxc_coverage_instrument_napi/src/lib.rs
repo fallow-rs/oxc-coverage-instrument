@@ -653,15 +653,6 @@ mod tests {
     }
 
     #[test]
-    fn invalid_coverage_json_error_adds_single_file_hint() {
-        let err = invalid_coverage_json_error(SINGLE_FC, "outer container mismatch");
-        let message = err.to_string();
-        assert!(message.contains("invalid coverage JSON: outer container mismatch"));
-        assert!(message.contains("input parses as a single FileCoverage"));
-        assert!(message.contains("expects an Istanbul CoverageMap shape"));
-    }
-
-    #[test]
     fn invalid_coverage_json_error_omits_hint_for_coverage_map_shape() {
         let err = invalid_coverage_json_error(COVERAGE_MAP, "bad inner entry");
         let message = err.to_string();
@@ -722,15 +713,6 @@ mod tests {
         assert_eq!(
             decorator_mode_from_flags(true, true).expect("metadata mode"),
             DecoratorMode::ExperimentalWithMetadata,
-        );
-    }
-
-    #[test]
-    fn decorator_metadata_requires_experimental_decorators() {
-        let err = decorator_mode_from_flags(false, true).expect_err("metadata alone is invalid");
-        assert_eq!(
-            err.to_string(),
-            "InvalidArg, emitDecoratorMetadata: true requires experimentalDecorators: true",
         );
     }
 

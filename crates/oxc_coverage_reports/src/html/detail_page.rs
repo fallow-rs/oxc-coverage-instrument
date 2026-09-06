@@ -17,16 +17,12 @@ use super::page::{SummaryHeaderInput, render_page, render_summary_header};
 use crate::escape::html_text;
 use crate::projection::line_hits;
 
-#[derive(Clone, Copy)]
-pub(super) struct RenderDetailInput<'a> {
-    pub(super) node: &'a ReportNode,
-    pub(super) coverage: &'a FileCoverage,
-    pub(super) ctx: &'a RenderContext<'a>,
-    pub(super) depth: usize,
-}
-
-pub(super) fn render_detail(input: RenderDetailInput<'_>) -> String {
-    let RenderDetailInput { node, coverage, ctx, depth } = input;
+pub(super) fn render_detail(
+    node: &ReportNode,
+    coverage: &FileCoverage,
+    ctx: &RenderContext<'_>,
+    depth: usize,
+) -> String {
     let title = node.relative_path.clone();
     let source = read_source(coverage, ctx.root_dir);
     let statement_lines = line_hits(coverage);
@@ -45,13 +41,13 @@ pub(super) fn render_detail(input: RenderDetailInput<'_>) -> String {
     body.push_str(
         "      <div class=\"detail-actions\">\n        <button type=\"button\" class=\"btn-ghost\" id=\"cov-next-uncovered\" aria-label=\"Jump to next uncovered line\" disabled>Next uncovered</button>\n      </div>\n",
     );
-    body.push_str(&render_detail_source(DetailSourceInput {
+    body.push_str(&render_detail_source(
         source,
-        coverage_path: &coverage.path,
-        line_hits: &statement_lines,
-        branched_lines: &branched_lines,
-        fn_lines: &fn_lines,
-    }));
+        &coverage.path,
+        &statement_lines,
+        &branched_lines,
+        &fn_lines,
+    ));
     body.push_str("    </div>\n");
     body.push_str(
         "    <div class=\"copy-toast\" id=\"cov-copy-toast\" role=\"status\" aria-atomic=\"true\"></div>\n",
@@ -59,27 +55,19 @@ pub(super) fn render_detail(input: RenderDetailInput<'_>) -> String {
     render_page(&title, depth, &body)
 }
 
-struct DetailSourceInput<'a> {
+fn render_detail_source(
     source: Result<String, MissingSource>,
-    coverage_path: &'a str,
-    line_hits: &'a BTreeMap<u32, u32>,
-    branched_lines: &'a BTreeMap<u32, BranchSummary>,
-    fn_lines: &'a BTreeMap<u32, u32>,
-}
-
-fn render_detail_source(input: DetailSourceInput<'_>) -> String {
-    let DetailSourceInput { source, coverage_path, line_hits, branched_lines, fn_lines } = input;
+    coverage_path: &str,
+    line_hits: &BTreeMap<u32, u32>,
+    branched_lines: &BTreeMap<u32, BranchSummary>,
+    fn_lines: &BTreeMap<u32, u32>,
+) -> String {
     let mut out = String::new();
     match source {
         Ok(text) => {
             let highlighted = highlight::highlight_lines(&text, Path::new(coverage_path));
             out.push_str("      <table class=\"source\">\n");
-            out.push_str(&render_source_table(SourceTableInput {
-                lines: &highlighted,
-                line_hits,
-                branched: branched_lines,
-                fns: fn_lines,
-            }));
+            out.push_str(&render_source_table(&highlighted, line_hits, branched_lines, fn_lines));
             out.push_str("      </table>\n");
         }
         Err(missing) => {
@@ -92,20 +80,16 @@ fn render_detail_source(input: DetailSourceInput<'_>) -> String {
     out
 }
 
-#[derive(Clone, Copy)]
-struct SourceTableInput<'a> {
-    lines: &'a [String],
-    line_hits: &'a BTreeMap<u32, u32>,
-    branched: &'a BTreeMap<u32, BranchSummary>,
-    fns: &'a BTreeMap<u32, u32>,
-}
-
 #[expect(
     clippy::cast_possible_truncation,
     reason = "a source file with more than u32::MAX lines cannot be addressed by istanbul's u32 line numbers"
 )]
-fn render_source_table(input: SourceTableInput<'_>) -> String {
-    let SourceTableInput { lines, line_hits, branched, fns } = input;
+fn render_source_table(
+    lines: &[String],
+    line_hits: &BTreeMap<u32, u32>,
+    branched: &BTreeMap<u32, BranchSummary>,
+    fns: &BTreeMap<u32, u32>,
+) -> String {
     let mut out = String::new();
     out.push_str("        <thead><tr><th class=\"line-num\">Line</th><th class=\"hits\">Hits</th><th class=\"src\">Source</th></tr></thead>\n        <tbody>\n");
     for (idx, line_html) in lines.iter().enumerate() {
@@ -113,31 +97,21 @@ fn render_source_table(input: SourceTableInput<'_>) -> String {
         let stmt_hits = line_hits.get(&line_no).copied();
         let branch = branched.get(&line_no);
         let fn_hits = fns.get(&line_no).copied();
-        out.push_str(&render_source_row(SourceRow {
-            line_no,
-            src_html: line_html,
-            stmt_hits,
-            branch,
-            fn_hits,
-        }));
+        out.push_str(&render_source_row(line_no, line_html, stmt_hits, branch, fn_hits));
     }
     out.push_str("        </tbody>\n");
     out
 }
 
-#[derive(Clone, Copy)]
-struct SourceRow<'a> {
-    line_no: u32,
-    src_html: &'a str,
-    stmt_hits: Option<u32>,
-    branch: Option<&'a BranchSummary>,
-    fn_hits: Option<u32>,
-}
-
 /// Render one source row. `src_html` is already escaped and may carry
 /// syntect `<span class="stok-...">` markup; do not re-escape.
-fn render_source_row(row: SourceRow<'_>) -> String {
-    let SourceRow { line_no, src_html, stmt_hits, branch, fn_hits } = row;
+fn render_source_row(
+    line_no: u32,
+    src_html: &str,
+    stmt_hits: Option<u32>,
+    branch: Option<&BranchSummary>,
+    fn_hits: Option<u32>,
+) -> String {
     let class = source_row_class(stmt_hits, branch);
     let hits_text = match (stmt_hits, fn_hits) {
         (Some(h), _) | (None, Some(h)) => format!("{h}x"),
@@ -149,7 +123,7 @@ fn render_source_row(row: SourceRow<'_>) -> String {
         ""
     };
     let glyph = severity_glyph(class);
-    let aria = row_aria_label(RowAriaInput { line_no, class, branch, fn_hits });
+    let aria = row_aria_label(line_no, class, branch, fn_hits);
     let branch_note = render_branch_note(branch);
     format!(
         "          <tr class=\"line {class}\" id=\"L{line_no}\" aria-label=\"{aria}\">\
@@ -189,21 +163,17 @@ fn severity_glyph(class: &str) -> &'static str {
     }
 }
 
-#[derive(Clone, Copy)]
-struct RowAriaInput<'a> {
-    line_no: u32,
-    class: &'a str,
-    branch: Option<&'a BranchSummary>,
-    fn_hits: Option<u32>,
-}
-
 /// Human-readable status used as the row's `aria-label`. Avoids the raw
 /// class tokens (`miss` and friends) that would otherwise leak into
 /// assistive-technology output. The result needs no escaping: every part
 /// is drawn from a bounded set of phrases plus a line number and hit
 /// counts.
-fn row_aria_label(input: RowAriaInput<'_>) -> String {
-    let RowAriaInput { line_no, class, branch, fn_hits } = input;
+fn row_aria_label(
+    line_no: u32,
+    class: &str,
+    branch: Option<&BranchSummary>,
+    fn_hits: Option<u32>,
+) -> String {
     let phrase = match class {
         "hit" => "covered",
         "miss" => "not covered",
@@ -211,16 +181,13 @@ fn row_aria_label(input: RowAriaInput<'_>) -> String {
         _ => "no statement",
     };
     let mut out = format!("Line {line_no}, {phrase}");
-    if let Some(details) = branch.and_then(BranchSummary::detail_aria) {
+    let details = branch.and_then(BranchSummary::detail_aria);
+    if let Some(details) = &details {
         out.push_str(": ");
-        out.push_str(&details);
+        out.push_str(details);
     }
     if matches!(fn_hits, Some(0)) {
-        if branch.and_then(BranchSummary::detail_aria).is_some() {
-            out.push_str("; ");
-        } else {
-            out.push_str(": ");
-        }
+        out.push_str(if details.is_some() { "; " } else { ": " });
         out.push_str("function not called");
     }
     out
@@ -258,8 +225,7 @@ fn render_source_unavailable(line_hits: &BTreeMap<u32, u32>) -> String {
     for (line, hits) in line_hits {
         let class = if *hits == 0 { "miss" } else { "hit" };
         let glyph = severity_glyph(class);
-        let aria =
-            row_aria_label(RowAriaInput { line_no: *line, class, branch: None, fn_hits: None });
+        let aria = row_aria_label(*line, class, None, None);
         let _ = writeln!(
             out,
             "          <tr class=\"line {class}\" id=\"L{line}\" aria-label=\"{aria}\">\

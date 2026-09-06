@@ -16,6 +16,10 @@ use serde::Deserialize;
 use oxc_coverage_instrument::{InstrumentOptions, instrument};
 
 /// Deserialized Istanbul reference data (from generate-reference.mjs output).
+///
+/// Fields the assertions never read are still declared: deserializing them is
+/// what fails the suite when a regenerated reference file loses a section or
+/// changes its shape.
 #[derive(Debug, Deserialize)]
 struct IstanbulReference {
     #[expect(dead_code, reason = "deserialized from JSON for structural completeness")]
@@ -51,17 +55,8 @@ struct IstanbulBranch {
     location_count: usize,
 }
 
-fn fixtures_dir() -> String {
-    format!("{}/tests/conformance/fixtures", env!("CARGO_MANIFEST_DIR"))
-}
-
-fn reference_dir() -> String {
-    format!("{}/tests/conformance/reference", env!("CARGO_MANIFEST_DIR"))
-}
-
-/// Load the istanbul reference data generated for `name`.
 fn load_reference(name: &str) -> IstanbulReference {
-    let path = format!("{}/{name}.json", reference_dir());
+    let path = format!("{}/tests/conformance/reference/{name}.json", env!("CARGO_MANIFEST_DIR"));
     let content = std::fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
             "Missing reference file {path}: {e}. Run: node crates/oxc_coverage_instrument/tests/conformance/generate-reference.mjs"
@@ -71,7 +66,7 @@ fn load_reference(name: &str) -> IstanbulReference {
 }
 
 fn load_fixture(filename: &str) -> String {
-    let path = format!("{}/{filename}", fixtures_dir());
+    let path = format!("{}/tests/conformance/fixtures/{filename}", env!("CARGO_MANIFEST_DIR"));
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Missing fixture {path}: {e}"))
 }
 

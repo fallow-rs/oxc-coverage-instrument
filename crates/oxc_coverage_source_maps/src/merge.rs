@@ -15,11 +15,7 @@ use crate::context::LocationKey;
 /// remaining keys in insertion order, which a `BTreeMap` no longer carries, so
 /// those fall back to string order here. Our own ids are always decimal, but
 /// ingested JSON may carry non-numeric keys.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn numeric_id_order<T>(map: &BTreeMap<String, T>) -> Vec<(&String, &T)> {
+pub fn numeric_id_order<T>(map: &BTreeMap<String, T>) -> Vec<(&String, &T)> {
     let mut entries: Vec<(&String, &T)> = map.iter().collect();
     entries.sort_by(|(left, _), (right, _)| id_order_key(left).cmp(&id_order_key(right)));
     entries
@@ -37,11 +33,7 @@ fn id_order_key(id: &str) -> IdOrderKey<'_> {
 
 /// An empty `FileCoverage` at `path` carrying the optional `bT` and
 /// `x_fallow_functionMap` sections exactly when `template` carries them.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn empty_file_coverage(template: &FileCoverage, path: String) -> FileCoverage {
+pub fn empty_file_coverage(template: &FileCoverage, path: String) -> FileCoverage {
     FileCoverage {
         path,
         statement_map: BTreeMap::new(),
@@ -56,35 +48,41 @@ pub(crate) fn empty_file_coverage(template: &FileCoverage, path: String) -> File
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct FunctionMergeKey {
-    decl: LocationKey,
+/// Functions merge by declaration span; branches by their ordered arm spans.
+fn function_merge_key(function: &FnEntry) -> LocationKey {
+    LocationKey::from(&function.decl)
 }
 
-impl From<&FnEntry> for FunctionMergeKey {
-    fn from(function: &FnEntry) -> Self {
-        Self { decl: LocationKey::from(&function.decl) }
-    }
+fn branch_merge_key(branch: &BranchEntry) -> Vec<LocationKey> {
+    branch.locations.iter().map(LocationKey::from).collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct BranchMergeKey {
-    locations: Vec<LocationKey>,
-}
-
-impl From<&BranchEntry> for BranchMergeKey {
-    fn from(branch: &BranchEntry) -> Self {
-        Self { locations: branch.locations.iter().map(LocationKey::from).collect() }
+/// Fold one remap result into `out`. Every remapped file merges under its own
+/// path. With no usable map (`None`) the entry passes through under `path`,
+/// still reconciled to the Istanbul merge invariant: an already-composed entry
+/// carrying a runtime orphan counter would otherwise slip through unchanged and
+/// crash a downstream `nyc` merge.
+pub fn fold_remap_result(
+    out: &mut BTreeMap<String, FileCoverage>,
+    path: &str,
+    original: &FileCoverage,
+    remapped: Option<BTreeMap<String, FileCoverage>>,
+) {
+    if let Some(remapped) = remapped {
+        for coverage in remapped.into_values() {
+            insert_or_merge_coverage(out, coverage);
+        }
+    } else {
+        let mut passthrough = original.clone();
+        passthrough.prune_orphan_counters();
+        path.clone_into(&mut passthrough.path);
+        insert_or_merge_coverage(out, passthrough);
     }
 }
 
 /// Insert `incoming` under its own path, folding it into an entry already at
 /// that path.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn insert_or_merge_coverage(
+fn insert_or_merge_coverage(
     coverage_map: &mut BTreeMap<String, FileCoverage>,
     incoming: FileCoverage,
 ) {
@@ -100,11 +98,7 @@ pub(crate) fn insert_or_merge_coverage(
 
 /// Fold `incoming` into `existing`, matching entries by remapped location and
 /// summing their counters.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn merge_file_coverage(existing: &mut FileCoverage, incoming: &FileCoverage) {
+pub fn merge_file_coverage(existing: &mut FileCoverage, incoming: &FileCoverage) {
     merge_statements(existing, incoming);
     merge_functions(existing, incoming);
     merge_branches(existing, incoming);
@@ -141,17 +135,17 @@ fn merge_functions(existing: &mut FileCoverage, incoming: &FileCoverage) {
         existing.x_fallow_function_map =
             incoming.x_fallow_function_map.as_ref().map(|_| BTreeMap::new());
     }
-    let mut ids: BTreeMap<FunctionMergeKey, String> = existing
+    let mut ids: BTreeMap<LocationKey, String> = existing
         .fn_map
         .iter()
-        .map(|(id, function)| (FunctionMergeKey::from(function), id.clone()))
+        .map(|(id, function)| (function_merge_key(function), id.clone()))
         .collect();
     let incoming_overlay = incoming.x_fallow_function_map.as_ref();
     let mut overlay_conflict = incoming_overlay.is_none()
         || (existing_has_functions && existing.x_fallow_function_map.is_none());
 
     for (incoming_id, function) in numeric_id_order(&incoming.fn_map) {
-        let key = FunctionMergeKey::from(function);
+        let key = function_merge_key(function);
         let (output_id, existed) = if let Some(id) = ids.get(&key) {
             (id.clone(), true)
         } else {
@@ -187,17 +181,17 @@ fn merge_functions(existing: &mut FileCoverage, incoming: &FileCoverage) {
 }
 
 fn merge_branches(existing: &mut FileCoverage, incoming: &FileCoverage) {
-    let mut ids: BTreeMap<BranchMergeKey, String> = existing
+    let mut ids: BTreeMap<Vec<LocationKey>, String> = existing
         .branch_map
         .iter()
-        .map(|(id, branch)| (BranchMergeKey::from(branch), id.clone()))
+        .map(|(id, branch)| (branch_merge_key(branch), id.clone()))
         .collect();
     if existing.b_t.is_none() && incoming.b_t.is_some() {
         existing.b_t = Some(BTreeMap::new());
     }
 
     for (incoming_id, branch) in numeric_id_order(&incoming.branch_map) {
-        let key = BranchMergeKey::from(branch);
+        let key = branch_merge_key(branch);
         let output_id = if let Some(id) = ids.get(&key) {
             id.clone()
         } else {

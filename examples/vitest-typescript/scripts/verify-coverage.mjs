@@ -9,8 +9,6 @@
 //      (NOT math.js, i.e., the TS source is the wire-format key)
 //   2. statementMap entries point at line numbers that exist in the .ts source
 //   3. compute() function counter and at least one branch counter are populated
-//
-// Exit codes: 0 on success, non-zero on failure with a descriptive message.
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, basename } from 'node:path';

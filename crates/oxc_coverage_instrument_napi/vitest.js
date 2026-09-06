@@ -34,58 +34,8 @@ const TS_EXTENSION_REGEX = /\.([mc]ts|tsx?)$/i;
  * `InstrumenterOptions` with `coverageVariable` and `ignoreClassMethods`.
  * These are forwarded to the native instrumenter automatically.
  *
- * @param {object} [options]
- * @param {'istanbul'} [options.compat] Use the strict Istanbul coverage shape.
- * @param {string} [options.coverageVariable] Global variable for coverage data.
- *   Vitest passes its internal `__VITEST_COVERAGE__`; defaults to `__coverage__`.
- * @param {string[]} [options.ignoreClassMethods] Class method names to skip.
- * @param {boolean} [options.reportLogic] Enable truthy-value tracking (bT).
- * @param {boolean} [options.trackOptionalChainBranches] Track receiver-safe
- *   optional chaining (`?.`) links as branches (default: true). Receiver-bound
- *   optional calls stay native to preserve `this`. Set to false to leave all
- *   optional chains native, matching `istanbul-lib-instrument`.
- * @param {boolean} [options.stripTypescript] Run the TypeScript-strip pass
- *   before instrumentation. When omitted (default), the adapter auto-detects:
- *   it strips when the filename matches `/\.([mc]ts|tsx?)$/i` AND no
- *   `inputSourceMap` was supplied (i.e., the source has not already been
- *   transformed by Vite / Babel / tsc). Set to `false` to disable auto-detect
- *   under toolchains that pre-transform TypeScript but do not produce an
- *   `inputSourceMap` (`@vitejs/plugin-react-swc` in some configurations, Bun's
- *   native TS runner, Node 23+ with `--experimental-strip-types`). Set to
- *   `true` to force strip regardless of filename or `inputSourceMap` presence.
- *   Non-boolean values throw `TypeError`: the `?: boolean` type contract is
- *   strict because callers passing a string like `'auto'` (a prior design
- *   discussion shape) would otherwise be silently coerced to `Boolean('auto')`
- *   which is `true`, force-stripping every file.
- * @param {boolean} [options.experimentalDecorators] Lower legacy
- *   `experimentalDecorators` syntax into `_decorate(...)` calls (matches the
- *   `experimentalDecorators` flag in `tsconfig.json`). Defaults to false; pass
- *   true for NestJS / Angular / class-validator / TypeORM. Only active when
- *   the strip pass runs. Requires `@oxc-project/runtime` at execution; see the
- *   README's "Legacy decorators" section. No auto-detect from `tsconfig.json`
- *   in this version; set explicitly when you need it.
- * @param {boolean} [options.emitDecoratorMetadata] Emit
- *   `_decorateMetadata("design:type" / "design:paramtypes" / "design:returntype", ...)`
- *   alongside each decorated member (matches `emitDecoratorMetadata` in
- *   `tsconfig.json`). Required for NestJS DI and TypeORM column type inference.
- *   Setting this to true auto-promotes `experimentalDecorators` to true at
- *   this layer, matching tsconfig.json semantics. The bare `instrument()`
- *   napi entry point rejects the same combination with an Error; the vitest
- *   adapter preserves the tsconfig-style ergonomics for the vitest UX.
- * @param {boolean} [options.strictNullChecks] Whether the source is compiled
- *   under `strictNullChecks` (matches the `strictNullChecks` flag in
- *   `tsconfig.json`). Only consulted when `emitDecoratorMetadata` is true,
- *   where it decides how a nullable union is written into `design:type`:
- *   `foo: string | null` emits `Object` when true and `String` when false.
- *   Defaults to true, matching `tsc` under `strict`. Set it to match the
- *   tsconfig your sources are compiled with, or NestJS DI and TypeORM will
- *   read a different type than `tsc` produced.
- * @param {boolean} [options.functionIdentityOverlay] Attach the optional
- *   `x_fallow_functionMap` extension to the last file coverage object.
- * @param {boolean} [options.nameCallbackArguments] Name an otherwise-anonymous
- *   function/arrow that is a direct call/`new` argument from the callee
- *   (`arr.map(cb)` -> `"map"`). Binding names still take precedence. Defaults
- *   to false.
+ * @param {import('./vitest.d.ts').OxcInstrumenterOptions} [options] Every
+ *   option is documented on `OxcInstrumenterOptions` in `vitest.d.ts`.
  * @returns {{ instrumentSync, lastSourceMap, lastFileCoverage }}
  */
 function createOxcInstrumenter(options) {
@@ -124,6 +74,8 @@ function createOxcInstrumenter(options) {
       `oxc-coverage-instrument: createOxcInstrumenter({ nameCallbackArguments }) must be a boolean or undefined, got ${typeof options.nameCallbackArguments}`,
     );
   }
+  // Strictly boolean: a caller passing a string like 'auto' would otherwise be
+  // coerced to Boolean('auto') === true, force-stripping every file.
   const stripTypescriptOverride = options.stripTypescript;
   if (stripTypescriptOverride !== undefined && typeof stripTypescriptOverride !== 'boolean') {
     throw new TypeError(

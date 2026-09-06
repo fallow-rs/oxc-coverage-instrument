@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry};
+use oxc_coverage_types::{BranchEntry, FileCoverage};
 
 use crate::escape::html_text;
 use crate::projection::{aligned_branch_hits, branch_line, branched_lines};
@@ -114,7 +114,7 @@ fn branch_arm_label(entry: &BranchEntry, idx: usize) -> String {
 pub(super) fn compute_fn_lines(file: &FileCoverage) -> BTreeMap<u32, u32> {
     let mut out: BTreeMap<u32, u32> = BTreeMap::new();
     for (id, entry) in &file.fn_map {
-        let line = fn_line(entry);
+        let line = if entry.line > 0 { entry.line } else { entry.decl.start.line };
         if line == 0 {
             continue;
         }
@@ -122,8 +122,4 @@ pub(super) fn compute_fn_lines(file: &FileCoverage) -> BTreeMap<u32, u32> {
         out.entry(line).and_modify(|v| *v = (*v).max(hits)).or_insert(hits);
     }
     out
-}
-
-fn fn_line(entry: &FnEntry) -> u32 {
-    if entry.line > 0 { entry.line } else { entry.decl.start.line }
 }

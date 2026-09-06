@@ -38,15 +38,18 @@ export interface OxcInstrumenterOptions {
    * `/\.([mc]ts|tsx?)$/i` AND no `inputSourceMap` was supplied (i.e., the
    * source has not already been transformed by Vite / Babel / tsc). Set to
    * `false` to disable auto-detect under toolchains that pre-transform
-   * TypeScript but do not produce an `inputSourceMap`. Set to `true` to force
-   * strip. Non-boolean values throw `TypeError`.
+   * TypeScript but do not produce an `inputSourceMap` (`@vitejs/plugin-react-swc`
+   * in some configurations, Bun's native TS runner, Node 23+ with
+   * `--experimental-strip-types`). Set to `true` to force strip. Non-boolean
+   * values throw `TypeError`.
    */
   stripTypescript?: boolean;
   /**
    * Lower legacy `experimentalDecorators` syntax into `_decorate(...)` calls.
    * Defaults to false and only applies when the TypeScript strip pass runs.
-   * Requires `@oxc-project/runtime` at execution. This option is not detected
-   * from `tsconfig.json` and must be enabled explicitly.
+   * Requires `@oxc-project/runtime` at execution; see the README's "Legacy
+   * decorators" section. This option is not detected from `tsconfig.json` and
+   * must be enabled explicitly.
    */
   experimentalDecorators?: boolean;
   /**

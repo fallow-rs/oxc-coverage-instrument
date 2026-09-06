@@ -29,7 +29,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use syntect::html::{ClassStyle, line_tokens_to_classed_spans};
-use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
+use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
 use syntect::util::LinesWithEndings;
 
 use crate::escape::html_text;
@@ -61,7 +61,11 @@ fn syntax_set() -> &'static SyntaxSet {
 /// obscure file type.
 pub fn highlight_lines(source: &str, file_path: &Path) -> Vec<String> {
     let syntaxes = syntax_set();
-    let Some(syntax) = pick_syntax(syntaxes, file_path) else {
+    let Some(syntax) = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .and_then(|e| syntaxes.find_syntax_by_extension(e))
+    else {
         // Escaped-only fallback. Mirrors the shape of the highlighted path
         // so the caller does not branch on language availability.
         return source.split('\n').map(html_text).collect();
@@ -96,14 +100,6 @@ pub fn highlight_lines(source: &str, file_path: &Path) -> Vec<String> {
     out
 }
 
-/// Look up a syntect [`SyntaxReference`] by the extension of `file_path`.
-/// Returns `None` if the path has no extension or no matching grammar is
-/// bundled.
-fn pick_syntax<'a>(syntaxes: &'a SyntaxSet, file_path: &Path) -> Option<&'a SyntaxReference> {
-    let extension = file_path.extension().and_then(|e| e.to_str())?;
-    syntaxes.find_syntax_by_extension(extension)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,6 +123,9 @@ mod tests {
         assert!(lines[0].contains("&lt;world&gt;"));
         assert!(lines[0].contains("&amp;"));
         assert!(!lines[0].contains("stok-"), "fallback should not emit token spans: {}", lines[0]);
+
+        // A path with no extension at all takes the same fallback branch.
+        assert_eq!(highlight_lines("hello <world> & friends", Path::new("")), lines);
     }
 
     #[test]
@@ -134,13 +133,6 @@ mod tests {
         // Mirrors `"".split('\n')` which yields one empty string.
         assert_eq!(highlight_lines("", Path::new("a.ts")), vec![String::new()]);
         assert_eq!(highlight_lines("", Path::new("")), vec![String::new()]);
-    }
-
-    #[test]
-    fn no_path_hint_falls_back_to_plain() {
-        let lines = highlight_lines("const x = 1;", Path::new(""));
-        assert!(!lines[0].contains("stok-"), "no path hint -> no spans");
-        assert!(lines[0].contains("const x = 1;"));
     }
 
     #[test]

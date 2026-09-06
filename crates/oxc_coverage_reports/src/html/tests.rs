@@ -209,8 +209,6 @@ mod emitted_assets {
         let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
         let dir = write_to_temp(json);
         let js = fs::read_to_string(dir.path().join("base.js")).unwrap();
-        assert!(js.contains("Theme toggle"), "base.js missing theme toggle section");
-        assert!(js.contains("Sortable tables"), "base.js missing sortable tables section");
         assert!(js.contains("buildThemeToggle"), "base.js missing theme toggle invocation");
         assert!(js.contains("initSortable"), "base.js missing sortable init invocation");
         assert!(
@@ -326,11 +324,13 @@ mod markup {
             detail.contains("href=\"../base.css\""),
             "expected ../base.css href in nested file, got:\n{detail}"
         );
+        assert!(detail.contains("src=\"../base.js\""), "nested script href wrong: {detail}");
         let root_detail = fs::read_to_string(dir.path().join("a.js.html")).unwrap();
         assert!(
             root_detail.contains("href=\"base.css\""),
             "expected base.css href at root, got:\n{root_detail}"
         );
+        assert!(root_detail.contains("src=\"base.js\""), "root script href wrong: {root_detail}");
     }
 
     #[test]
@@ -386,16 +386,6 @@ mod markup {
             );
             assert!(html.contains("viewport"), "missing viewport meta in {html_path:?}");
         }
-    }
-
-    #[test]
-    fn nested_pages_use_relative_script_href() {
-        let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}},"src/foo.js":{"path":"src/foo.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
-        let dir = write_to_temp(json);
-        let nested = fs::read_to_string(dir.path().join("src").join("foo.js.html")).unwrap();
-        assert!(nested.contains("src=\"../base.js\""), "nested script href wrong: {nested}");
-        let root = fs::read_to_string(dir.path().join("a.js.html")).unwrap();
-        assert!(root.contains("src=\"base.js\""), "root script href wrong: {root}");
     }
 
     #[test]

@@ -51,13 +51,15 @@ const requiredFiles = [
   'wasi-worker-browser.mjs',
 ];
 
-function readRequired(path) {
+function requirePath(path) {
   if (!existsSync(path)) {
     console.error(`[prepare-wasi-singlethreaded-package] missing required file: ${path}`);
     process.exit(1);
   }
-  return readFileSync(path, 'utf8');
+  return path;
 }
+
+const readRequired = (path) => readFileSync(requirePath(path), 'utf8');
 
 mkdirSync(targetDir, { recursive: true });
 for (const file of requiredFiles) {
@@ -68,21 +70,13 @@ for (const file of requiredFiles) {
   } else if (file.endsWith('.js') || file.endsWith('.cjs')) {
     writeFileSync(targetPath, patchSingleThreadedShim(readRequired(sourcePath)));
   } else if (file.endsWith('.wasm')) {
-    if (!existsSync(sourcePath)) {
-      console.error(`[prepare-wasi-singlethreaded-package] missing required file: ${sourcePath}`);
-      process.exit(1);
-    }
-    const result = patchSingleThreadedWasm(readFileSync(sourcePath));
+    const result = patchSingleThreadedWasm(readFileSync(requirePath(sourcePath)));
     writeFileSync(targetPath, result.buffer);
     if (result.patched) {
       console.log(`[prepare-wasi-singlethreaded-package] made wasm global #${result.globalIndex} mutable.`);
     }
   } else {
-    if (!existsSync(sourcePath)) {
-      console.error(`[prepare-wasi-singlethreaded-package] missing required file: ${sourcePath}`);
-      process.exit(1);
-    }
-    copyFileSync(sourcePath, targetPath);
+    copyFileSync(requirePath(sourcePath), targetPath);
   }
 }
 

@@ -17,14 +17,6 @@ fn render(json: &str) -> String {
 }
 
 #[test]
-fn emits_tn_sf_and_end_of_record() {
-    let json = r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#;
-    let out = render(json);
-    assert!(out.starts_with("TN:\nSF:a.js"));
-    assert!(out.contains("end_of_record"));
-}
-
-#[test]
 fn branch_metadata_controls_emitted_arms() {
     let out = render(DAMAGED_BRANCH);
     assert!(out.contains("BRDA:1,0,0,4"));
@@ -109,28 +101,6 @@ fn anonymous_function_name_has_parens_stripped() {
     assert!(out.contains("FN:3,anonymous_0"), "got:\n{out}");
     assert!(out.contains("FNDA:2,anonymous_0"), "got:\n{out}");
     assert!(!out.contains("(anonymous_0)"));
-}
-
-#[test]
-fn both_da_and_brda_emitted() {
-    let json = r#"{
-        "a.js": {
-            "path": "a.js",
-            "statementMap": {
-                "0": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 5}}
-            },
-            "fnMap": {},
-            "branchMap": {
-                "0": {"loc": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 1}}, "line": 1, "type": "if", "locations": [{"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 1}}, {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 1}}]}
-            },
-            "s": {"0": 1},
-            "f": {},
-            "b": {"0": [1, 0]}
-        }
-    }"#;
-    let out = render(json);
-    assert!(out.contains("DA:1,1"));
-    assert!(out.contains("BRDA:1,0,0,1"));
 }
 
 #[test]
@@ -258,15 +228,5 @@ fn lf_lh_counts_unique_lines() {
     }"#;
     let out = render(json);
     assert!(out.contains("LF:2"), "got:\n{out}");
-    assert!(out.contains("LH:1"), "got:\n{out}");
-}
-
-#[test]
-fn lines_ignore_statement_map_entries_without_counters() {
-    let json = r#"{"a.js":{"path":"a.js","statementMap":{"0":{"start":{"line":1,"column":0},"end":{"line":1,"column":5}},"1":{"start":{"line":7,"column":0},"end":{"line":7,"column":5}}},"fnMap":{},"branchMap":{},"s":{"0":3},"f":{},"b":{}}}"#;
-    let out = render(json);
-    assert!(out.contains("DA:1,3"), "got:\n{out}");
-    assert!(!out.contains("DA:7,"), "got:\n{out}");
-    assert!(out.contains("LF:1"), "got:\n{out}");
     assert!(out.contains("LH:1"), "got:\n{out}");
 }

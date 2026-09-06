@@ -44,13 +44,6 @@ fn original_position_try_both(sm: &SourceMap, line: u32, column: u32) -> Option<
         .or_else(|| sm.original_position_for_with_bias(line, column, Bias::LeastUpperBound))
 }
 
-#[derive(Clone, Copy)]
-struct OriginalLookup<'a> {
-    source: &'a str,
-    line: u32,
-    column: u32,
-}
-
 /// `allGeneratedPositionsFor({ ..., bias: LEAST_UPPER_BOUND })`.
 ///
 /// Returns every generated position that maps to the original `(source, line)`
@@ -68,9 +61,10 @@ struct OriginalLookup<'a> {
 /// are logarithmic.
 fn all_generated_positions_for_lub(
     ctx: &mut RemapContext<'_>,
-    lookup: OriginalLookup<'_>,
+    source: &str,
+    line: u32,
+    column: u32,
 ) -> Vec<GeneratedLocation> {
-    let OriginalLookup { source, line, column } = lookup;
     // Key the scan by name -> index (not the caller's raw mapping index): istanbul
     // and trace-mapping look up the source by name too, so for a map where the
     // same name appears at multiple indices this matches the library's first-match
@@ -133,10 +127,7 @@ fn original_end_position_for(
     // map each back (GLB) and take the first that lands on the same original
     // line. That segment's start is the exclusive end of the span.
     let next_column = before.column.checked_add(1)?;
-    let after = all_generated_positions_for_lub(
-        ctx,
-        OriginalLookup { source, line: before.line, column: next_column },
-    );
+    let after = all_generated_positions_for_lub(ctx, source, before.line, next_column);
     for gen_pos in &after {
         if let Some(orig) = ctx.sm.original_position_for_with_bias(
             gen_pos.line,
@@ -184,7 +175,11 @@ fn get_mapping_location(loc: &Location, ctx: &mut RemapContext<'_>) -> Option<Ma
     // end-of-line case: istanbul's `Infinity` can never equal `start.column`,
     // so the guard never fires there.
     if !end_is_eol && start.line == end_line && start.column == end_col {
-        let lub = original_position_for_lub(ctx.sm, loc.end.line - 1, loc.end.column)?;
+        let lub = ctx.sm.original_position_for_with_bias(
+            loc.end.line - 1,
+            loc.end.column,
+            Bias::LeastUpperBound,
+        )?;
         end_line = lub.line;
         // get-mapping.js does `end.column -= 1` unconditionally; when LUB lands on
         // column 0 it yields a JS `-1`, which cannot round-trip through a `u32`
@@ -204,13 +199,6 @@ fn get_mapping_location(loc: &Location, ctx: &mut RemapContext<'_>) -> Option<Ma
     })
 }
 
-/// Least-upper-bound lookup used by the degenerate-span branch.
-fn original_position_for_lub(sm: &SourceMap, line: u32, column: u32) -> Option<OriginalLocation> {
-    sm.original_position_for_with_bias(line, column, Bias::LeastUpperBound)
-}
-
-// direct per-position lookup (line-0 sentinel + no-drop fallback)
-
 /// Direct per-position remap. Used for the `line: 0` "unknown" sentinel, which
 /// `getMapping` has no notion of, and in no-drop mode for entries `getMapping`
 /// cannot resolve, where the generated position is kept.
@@ -226,22 +214,14 @@ fn direct_remap_position(pos: &mut Position, sm: &SourceMap) {
 }
 
 /// Direct per-position remap of both endpoints. See [`direct_remap_position`].
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn direct_remap_location(loc: &mut Location, sm: &SourceMap) {
+pub fn direct_remap_location(loc: &mut Location, sm: &SourceMap) {
     direct_remap_position(&mut loc.start, sm);
     direct_remap_position(&mut loc.end, sm);
 }
 
 /// Resolve a `Location` through [`get_mapping_location`], memoised per
 /// `(start, end)` pair for the lifetime of the caches.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn get_mapped_location_cached(
+pub fn get_mapped_location_cached(
     ctx: &mut RemapContext<'_>,
     loc: &Location,
 ) -> Option<MappedLocation> {
@@ -255,13 +235,6 @@ pub(crate) fn get_mapped_location_cached(
 }
 
 /// [`get_mapped_location_cached`] without the resolved source index.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn get_mapping_location_cached(
-    ctx: &mut RemapContext<'_>,
-    loc: &Location,
-) -> Option<Location> {
+pub fn get_mapping_location_cached(ctx: &mut RemapContext<'_>, loc: &Location) -> Option<Location> {
     get_mapped_location_cached(ctx, loc).map(|mapped| mapped.location)
 }

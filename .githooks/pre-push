@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Pre-push hook that mirrors the fast CI checks that block merges to main.
-#
-# Runs the same fast checks that gate a merge to main, so a broken push is
-# caught before it costs a CI round trip or a published-package fix-up.
+# Pre-push hook: runs the fast checks that gate a merge to main, so a broken
+# push is caught before it costs a CI round trip or a published-package fix-up.
 #
 # Setup (one-time, per clone):
 #   git config core.hooksPath .githooks

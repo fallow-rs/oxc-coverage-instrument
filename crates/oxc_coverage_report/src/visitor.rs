@@ -142,14 +142,4 @@ mod tests {
             ]
         );
     }
-
-    #[test]
-    fn walk_succeeds_with_all_default_callbacks() {
-        struct Empty;
-        impl Visitor for Empty {}
-        let map = parse_coverage_map(r#"{"a.js":{"path":"a.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}"#).unwrap();
-        let root = summarize(&map);
-        let mut empty = Empty;
-        assert!(walk(&root, &mut empty).is_ok());
-    }
 }

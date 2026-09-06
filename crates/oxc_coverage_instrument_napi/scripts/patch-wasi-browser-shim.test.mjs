@@ -4,14 +4,7 @@
 
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import {
-  copyFileSync,
-  existsSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,26 +27,34 @@ const __wasmUrl = new URL('./coverage-instrument.wasm32-wasi.wasm', import.meta.
 const __sharedMemory = new WebAssembly.Memory({ initial: 4000, maximum: 65536, shared: true })
 `;
 
-// Run the patch script with a stand-in shim at the expected location. We
-// can't override the script's resolved path, so swap the real shim aside
-// for the duration of the test if present.
-function runWith(syntheticContents) {
+// The script resolves the shim path itself, so swap the real shim aside for
+// the duration of each test if present.
+function withShimAside(fn) {
   let backup = null;
   if (existsSync(REAL_SHIM)) {
     backup = `${REAL_SHIM}.test-backup`;
     renameSync(REAL_SHIM, backup);
   }
   try {
-    writeFileSync(REAL_SHIM, syntheticContents);
-    const result = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' });
-    const after = readFileSync(REAL_SHIM, 'utf8');
-    return { result, after };
+    return fn();
   } finally {
     rmSync(REAL_SHIM, { force: true });
     if (backup) {
       renameSync(backup, REAL_SHIM);
     }
   }
+}
+
+function runScript() {
+  return spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' });
+}
+
+function runWith(syntheticContents) {
+  return withShimAside(() => {
+    writeFileSync(REAL_SHIM, syntheticContents);
+    const result = runScript();
+    return { result, after: readFileSync(REAL_SHIM, 'utf8') };
+  });
 }
 
 console.log('Testing patch-wasi-browser-shim.mjs...\n');
@@ -96,51 +97,22 @@ console.log('Testing patch-wasi-browser-shim.mjs...\n');
 }
 
 // Test 3: missing shim is a no-op (non-wasm builds)
-{
-  let backup = null;
-  if (existsSync(REAL_SHIM)) {
-    backup = `${REAL_SHIM}.test-backup`;
-    renameSync(REAL_SHIM, backup);
-  }
-  try {
-    const result = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' });
-    assert.equal(result.status, 0, 'missing shim should exit 0');
-    assert.ok(
-      !existsSync(REAL_SHIM),
-      'patch script created a shim where none existed',
-    );
-    console.log('  [PASS] Missing shim is a no-op');
-  } finally {
-    if (backup) {
-      renameSync(backup, REAL_SHIM);
-    }
-  }
-}
+withShimAside(() => {
+  const result = runScript();
+  assert.equal(result.status, 0, 'missing shim should exit 0');
+  assert.ok(!existsSync(REAL_SHIM), 'patch script created a shim where none existed');
+  console.log('  [PASS] Missing shim is a no-op');
+});
 
 // Test 4: malformed shim (no import block) errors loudly
 {
-  let backup = null;
-  if (existsSync(REAL_SHIM)) {
-    backup = `${REAL_SHIM}.test-backup`;
-    copyFileSync(REAL_SHIM, backup);
-    rmSync(REAL_SHIM);
-  }
-  try {
-    writeFileSync(REAL_SHIM, 'const x = 1;\n');
-    const result = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' });
-    assert.notEqual(result.status, 0, 'malformed shim should exit non-zero');
-    assert.ok(
-      result.stderr.includes('could not locate'),
-      `expected diagnostic stderr, got: ${result.stderr}`,
-    );
-    console.log('  [PASS] Malformed shim errors loudly');
-  } finally {
-    rmSync(REAL_SHIM, { force: true });
-    if (backup) {
-      copyFileSync(backup, REAL_SHIM);
-      rmSync(backup);
-    }
-  }
+  const { result } = runWith('const x = 1;\n');
+  assert.notEqual(result.status, 0, 'malformed shim should exit non-zero');
+  assert.ok(
+    result.stderr.includes('could not locate'),
+    `expected diagnostic stderr, got: ${result.stderr}`,
+  );
+  console.log('  [PASS] Malformed shim errors loudly');
 }
 
 console.log('\nAll patch-shim tests passed.');

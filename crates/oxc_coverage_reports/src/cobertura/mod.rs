@@ -91,7 +91,7 @@ pub fn write_with_timestamp<W: io::Write>(
 
     let grouped = group_by_package(&files, root_dir);
     for (package_name, package_files) in &grouped {
-        write_package(out, PackageInput { name: package_name, files: package_files, root_dir })?;
+        write_package(out, package_name, package_files, root_dir)?;
     }
 
     writeln!(out, "  </packages>")?;
@@ -99,15 +99,12 @@ pub fn write_with_timestamp<W: io::Write>(
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-struct PackageInput<'a> {
-    name: &'a str,
-    files: &'a [FileEntry<'a>],
-    root_dir: &'a Path,
-}
-
-fn write_package<W: io::Write>(out: &mut W, input: PackageInput<'_>) -> io::Result<()> {
-    let PackageInput { name, files, root_dir } = input;
+fn write_package<W: io::Write>(
+    out: &mut W,
+    name: &str,
+    files: &[FileEntry<'_>],
+    root_dir: &Path,
+) -> io::Result<()> {
     let (lines_total, lines_covered) = accumulate_lines(files.iter().map(|f| f.coverage));
     let (branches_total, branches_covered) = accumulate_branches(files.iter().map(|f| f.coverage));
     let line_rate = rate(lines_covered, lines_total);
@@ -122,25 +119,22 @@ fn write_package<W: io::Write>(out: &mut W, input: PackageInput<'_>) -> io::Resu
     )?;
     writeln!(out, "      <classes>")?;
     for entry in files {
-        write_class(out, ClassInput { entry, root_dir })?;
+        write_class(out, entry, root_dir)?;
     }
     writeln!(out, "      </classes>")?;
     writeln!(out, "    </package>")?;
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-struct ClassInput<'a> {
-    entry: &'a FileEntry<'a>,
-    root_dir: &'a Path,
-}
-
 #[expect(
     clippy::cast_possible_truncation,
     reason = "istanbul counters are u32 on the wire, so a line count that does not fit is already outside the format"
 )]
-fn write_class<W: io::Write>(out: &mut W, input: ClassInput<'_>) -> io::Result<()> {
-    let ClassInput { entry, root_dir } = input;
+fn write_class<W: io::Write>(
+    out: &mut W,
+    entry: &FileEntry<'_>,
+    root_dir: &Path,
+) -> io::Result<()> {
     let file = entry.coverage;
     let relative = relative_source_path(entry.display_path, root_dir);
     let class_name = Path::new(&relative)

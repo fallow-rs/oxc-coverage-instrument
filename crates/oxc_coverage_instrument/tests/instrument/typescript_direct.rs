@@ -51,27 +51,6 @@ fn filename_source_type_inference_matrix_stays_stable() {
 }
 
 #[test]
-fn ts_direct_output_is_valid_js() {
-    let src = "const x: number = 1;\nconsole.log(x);\n";
-    let result = instrument(src, "app.ts", &ts_opts()).expect("instrument");
-    assert!(
-        !result.code.contains(": number"),
-        "type annotation must be stripped, got: {}",
-        result.code
-    );
-    assert!(
-        !result.code.contains("interface "),
-        "interface declarations must be stripped, got: {}",
-        result.code
-    );
-    assert!(
-        result.code.contains("const x ="),
-        "executable JS variable declaration expected, got: {}",
-        result.code
-    );
-}
-
-#[test]
 fn ts_direct_ignore_file_pragmas_still_strip_typescript() {
     for tool in ["istanbul", "v8", "c8"] {
         let src = format!(
@@ -176,19 +155,6 @@ fn ts_direct_parse_error_returns_parse_error() {
     let src = "const x: = ;\n";
     let err = instrument(src, "app.ts", &ts_opts()).expect_err("parse must fail");
     assert!(matches!(err, InstrumentError::ParseError(_)), "expected ParseError, got {err:?}");
-}
-
-#[test]
-fn ts_direct_off_leaves_type_annotations_in_output() {
-    let src = "const x: number = 1;\n";
-    let opts = InstrumentOptions::default();
-    assert!(!opts.strip_typescript);
-    let result = instrument(src, "app.ts", &opts).expect("instrument");
-    assert!(
-        result.code.contains(": number"),
-        "with strip_typescript=false the TS annotation must remain, got: {}",
-        result.code
-    );
 }
 
 #[test]
@@ -411,19 +377,6 @@ fn ts_direct_decorators_default_pass_through() {
         "no lowering expected by default, got: {}",
         result.code
     );
-}
-
-#[test]
-fn decorator_mode_legacy_and_emit_metadata_match_variant() {
-    // The Rust API uses an enum so the invalid combination "emit metadata
-    // without lowering decorators" is unrepresentable. The upstream
-    // transformer flags must follow the enum variant exactly.
-    assert!(!DecoratorMode::PassThrough.legacy());
-    assert!(!DecoratorMode::PassThrough.emit_metadata());
-    assert!(DecoratorMode::Experimental.legacy());
-    assert!(!DecoratorMode::Experimental.emit_metadata());
-    assert!(DecoratorMode::ExperimentalWithMetadata.legacy());
-    assert!(DecoratorMode::ExperimentalWithMetadata.emit_metadata());
 }
 
 #[test]

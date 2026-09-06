@@ -11,7 +11,7 @@ use crate::pragma::IgnoreType;
 
 use super::counters::{CounterKind, build_counter_stmt, dummy_expr, prepend_counter};
 use super::coverage_map::is_synthetic_span;
-use super::ignore::{MethodPragmaInput, method_ignored_by_pragma};
+use super::ignore::method_ignored_by_pragma;
 use super::names::{callback_argument_name, method_label, property_key_to_name};
 use super::{CoverageState, CoverageTransform};
 
@@ -203,10 +203,7 @@ impl<'arena> CoverageTransform<'_, 'arena> {
     ) {
         let parent_ignored = self.in_ignored_subtree();
         let key_span = method.key.span();
-        if method_ignored_by_pragma(
-            MethodPragmaInput { method, key_span, skip_next: self.skip_next },
-            ctx,
-        ) {
+        if method_ignored_by_pragma(method, &ctx.state.pragmas, self.skip_next) {
             self.ignored_prop_stack.push(true);
             self.skip_next = false;
             return;

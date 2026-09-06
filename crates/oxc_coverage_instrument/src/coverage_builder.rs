@@ -14,34 +14,26 @@ use oxc_coverage_types::{BranchEntry, FileCoverage, FnEntry, FunctionIdentity, L
 
 /// Inputs to [`build_file_coverage`], grouped so callers thread one value
 /// instead of five.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) struct CoverageMaps {
+pub struct CoverageMaps {
     /// File path stored on the resulting `FileCoverage`.
-    pub(crate) path: String,
+    pub path: String,
     /// Statement spans collected during traversal, indexed by counter id.
-    pub(crate) statement_locs: Vec<Location>,
+    pub statement_locs: Vec<Location>,
     /// Function metadata (name, decl span, body span) indexed by counter id.
-    pub(crate) fn_entries: Vec<FnEntry>,
+    pub fn_entries: Vec<FnEntry>,
     /// Branch metadata indexed by counter id; entries with empty `locations`
     /// are dropped during map construction.
-    pub(crate) branch_entries: Vec<BranchEntry>,
+    pub branch_entries: Vec<BranchEntry>,
     /// Counter ids of branches that should also be tracked in the truthy
     /// (`bT`) map; only populated when `report_logic` is on.
-    pub(crate) logical_branch_ids: Vec<usize>,
+    pub logical_branch_ids: Vec<usize>,
 }
 
 /// Convert sequential id-indexed Vecs collected during AST traversal into the
 /// Istanbul-shaped `FileCoverage`. The Vecs are converted once into the
 /// `BTreeMap<String, _>` here so the hot traversal path avoids per-add String
 /// allocations and tree rebalancing.
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn build_file_coverage(maps: CoverageMaps) -> FileCoverage {
+pub fn build_file_coverage(maps: CoverageMaps) -> FileCoverage {
     let CoverageMaps { path, statement_locs, fn_entries, branch_entries, logical_branch_ids } =
         maps;
     let statement_map: BTreeMap<String, Location> =
@@ -122,11 +114,7 @@ fn build_truthy_hit_map(
 /// to `instrument()`; consumers that need stable ids across tools must
 /// normalise paths first (`./app.js`, `app.js`, and `/abs/repo/app.js`
 /// all hash differently).
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "`pub(crate)` marks the API boundary; the module is private by construction"
-)]
-pub(crate) fn build_function_identity_map(
+pub fn build_function_identity_map(
     path: &str,
     fn_map: &BTreeMap<String, FnEntry>,
 ) -> BTreeMap<String, FunctionIdentity> {

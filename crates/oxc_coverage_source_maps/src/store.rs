@@ -6,11 +6,10 @@ use oxc_coverage_types::FileCoverage;
 use srcmap_sourcemap::SourceMap;
 
 use crate::{
-    apply::{apply_source_map_single, apply_source_map_to_map, apply_source_map_to_map_internal},
-    merge::insert_or_merge_coverage,
+    apply::{apply_source_map_single_result, apply_source_map_to_map},
+    merge::fold_remap_result,
     options::RemapOptions,
-    remap::{remap_coverage_to_map_with_options, remap_coverage_with_options, select_single_remap},
-    sources::sole_resolved_source_path,
+    remap::{remap_coverage_to_map_with_options, remap_coverage_with_options},
 };
 
 /// Stateful map store for the Mode B "continuous remap during collection"
@@ -121,12 +120,7 @@ impl SourceMapStore {
         options: RemapOptions,
     ) -> Option<FileCoverage> {
         if let Some(sm) = self.maps.get(&coverage.path) {
-            let sm = sm.as_ref()?;
-            if let Some(path) = sole_resolved_source_path(sm) {
-                return Some(apply_source_map_single(coverage, sm, options, path));
-            }
-            let remapped = apply_source_map_to_map_internal(coverage, sm, options, false)?;
-            return select_single_remap(remapped);
+            return apply_source_map_single_result(coverage, sm.as_ref()?, options);
         }
         remap_coverage_with_options(coverage, options)
     }
@@ -178,19 +172,8 @@ impl SourceMapStore {
     ) -> BTreeMap<String, FileCoverage> {
         let mut out = BTreeMap::new();
         for (path, fc) in coverage_map {
-            if let Some(remapped) = self.transform_coverage_to_map_with_options(fc, options) {
-                for coverage in remapped.into_values() {
-                    insert_or_merge_coverage(&mut out, coverage);
-                }
-            } else {
-                // Same invariant pass as the standalone map helper: an entry
-                // with no store or embedded map still gets its orphan counters
-                // dropped before passing through.
-                let mut passthrough = fc.clone();
-                passthrough.prune_orphan_counters();
-                passthrough.path.clone_from(path);
-                insert_or_merge_coverage(&mut out, passthrough);
-            }
+            let remapped = self.transform_coverage_to_map_with_options(fc, options);
+            fold_remap_result(&mut out, path, fc, remapped);
         }
         out
     }

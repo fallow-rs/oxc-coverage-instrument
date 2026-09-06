@@ -6,12 +6,11 @@ use oxc_coverage_types::{FileCoverage, Location, Position};
 use srcmap_sourcemap::SourceMap;
 
 use crate::{
-    apply::{apply_source_map_single_with_caches, apply_source_map_to_map_internal_with_caches},
+    apply::apply_source_map_single_result_with_caches,
     context::{RemapCaches, RemapContext},
     get_mapping::{get_mapped_location_cached, get_mapping_location_cached},
     options::RemapOptions,
-    remap::select_single_remap,
-    sources::{has_resolved_source, sole_resolved_source_path},
+    sources::has_resolved_source,
 };
 
 /// Generated-line adjustment applied before output-map composition.
@@ -100,23 +99,12 @@ impl PositionRemapper {
     #[must_use]
     pub fn remap_coverage(&self, coverage: &FileCoverage) -> Option<FileCoverage> {
         let mut caches = self.caches.borrow_mut();
-        if let Some(path) = sole_resolved_source_path(&self.sm) {
-            return Some(apply_source_map_single_with_caches(
-                coverage,
-                &self.sm,
-                RemapOptions::default(),
-                path,
-                &mut caches,
-            ));
-        }
-        let remapped = apply_source_map_to_map_internal_with_caches(
+        apply_source_map_single_result_with_caches(
             coverage,
             &self.sm,
             RemapOptions::default(),
-            false,
             &mut caches,
-        )?;
-        select_single_remap(remapped)
+        )
     }
 
     /// `true` when the istanbul position (1-based `line`, 0-based UTF-16

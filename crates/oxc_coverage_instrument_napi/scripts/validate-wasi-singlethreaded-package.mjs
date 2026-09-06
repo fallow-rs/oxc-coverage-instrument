@@ -8,15 +8,6 @@ const defaultPackageDir = resolve(__dirname, '..', 'npm', 'wasm32-wasi-singlethr
 const packageDir = process.argv[2] ? resolve(process.cwd(), process.argv[2]) : defaultPackageDir;
 const packageName = '@oxc-coverage-instrument/binding-wasm32-wasi-singlethreaded';
 
-const requiredFiles = [
-  'coverage-instrument.wasm32-wasi.wasm',
-  'coverage-instrument.wasi.cjs',
-  'coverage-instrument.wasi-browser.js',
-  'wasi-worker.mjs',
-  'wasi-worker-browser.mjs',
-  'package.json',
-];
-
 function readRequired(file, encoding) {
   const path = join(packageDir, file);
   if (!existsSync(path)) {
@@ -25,7 +16,9 @@ function readRequired(file, encoding) {
   return readFileSync(path, encoding);
 }
 
-for (const file of requiredFiles) {
+// The worker shims are only checked for presence; every other required file is
+// read and inspected below.
+for (const file of ['wasi-worker.mjs', 'wasi-worker-browser.mjs']) {
   readRequired(file);
 }
 
