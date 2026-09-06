@@ -523,16 +523,20 @@ jobs:
           name: vitest-example-binding
           path: crates/oxc_coverage_instrument_napi
 
+      # npm 10.9.8 crashes in arborist ("Cannot read properties of null
+      # (reading 'edgesOut')") while resolving peers around the file: binding
+      # dependency. --legacy-peer-deps takes the older peer resolver and still
+      # resolves the declared ranges fresh, which is what this matrix tests.
       - name: Install example deps
         working-directory: examples/vitest-typescript
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       # Pin this leg's toolchain. --no-save keeps package.json's declared range
       # intact so the range stays the source of truth and only the resolution
       # under test changes.
       - name: Pin toolchain for this leg
         working-directory: examples/vitest-typescript
-        run: npm install --no-save "typescript@${{ matrix.ts }}" "@types/node@${{ matrix.types }}"
+        run: npm install --legacy-peer-deps --no-save "typescript@${{ matrix.ts }}" "@types/node@${{ matrix.types }}"
 
       - name: Report resolved toolchain
         working-directory: examples/vitest-typescript
