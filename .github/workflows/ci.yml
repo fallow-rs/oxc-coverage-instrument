@@ -527,6 +527,11 @@ jobs:
       # (reading 'edgesOut')") while resolving peers around the file: binding
       # dependency. --legacy-peer-deps takes the older peer resolver and still
       # resolves the declared ranges fresh, which is what this matrix tests.
+      #
+      # --legacy-peer-deps also means peer dependencies are never auto-installed,
+      # so anything vitest only declares as a peer has to be a real devDependency
+      # in the example. vitest 5 moved vite out of its dependencies and left it
+      # as a required peer, hence the explicit vite entry in package.json.
       - name: Install example deps
         working-directory: examples/vitest-typescript
         run: npm install --legacy-peer-deps
