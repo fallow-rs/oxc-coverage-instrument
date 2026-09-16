@@ -38,6 +38,11 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    groups:
+      # vitest and its coverage provider pin each other exactly, so a split
+      # pair can never land: each half fails on the other half's old major.
+      vitest:
+        patterns: ["vitest", "@vitest/*", "vite"]
     open-pull-requests-limit: 3
 
   - package-ecosystem: github-actions
