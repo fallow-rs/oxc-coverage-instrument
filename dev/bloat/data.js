@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788659565415,
+  "lastUpdate": 1790263070915,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2488,6 +2488,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/08df9defdb6de7c874730b73732b1b1803648d4e"
         },
         "date": 1788659564424,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92402008,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7f80975804117f05282c1e2976d86735e175172",
+          "message": "chore(deps): move to napi 3.12 and @napi-rs/cli 3.9\n\nLand the napi and napi-toolchain Dependabot groups together. The new\nnapi-build links against emnapi v2 archives, and the new CLI builds\nwasm32-wasip1 as its own flavor with new file names.\n\n- Bump napi 3.12.2, napi-build 2.4.2, napi-derive 3.6.6.\n- Bump @napi-rs/cli 3.9.0 and @napi-rs/wasm-runtime 1.2.4.\n- Pin emnapi, @emnapi/core and @emnapi/runtime to 2.0.0-alpha.5.\n  The CLI needs all three at one version, and the wasm needs\n  @emnapi/core v2 at runtime.\n- Declare @emnapi/core and @emnapi/runtime in the root and wasm\n  packages, because the generated loaders import them.\n- Remove the CLI link-dir patch. napi-build now selects the\n  single-threaded emnapi archive.\n- Rename the wasip1 outputs to the published file and package names\n  before the single-threaded patch runs.\n- Drop wasm32-wasip1 from napi.targets. The repo packages that flavor,\n  and napi artifacts and pre-publish otherwise expect the new layout.\n- Keep the WASI optional dependency in pre-publish, align the threaded\n  package manifest with the CLI checks, and upload wasi.d.cts.\n- Stop shipping worker shims in the single-threaded package.",
+          "timestamp": "2026-09-24T16:35:26+02:00",
+          "tree_id": "914765849e5ba44b2ed986a04e717bc28fd13bd4",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/f7f80975804117f05282c1e2976d86735e175172"
+        },
+        "date": 1790263069779,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
