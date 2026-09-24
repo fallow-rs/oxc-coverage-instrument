@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Populate the manually named single-threaded WASI optional package.
 //
-// napi-rs currently maps both wasm32-wasip1 and wasm32-wasip1-threads to the
-// same generated package suffix (`wasm32-wasi`). Keep the generated threaded
-// package as-is, then copy the single-threaded build artifacts into this
-// repo-owned package name and patch the browser shim so it does not require
-// SharedArrayBuffer or worker-backed shared memory.
+// Keep the generated threaded package as-is, then copy the single-threaded
+// build artifacts into this repo-owned package name and patch the browser shim
+// so it does not require SharedArrayBuffer or worker-backed shared memory. The
+// single-threaded loaders do not start workers, so the package has no worker
+// shims.
 
 import {
   copyFileSync,
@@ -18,6 +18,7 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  normalizeWasip1Outputs,
   patchSingleThreadedBrowserShim,
   patchSingleThreadedShim,
   patchSingleThreadedWasm,
@@ -47,8 +48,6 @@ const requiredFiles = [
   'coverage-instrument.wasm32-wasi.wasm',
   'coverage-instrument.wasi.cjs',
   'coverage-instrument.wasi-browser.js',
-  'wasi-worker.mjs',
-  'wasi-worker-browser.mjs',
 ];
 
 function requirePath(path) {
@@ -61,7 +60,11 @@ function requirePath(path) {
 
 const readRequired = (path) => readFileSync(requirePath(path), 'utf8');
 
+normalizeWasip1Outputs(sourceDir);
 mkdirSync(targetDir, { recursive: true });
+for (const staleWorker of ['wasi-worker.mjs', 'wasi-worker-browser.mjs']) {
+  rmSync(join(targetDir, staleWorker), { force: true });
+}
 for (const file of requiredFiles) {
   const sourcePath = join(sourceDir, file);
   const targetPath = join(targetDir, file);

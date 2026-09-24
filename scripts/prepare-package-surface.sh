@@ -6,7 +6,6 @@ ROOT="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
 NAPI_DIR="$ROOT/crates/oxc_coverage_instrument_napi"
 THREADED_PACKAGE="$NAPI_DIR/npm/wasm32-wasi"
 SINGLE_THREADED_PACKAGE="$NAPI_DIR/npm/wasm32-wasi-singlethreaded"
-NAPI_CLI_DIST="$NAPI_DIR/node_modules/@napi-rs/cli/dist"
 TMP="$(mktemp -d)"
 COMMITTED=0
 SNAPSHOT_READY=0
@@ -89,6 +88,7 @@ snapshot_root_artifacts() {
   local snapshot_dir="$1"
   local artifact
   snapshot_manifest_files "$NAPI_DIR" "$snapshot_dir" "$NAPI_DIR/package.json"
+  snapshot_manifest_files "$NAPI_DIR" "$snapshot_dir" "$THREADED_PACKAGE/package.json"
   for artifact in "$NAPI_DIR"/coverage-instrument.wasm32-wasi*.wasm; do
     if [ -f "$artifact" ]; then
       cp "$artifact" "$snapshot_dir/"
@@ -101,6 +101,9 @@ restore_root_artifacts() {
   local artifact
   local status=0
   if ! restore_manifest_files "$NAPI_DIR" "$snapshot_dir" "$NAPI_DIR/package.json"; then
+    status=1
+  fi
+  if ! restore_manifest_files "$NAPI_DIR" "$snapshot_dir" "$THREADED_PACKAGE/package.json"; then
     status=1
   fi
   if ! rm -f "$NAPI_DIR"/coverage-instrument.wasm32-wasi*.wasm; then
@@ -116,32 +119,6 @@ restore_root_artifacts() {
   return "$status"
 }
 
-snapshot_napi_cli() {
-  local file
-  mkdir -p "$TMP/original-napi-cli"
-  for file in cli.js index.js index.cjs; do
-    if [ -f "$NAPI_CLI_DIST/$file" ]; then
-      cp "$NAPI_CLI_DIST/$file" "$TMP/original-napi-cli/$file"
-    fi
-  done
-}
-
-restore_napi_cli() {
-  local file
-  local status=0
-  for file in cli.js index.js index.cjs; do
-    if ! rm -f "$NAPI_CLI_DIST/$file"; then
-      status=1
-    fi
-    if [ -f "$TMP/original-napi-cli/$file" ]; then
-      if ! cp "$TMP/original-napi-cli/$file" "$NAPI_CLI_DIST/$file"; then
-        status=1
-      fi
-    fi
-  done
-  return "$status"
-}
-
 snapshot_destinations() {
   snapshot_root_artifacts "$TMP/original-root"
   snapshot_manifest_files \
@@ -150,7 +127,6 @@ snapshot_destinations() {
     "$SINGLE_THREADED_PACKAGE" \
     "$TMP/original-single-threaded" \
     "$SINGLE_THREADED_PACKAGE/package.json"
-  snapshot_napi_cli
 }
 
 restore_destinations() {
@@ -166,9 +142,6 @@ restore_destinations() {
     "$SINGLE_THREADED_PACKAGE" \
     "$TMP/original-single-threaded" \
     "$SINGLE_THREADED_PACKAGE/package.json"; then
-    status=1
-  fi
-  if ! restore_napi_cli; then
     status=1
   fi
   return "$status"
@@ -214,7 +187,6 @@ SNAPSHOT_READY=1
 echo "[prepare:package-surface] build threaded wasm32-wasip1-threads artifacts"
 (
   cd "$NAPI_DIR"
-  node scripts/patch-napi-wasi-link-dir.mjs
   rm -f coverage-instrument.wasm32-wasi*.wasm
   npx napi build --release --platform --target wasm32-wasip1-threads
   node scripts/patch-wasi-browser-shim.mjs
@@ -225,7 +197,7 @@ echo "[prepare:package-surface] build single-threaded wasm32-wasip1 artifacts"
 (
   cd "$NAPI_DIR"
   rm -f coverage-instrument.wasm32-wasi*.wasm
-  NAPI_RS_WASI_LINK_DIR=wasm32-wasip1 npx napi build --release --platform --target wasm32-wasip1
+  npx napi build --release --platform --target wasm32-wasip1
   node scripts/prepare-wasi-singlethreaded-package.mjs .
   node scripts/validate-wasi-singlethreaded-package.mjs npm/wasm32-wasi-singlethreaded
 )

@@ -89,7 +89,7 @@ jobs:
           # for that one release. Track the wasm regression separately.
           - os: ubuntu-latest
             target: wasm32-wasip1
-            build: NAPI_RS_WASI_LINK_DIR=wasm32-wasip1 npx napi build --release --platform --target wasm32-wasip1
+            build: npx napi build --release --platform --target wasm32-wasip1
 
           - os: ubuntu-latest
             target: wasm32-wasip1-threads
@@ -132,10 +132,6 @@ jobs:
         working-directory: crates/oxc_coverage_instrument_napi
         run: npm ci
 
-      - name: Patch napi-rs WASI link dir selector
-        working-directory: crates/oxc_coverage_instrument_napi
-        run: node scripts/patch-napi-wasi-link-dir.mjs
-
       - name: Build native binding
         working-directory: crates/oxc_coverage_instrument_napi
         run: ${{ matrix.build }}
@@ -170,7 +166,8 @@ jobs:
           #
           # The wasm32-wasip1-threads target emits a .wasm binary plus several
           # JS/MJS shims (coverage-instrument.wasi.cjs, coverage-instrument.wasi-browser.js,
-          # wasi-worker.mjs, wasi-worker-browser.mjs, browser.js). upload-artifact
+          # wasi-worker.mjs, wasi-worker-browser.mjs, browser.js) and the
+          # coverage-instrument.wasi.d.cts types that `napi artifacts` requires. upload-artifact
           # evaluates if-no-files-found across the whole artifact, so listing
           # wasm-only globs alongside .node globs is safe (unmatched patterns are
           # silent as long as at least one file is captured).
@@ -181,6 +178,7 @@ jobs:
             crates/oxc_coverage_instrument_napi/index.d.ts
             crates/oxc_coverage_instrument_napi/browser.js
             crates/oxc_coverage_instrument_napi/coverage-instrument.wasi.cjs
+            crates/oxc_coverage_instrument_napi/coverage-instrument.wasi.d.cts
             crates/oxc_coverage_instrument_napi/coverage-instrument.wasi-browser.js
             crates/oxc_coverage_instrument_napi/wasi-worker.mjs
             crates/oxc_coverage_instrument_napi/wasi-worker-browser.mjs

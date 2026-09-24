@@ -49,8 +49,6 @@ const platformPackSpecs = [
       'package/coverage-instrument.wasm32-wasi.wasm',
       'package/coverage-instrument.wasi.cjs',
       'package/coverage-instrument.wasi-browser.js',
-      'package/wasi-worker.mjs',
-      'package/wasi-worker-browser.mjs',
     ],
   },
   {
@@ -141,9 +139,15 @@ checkUnique(
   'canonical package directories',
   targetPackageEntries.map(([, packageDir]) => packageDir),
 );
+// napi-rs 3.9 gives wasm32-wasip1 its own package layout. This repo builds and
+// packages that target with its own scripts, so napi.targets must omit it.
+const repoPackagedTargets = new Set(['wasm32-wasip1']);
+const expectedNapiTargets = new Set(
+  [...expectedTargets].filter((target) => !repoPackagedTargets.has(target)),
+);
 const napiTargets = rootManifest.napi?.targets ?? [];
 checkUnique('napi.targets', napiTargets);
-checkSet('napi.targets', expectedTargets, new Set(napiTargets));
+checkSet('napi.targets', expectedNapiTargets, new Set(napiTargets));
 checkSet(
   'optionalDependencies',
   expectedPackages,

@@ -255,10 +255,8 @@ jobs:
         include:
           - variant: wasm32-wasip1-threads
             target: wasm32-wasip1-threads
-            wasi_link_dir: ''
           - variant: wasm32-wasip1
             target: wasm32-wasip1
-            wasi_link_dir: wasm32-wasip1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -275,14 +273,8 @@ jobs:
         working-directory: crates/oxc_coverage_instrument_napi
         run: npm ci || npm install
 
-      - name: Patch napi-rs WASI link dir selector
-        working-directory: crates/oxc_coverage_instrument_napi
-        run: node scripts/patch-napi-wasi-link-dir.mjs
-
       - name: Build wasm32-wasi binding
         working-directory: crates/oxc_coverage_instrument_napi
-        env:
-          NAPI_RS_WASI_LINK_DIR: ${{ matrix.wasi_link_dir }}
         run: |
           rm -f coverage-instrument.wasm32-wasi*.wasm
           npx napi build --release --platform --target ${{ matrix.target }}
@@ -578,10 +570,8 @@ jobs:
         include:
           - variant: wasm32-wasip1-threads
             target: wasm32-wasip1-threads
-            wasi_link_dir: ''
           - variant: wasm32-wasip1
             target: wasm32-wasip1
-            wasi_link_dir: wasm32-wasip1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -598,18 +588,12 @@ jobs:
         working-directory: crates/oxc_coverage_instrument_napi
         run: npm ci || npm install
 
-      - name: Patch napi-rs WASI link dir selector
-        working-directory: crates/oxc_coverage_instrument_napi
-        run: node scripts/patch-napi-wasi-link-dir.mjs
-
       - name: Build native napi binding
         working-directory: crates/oxc_coverage_instrument_napi
         run: npx napi build --release --platform
 
       - name: Build wasm32-wasi napi binding
         working-directory: crates/oxc_coverage_instrument_napi
-        env:
-          NAPI_RS_WASI_LINK_DIR: ${{ matrix.wasi_link_dir }}
         run: |
           rm -f coverage-instrument.wasm32-wasi*.wasm
           npx napi build --release --platform --target ${{ matrix.target }}
@@ -656,10 +640,8 @@ jobs:
         include:
           - variant: wasm32-wasip1-threads
             target: wasm32-wasip1-threads
-            wasi_link_dir: ''
           - variant: wasm32-wasip1
             target: wasm32-wasip1
-            wasi_link_dir: wasm32-wasip1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -676,18 +658,12 @@ jobs:
         working-directory: crates/oxc_coverage_instrument_napi
         run: npm ci || npm install
 
-      - name: Patch napi-rs WASI link dir selector
-        working-directory: crates/oxc_coverage_instrument_napi
-        run: node scripts/patch-napi-wasi-link-dir.mjs
-
       - name: Build native napi binding
         working-directory: crates/oxc_coverage_instrument_napi
         run: npx napi build --release --platform
 
       - name: Build wasm32-wasi napi binding
         working-directory: crates/oxc_coverage_instrument_napi
-        env:
-          NAPI_RS_WASI_LINK_DIR: ${{ matrix.wasi_link_dir }}
         run: |
           rm -f coverage-instrument.wasm32-wasi*.wasm
           npx napi build --release --platform --target ${{ matrix.target }}
@@ -752,10 +728,6 @@ jobs:
         working-directory: crates/oxc_coverage_instrument_napi
         run: npm ci || npm install
 
-      - name: Patch napi-rs WASI link dir selector
-        working-directory: crates/oxc_coverage_instrument_napi
-        run: node scripts/patch-napi-wasi-link-dir.mjs
-
       - name: Build native napi binding
         working-directory: crates/oxc_coverage_instrument_napi
         run: npx napi build --release --platform
@@ -786,8 +758,6 @@ jobs:
 
       - name: Build single-threaded wasm32-wasi napi binding
         working-directory: crates/oxc_coverage_instrument_napi
-        env:
-          NAPI_RS_WASI_LINK_DIR: wasm32-wasip1
         run: |
           rm -f coverage-instrument.wasm32-wasi*.wasm
           npx napi build --release --platform --target wasm32-wasip1

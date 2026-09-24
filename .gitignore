@@ -25,9 +25,12 @@ crates/oxc_coverage_instrument_napi/index.d.ts
 crates/oxc_coverage_instrument_napi/browser.js
 crates/oxc_coverage_instrument_napi/coverage-instrument.wasi.cjs
 crates/oxc_coverage_instrument_napi/coverage-instrument.wasi-browser.js
+crates/oxc_coverage_instrument_napi/coverage-instrument.wasi.d.cts
+crates/oxc_coverage_instrument_napi/coverage-instrument.wasip1*
 crates/oxc_coverage_instrument_napi/wasi-worker.mjs
 crates/oxc_coverage_instrument_napi/wasi-worker-browser.mjs
 crates/oxc_coverage_instrument_napi/npm/*/coverage-instrument.wasi.cjs
+crates/oxc_coverage_instrument_napi/npm/*/coverage-instrument.wasi.d.cts
 crates/oxc_coverage_instrument_napi/npm/*/coverage-instrument.wasi-browser.js
 crates/oxc_coverage_instrument_napi/npm/*/wasi-worker.mjs
 crates/oxc_coverage_instrument_napi/npm/*/wasi-worker-browser.mjs
