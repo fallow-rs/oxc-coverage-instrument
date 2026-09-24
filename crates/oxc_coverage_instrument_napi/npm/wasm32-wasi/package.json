@@ -3,9 +3,15 @@
   "version": "0.12.0",
   "main": "coverage-instrument.wasi.cjs",
   "browser": "coverage-instrument.wasi-browser.js",
+  "types": "coverage-instrument.wasi.d.cts",
+  "type": "module",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=23.5.0"
+  },
   "files": [
     "coverage-instrument.wasm32-wasi.wasm",
     "coverage-instrument.wasi.cjs",
+    "coverage-instrument.wasi.d.cts",
     "coverage-instrument.wasi-browser.js",
     "wasi-worker.mjs",
     "wasi-worker-browser.mjs"
@@ -31,6 +37,8 @@
   },
   "bugs": "https://github.com/fallow-rs/oxc-coverage-instrument/issues",
   "dependencies": {
-    "@napi-rs/wasm-runtime": "^1.1.4"
+    "@emnapi/core": "2.0.0-alpha.5",
+    "@emnapi/runtime": "2.0.0-alpha.5",
+    "@napi-rs/wasm-runtime": "^1.2.4"
   }
 }

@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 // Post-build patch for the generated single-threaded WASI artifacts.
 //
-// napi-rs 3.6 emits the same worker/shared-memory shims for wasm32-wasip1 and
-// wasm32-wasip1-threads. The single-threaded artifact also marks one runtime
-// global immutable even though the generated code writes to it. Patch both
-// issues after `napi build --target wasm32-wasip1` and validate the result.
+// napi-rs 3.9 emits a separate single-threaded flavor for wasm32-wasip1, with
+// `wasip1` file names and a `binding-wasm32-wasip1` package reference. This
+// repo publishes that flavor as `binding-wasm32-wasi-singlethreaded` with the
+// `wasi` file names, so the script renames the files and the references first.
+// Older napi-rs releases emitted worker and shared-memory shims for
+// wasm32-wasip1 and could mark one runtime global immutable. The remaining
+// patches remove those markers when they occur, and they do nothing otherwise.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,6 +19,43 @@ const targetDir = process.argv[2] ? resolve(packageRoot, process.argv[2]) : pack
 
 const threadedPackage = '@oxc-coverage-instrument/binding-wasm32-wasi';
 const singlePackage = '@oxc-coverage-instrument/binding-wasm32-wasi-singlethreaded';
+// Match the threaded package name only when no suffix follows it, so a second
+// run does not rename the single-threaded package again.
+const threadedPackagePattern = /@oxc-coverage-instrument\/binding-wasm32-wasi(?![-\w])/g;
+
+const wasip1Renames = [
+  ['coverage-instrument.wasm32-wasip1.wasm', 'coverage-instrument.wasm32-wasi.wasm'],
+  ['coverage-instrument.wasm32-wasip1.debug.wasm', 'coverage-instrument.wasm32-wasi.debug.wasm'],
+  ['coverage-instrument.wasip1.cjs', 'coverage-instrument.wasi.cjs'],
+  ['coverage-instrument.wasip1-browser.js', 'coverage-instrument.wasi-browser.js'],
+];
+
+export function renameWasip1References(source) {
+  return source
+    .replaceAll('coverage-instrument.wasm32-wasip1.', 'coverage-instrument.wasm32-wasi.')
+    .replaceAll('@oxc-coverage-instrument/binding-wasm32-wasip1', threadedPackage);
+}
+
+// Move the napi-rs 3.9 `wasip1` outputs to the file names that this repo
+// publishes. Returns the number of files that moved.
+export function normalizeWasip1Outputs(dir) {
+  let moved = 0;
+  for (const [from, to] of wasip1Renames) {
+    const source = join(dir, from);
+    if (!existsSync(source)) {
+      continue;
+    }
+    const target = join(dir, to);
+    if (from.endsWith('.wasm')) {
+      renameSync(source, target);
+    } else {
+      writeFileSync(target, renameWasip1References(readFileSync(source, 'utf8')));
+      rmSync(source);
+    }
+    moved += 1;
+  }
+  return moved;
+}
 
 export function patchSingleThreadedWasm(buffer) {
   if (WebAssembly.validate(buffer)) {
@@ -123,7 +163,7 @@ export function patchSingleThreadedWasm(buffer) {
 
 export function patchSingleThreadedShim(source) {
   const out = source
-    .replaceAll(threadedPackage, singlePackage)
+    .replace(threadedPackagePattern, singlePackage)
     .replace(
       /\n\n\/\/ oxc-coverage-instrument: SharedArrayBuffer guard \(issue #89\)\nif \(typeof SharedArrayBuffer === 'undefined'\) \{\n  throw new Error\(\n    'oxc-coverage-instrument: the browser WASM binding requires SharedArrayBuffer\. ' \+\n      'Enable Cross-Origin-Opener-Policy: same-origin and ' \+\n      'Cross-Origin-Embedder-Policy: require-corp on your host page so the ' \+\n      'browser is cross-origin isolated\. See ' \+\n      'https:\/\/github\.com\/fallow-rs\/oxc-coverage-instrument#runtime-matrix',\n  \);\n\}\n/,
       '\n',
@@ -154,14 +194,33 @@ export function patchSingleThreadedShim(source) {
   return out;
 }
 
+const wasmModuleImport = "import __wasmModule from './coverage-instrument.wasm32-wasi.wasm'\n";
+const wasmFileFromModule = `const __wasmFile =
+  __wasmModule instanceof WebAssembly.Module
+    ? __wasmModule
+    : typeof __wasmModule === 'string'
+      ? await fetch(__wasmModule).then((res) => res.arrayBuffer())
+      : __wasmModule`;
+
 export function patchSingleThreadedBrowserShim(source) {
   let out = patchSingleThreadedShim(source);
+
+  // napi-rs 3.9 shape: fetch the wasm URL, check the response, then read it.
+  // Workers cannot fetch a relative module URL, so import the wasm module and
+  // let the bundler provide it.
+  const fetchResponseBlock =
+    /const __wasmUrl = new URL\('\.\/coverage-instrument\.wasm32-wasi\.wasm', import\.meta\.url\)\.href\nconst __wasmResponse = await globalThis\.fetch\(__wasmUrl\)\n[\s\S]*?\nconst __wasmFile = await __wasmResponse\.arrayBuffer\(\)/;
+  if (!out.includes(wasmModuleImport) && fetchResponseBlock.test(out)) {
+    out = out
+      .replace(/} from '@napi-rs\/wasm-runtime'\n/, `} from '@napi-rs/wasm-runtime'\n${wasmModuleImport}`)
+      .replace(fetchResponseBlock, wasmFileFromModule);
+  }
 
   if (out.includes('from \'@napi-rs/wasm-runtime\'') && out.includes('await fetch(__wasmUrl)')) {
     out = out
       .replace(
         /} from '@napi-rs\/wasm-runtime'\n/,
-        "} from '@napi-rs/wasm-runtime'\nimport __wasmModule from './coverage-instrument.wasm32-wasi.wasm'\n",
+        `} from '@napi-rs/wasm-runtime'\n${wasmModuleImport}`,
       )
       .replace(
         /const __wasmUrl = new URL\('\.\/coverage-instrument\.wasm32-wasi\.wasm', import\.meta\.url\)\.href\n/,
@@ -169,15 +228,13 @@ export function patchSingleThreadedBrowserShim(source) {
       )
       .replace(
         /const __wasmFile = await fetch\(__wasmUrl\)\.then\(\(res\) => res\.arrayBuffer\(\)\)/,
-        `const __wasmFile =
-  __wasmModule instanceof WebAssembly.Module
-    ? __wasmModule
-    : typeof __wasmModule === 'string'
-      ? await fetch(__wasmModule).then((res) => res.arrayBuffer())
-      : __wasmModule`,
+        wasmFileFromModule,
       );
   }
 
+  if (!out.includes(wasmModuleImport)) {
+    throw new Error('failed to replace the wasm fetch with a wasm module import in the browser shim');
+  }
   return out;
 }
 
@@ -191,6 +248,11 @@ function patchFile(path, patcher) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  const moved = normalizeWasip1Outputs(targetDir);
+  if (moved > 0) {
+    console.log(`[patch-wasi-singlethreaded-artifacts] renamed ${moved} wasip1 output file(s).`);
+  }
+
   const wasmPath = join(targetDir, 'coverage-instrument.wasm32-wasi.wasm');
   patchFile(wasmPath, (buffer) => {
     const result = patchSingleThreadedWasm(buffer);

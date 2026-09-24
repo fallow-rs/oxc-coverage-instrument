@@ -16,10 +16,12 @@ function readRequired(file, encoding) {
   return readFileSync(path, encoding);
 }
 
-// The worker shims are only checked for presence; every other required file is
-// read and inspected below.
+// The single-threaded loaders never start workers, so the package must not
+// ship worker shims.
 for (const file of ['wasi-worker.mjs', 'wasi-worker-browser.mjs']) {
-  readRequired(file);
+  if (existsSync(join(packageDir, file))) {
+    throw new Error(`single-threaded package must not ship ${file}`);
+  }
 }
 
 const packageJson = JSON.parse(readRequired('package.json', 'utf8'));

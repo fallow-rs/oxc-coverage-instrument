@@ -329,21 +329,17 @@ write_fake_surface_fixture() {
     >"$napi_dir/coverage-instrument.wasm32-wasi.wasm"
   while IFS= read -r file; do
     printf 'original-threaded:%s\n' "$file" >"$napi_dir/npm/wasm32-wasi/$file"
-    printf 'original-single:%s\n' "$file" >"$napi_dir/npm/wasm32-wasi-singlethreaded/$file"
   done < <(node -e 'for (const file of require(process.argv[1]).files) console.log(file)' \
     "$napi_dir/npm/wasm32-wasi/package.json")
+  while IFS= read -r file; do
+    printf 'original-single:%s\n' "$file" >"$napi_dir/npm/wasm32-wasi-singlethreaded/$file"
+  done < <(node -e 'for (const file of require(process.argv[1]).files) console.log(file)' \
+    "$napi_dir/npm/wasm32-wasi-singlethreaded/package.json")
 
   printf '%s\n' \
     "import { writeFileSync } from 'node:fs';" \
     "writeFileSync(new URL('../browser.js', import.meta.url), 'selector\\n');" \
     >"$napi_dir/scripts/patch-browser-loader.mjs"
-  for file in cli.js index.js index.cjs; do
-    printf 'original-cli:%s\n' "$file" >"$napi_dir/node_modules/@napi-rs/cli/dist/$file"
-  done
-  printf '%s\n' \
-    "import { writeFileSync } from 'node:fs';" \
-    "writeFileSync(new URL('../node_modules/@napi-rs/cli/dist/cli.js', import.meta.url), 'patched-cli\\n');" \
-    >"$napi_dir/scripts/patch-napi-wasi-link-dir.mjs"
   : >"$napi_dir/scripts/patch-wasi-browser-shim.mjs"
   printf '%s\n' \
     "import { copyFileSync, readFileSync } from 'node:fs';" \
@@ -402,10 +398,13 @@ assert_prepared_surface() {
   assert_file_equal "$napi_dir/browser.js" "selector" "root browser selector"
   while IFS= read -r file; do
     assert_file_equal "$napi_dir/npm/wasm32-wasi/$file" "threaded:$file" "threaded package $file"
+  done < <(node -e 'for (const file of require(process.argv[1]).files) console.log(file)' \
+    "$napi_dir/npm/wasm32-wasi/package.json")
+  while IFS= read -r file; do
     assert_file_equal "$napi_dir/npm/wasm32-wasi-singlethreaded/$file" "single:$file" \
       "single-threaded package $file"
   done < <(node -e 'for (const file of require(process.argv[1]).files) console.log(file)' \
-    "$napi_dir/npm/wasm32-wasi/package.json")
+    "$napi_dir/npm/wasm32-wasi-singlethreaded/package.json")
 }
 
 if "$CHECK" unknown-profile >"$TMP/unknown.log" 2>&1; then
