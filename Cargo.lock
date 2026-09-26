@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_instrument"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "cow-utils",
  "criterion2",
@@ -1122,14 +1122,14 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_report"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "oxc_coverage_types",
 ]
 
 [[package]]
 name = "oxc_coverage_reports"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
@@ -1150,7 +1150,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_source_maps"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "criterion2",
  "oxc_coverage_types",
@@ -1162,7 +1162,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_types"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1170,7 +1170,7 @@ dependencies = [
 
 [[package]]
 name = "oxc_coverage_v8"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "criterion2",
  "oxc_coverage_types",
