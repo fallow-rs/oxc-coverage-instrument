@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-26.04, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -69,7 +69,7 @@ jobs:
 
   msrv:
     name: MSRV
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -92,7 +92,7 @@ jobs:
 
   doc:
     name: Documentation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -115,7 +115,7 @@ jobs:
 
   typos:
     name: Typos
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -125,7 +125,7 @@ jobs:
 
   version-sync:
     name: Version Sync
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -143,7 +143,7 @@ jobs:
 
   audit:
     name: Security Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -156,7 +156,7 @@ jobs:
 
   deny:
     name: Cargo Deny
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -166,7 +166,7 @@ jobs:
 
   shear:
     name: Unused Dependencies
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -179,7 +179,7 @@ jobs:
 
   zizmor:
     name: Actions Security
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -202,7 +202,7 @@ jobs:
 
   napi:
     name: Napi Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -245,7 +245,7 @@ jobs:
     # Catches regressions that compile against native libc but not against the
     # wasm32 emulated environment.
     name: Napi Test (${{ matrix.variant }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -333,7 +333,7 @@ jobs:
     # The strict profile must match Istanbul exactly. The default profile may
     # differ only through extensions documented in the instrumenter README.
     name: Coverage profile conformance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -383,7 +383,7 @@ jobs:
     # inputs and real Babel source maps. Preparation is explicit and every cache
     # restore is verified against the checked-in SHA-256 manifest.
     name: Real-world coverage parity
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -434,7 +434,7 @@ jobs:
     # cannot affect it. Building per matrix leg would pay a full release build
     # of oxc four times over for a binary that is bit-identical each time.
     name: Vitest example binding
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -482,7 +482,7 @@ jobs:
     # (Node 22 / TS 6 / types 22) and the ceiling (Node 24 / TS 7 / types 26).
     name: Vitest TypeScript example (node ${{ matrix.node }}, ts ${{ matrix.ts }})
     needs: vitest-example-binding
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -560,7 +560,7 @@ jobs:
     # future change subtly diverges WASM output from native (e.g. a
     # cfg(target_arch = "wasm32") branch that affects coverage shape).
     name: Native vs WASM parity (${{ matrix.variant }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -630,7 +630,7 @@ jobs:
     # `instrument()` call. Catches regressions where the published smoke
     # scripts drift away from the loader contract.
     name: WASM node example (${{ matrix.variant }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -708,7 +708,7 @@ jobs:
     # package from that artifact, bundles with Wrangler, then runs the Worker in
     # local workerd and compares its FileCoverage byte-for-byte with native.
     name: Cloudflare Workers example
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -805,7 +805,7 @@ jobs:
       - native-vs-wasm-parity
       - wasm-node-example
       - cloudflare-workers-example
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions: {}
     steps:

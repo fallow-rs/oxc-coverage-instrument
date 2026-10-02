@@ -66,7 +66,7 @@ const assertPrepublishOrder = (text) => {
   );
 };
 
-assert.match(prepublish, /^\s{4}runs-on: ubuntu-latest$/m);
+assert.match(prepublish, /^\s{4}runs-on: ubuntu-26.04$/m);
 assertReadOnlyPermissions(prepublishPermissions);
 assert.throws(
   () => assertReadOnlyPermissions('      contents: read\n      id-token: write'),

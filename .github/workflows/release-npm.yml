@@ -18,7 +18,7 @@ env:
 jobs:
   prepublish:
     name: Prepublication validation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -59,15 +59,15 @@ jobs:
             target: x86_64-apple-darwin
             build: npx napi build --release --platform --target x86_64-apple-darwin
 
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             target: x86_64-unknown-linux-gnu
             build: npx napi build --release --platform --target x86_64-unknown-linux-gnu --use-napi-cross
 
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             target: aarch64-unknown-linux-gnu
             build: npx napi build --release --platform --target aarch64-unknown-linux-gnu --use-napi-cross
 
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             target: x86_64-unknown-linux-musl
             build: npx napi build --release --platform --target x86_64-unknown-linux-musl -x
 
@@ -87,11 +87,11 @@ jobs:
           # the wasm shim files in the root package.json `files` field will
           # be absent from the tarball, breaking the browser export only
           # for that one release. Track the wasm regression separately.
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             target: wasm32-wasip1
             build: npx napi build --release --platform --target wasm32-wasip1
 
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             target: wasm32-wasip1-threads
             build: npx napi build --release --platform --target wasm32-wasip1-threads
 
@@ -186,7 +186,7 @@ jobs:
 
   publish-crate:
     name: Publish to crates.io
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: build
     permissions:
       contents: read
@@ -300,7 +300,7 @@ jobs:
 
   publish:
     name: Publish to npm
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: publish-crate
     permissions:
       contents: read
