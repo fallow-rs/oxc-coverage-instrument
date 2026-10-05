@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790401701394,
+  "lastUpdate": 1791193397333,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2551,6 +2551,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 92419600,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bart@waardenburg.dev",
+            "name": "Bart Waardenburg",
+            "username": "BartWaardenburg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad6f809f367a6f003982e6e8c7725384920a8ff0",
+          "message": "chore: pin Ubuntu CI runners to 26.04\n\n* chore: pin Ubuntu CI runners to 26.04\n\n* fix: keep CodSpeed simulation on supported Ubuntu",
+          "timestamp": "2026-10-05T11:39:01+02:00",
+          "tree_id": "08c755fbffe3930ebe54a8142544d86d5d446b0f",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/ad6f809f367a6f003982e6e8c7725384920a8ff0"
+        },
+        "date": 1791193396847,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92419592,
             "unit": "bytes"
           }
         ]
