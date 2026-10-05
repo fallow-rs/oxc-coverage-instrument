@@ -66,7 +66,7 @@ const assertPrepublishOrder = (text) => {
   );
 };
 
-assert.match(prepublish, /^\s{4}runs-on: ubuntu-latest$/m);
+assert.match(prepublish, /^\s{4}runs-on: ubuntu-26.04$/m);
 assertReadOnlyPermissions(prepublishPermissions);
 assert.throws(
   () => assertReadOnlyPermissions('      contents: read\n      id-token: write'),
@@ -90,4 +90,12 @@ assert.match(build, /^\s{4}needs: prepublish$/m);
 assert.match(publishCrate, /^\s{4}needs: build$/m);
 assert.match(publish, /^\s{4}needs: publish-crate$/m);
 
-console.log('release workflow policy tests: PASS');
+const benchmarkWorkflow = readFileSync(`${root}/.github/workflows/bench.yml`, 'utf8');
+const assertSimulationHost = (text) => {
+  assert.match(text, /^\s{4}runs-on: ubuntu-24\.04$/m, 'CodSpeed simulation requires Ubuntu 24.04');
+};
+assert.match(benchmarkWorkflow, /^\s{10}mode: simulation$/m);
+assertSimulationHost(benchmarkWorkflow);
+assert.throws(() => assertSimulationHost(benchmarkWorkflow.replace('ubuntu-24.04', 'ubuntu-26.04')));
+
+console.log('workflow policy tests: PASS');

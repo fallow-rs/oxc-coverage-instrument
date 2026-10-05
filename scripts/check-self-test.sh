@@ -640,7 +640,7 @@ printf '%s\n' \
   "        if: runner.os == 'Linux'" \
   '        run: true' \
   '  msrv:' \
-  '    runs-on: ubuntu-latest' \
+  '    runs-on: ubuntu-26.04' \
   >"$invalid_self_test_workflow"
 if workflow_check_has_linux_profile_step "$invalid_self_test_workflow" "Verification runner self-test" self-test; then
   fail "CI self-test validator accepted fields split across steps"
@@ -652,7 +652,7 @@ printf '%s\n' \
   '  ci-ok:' \
   '    needs:' \
   '      # - version-sync' \
-  '    runs-on: ubuntu-latest' \
+  '    runs-on: ubuntu-26.04' \
   >"$commented_need_workflow"
 if workflow_job_has_need "$commented_need_workflow" ci-ok version-sync; then
   fail "ci-ok.needs validator accepted a commented version-sync entry"
@@ -666,7 +666,7 @@ printf '%s\n' \
   '      - check' \
   '    metadata:' \
   '      - version-sync' \
-  '    runs-on: ubuntu-latest' \
+  '    runs-on: ubuntu-26.04' \
   >"$unrelated_need_workflow"
 if workflow_job_has_need "$unrelated_need_workflow" ci-ok version-sync; then
   fail "ci-ok.needs validator accepted version-sync from an unrelated property"
@@ -683,7 +683,7 @@ printf '%s\n' \
   '          node-version: 22' \
   '      - run: ./scripts/check.sh version-sync' \
   '  audit:' \
-  '    runs-on: ubuntu-latest' \
+  '    runs-on: ubuntu-26.04' \
   >"$invalid_version_sync_workflow"
 if workflow_version_sync_has_node_and_profile "$invalid_version_sync_workflow"; then
   fail "CI version-sync validator accepted a Node.js version from another step"
@@ -699,7 +699,7 @@ printf '%s\n' \
   '      - name: Unrelated strict command' \
   '        run: node scripts/npm-pack-surface-check.mjs --require-release-artifacts' \
   '  release:' \
-  '    runs-on: ubuntu-latest' \
+  '    runs-on: ubuntu-26.04' \
   >"$invalid_release_workflow"
 if release_workflow_uses_strict_pack_check "$invalid_release_workflow"; then
   fail "npm release validator accepted strict mode from another step"
@@ -709,7 +709,7 @@ invalid_crate_order="$TMP/invalid-crate-order.yml"
 printf '%s\n' \
   'jobs:' \
   '  publish-crate:' \
-  '    runs-on: ubuntu-latest' \
+  '    runs-on: ubuntu-26.04' \
   '  publish:' \
   '    needs: build' \
   >"$invalid_crate_order"
@@ -724,7 +724,7 @@ printf '%s\n' \
   '    metadata:' \
   '      needs: publish-crate' \
   '  publish:' \
-  '    runs-on: ubuntu-latest' \
+  '    runs-on: ubuntu-26.04' \
   >"$invalid_npm_order"
 if workflow_job_has_need "$invalid_npm_order" publish publish-crate; then
   fail "release ordering validator accepted dependency from another job"

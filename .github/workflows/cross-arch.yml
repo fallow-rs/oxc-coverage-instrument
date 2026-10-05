@@ -39,7 +39,7 @@ jobs:
   # CLI to be invoked; release-npm.yml handles its cross-compilation.
   cross-compile:
     name: Compile (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     strategy:
