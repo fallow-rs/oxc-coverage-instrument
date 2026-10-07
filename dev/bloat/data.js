@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791193397333,
+  "lastUpdate": 1791380480808,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2580,6 +2580,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Binary Size (oxc-coverage-instrument CLI)",
             "value": 92419592,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a631a7ff9ec61301918acb197c6f91bd687de99",
+          "message": "chore(deps): bump the oxc group with 11 updates (#257)\n\nBumps the oxc group with 11 updates:\n\n| Package | From | To |\n| --- | --- | --- |\n| [oxc_allocator](https://github.com/oxc-project/oxc) | `0.151.0` | `0.152.0` |\n| [oxc_ast](https://github.com/oxc-project/oxc) | `0.151.0` | `0.152.0` |\n| [oxc_ast_visit](https://github.com/oxc-project/oxc) | `0.151.0` | `0.152.0` |\n| [oxc_codegen](https://github.com/oxc-project/oxc) | `0.151.0` | `0.152.0` |\n| [oxc_parser](https://github.com/oxc-project/oxc) | `0.151.0` | `0.152.0` |\n| [oxc_semantic](https://github.com/oxc-project/oxc) | `0.151.0` | `0.152.0` |\n| [oxc_span](https://github.com/oxc-project/oxc) | `0.151.0` | `0.152.0` |\n| [oxc_syntax](https://github.com/oxc-project/oxc) | `0.151.0` | `0.152.0` |\n| [oxc_transformer](https://github.com/oxc-project/oxc) | `0.151.0` | `0.152.0` |\n| [oxc_traverse](https://github.com/oxc-project/oxc) | `0.151.0` | `0.152.0` |\n| [oxc_sourcemap](https://github.com/oxc-project/oxc-sourcemap) | `8.1.2` | `9.0.0` |\n\n\nUpdates `oxc_allocator` from 0.151.0 to 0.152.0\n- [Release notes](https://github.com/oxc-project/oxc/releases)\n- [Changelog](https://github.com/oxc-project/oxc/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc/compare/crates_v0.151.0...crates_v0.152.0)\n\nUpdates `oxc_ast` from 0.151.0 to 0.152.0\n- [Release notes](https://github.com/oxc-project/oxc/releases)\n- [Changelog](https://github.com/oxc-project/oxc/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc/compare/crates_v0.151.0...crates_v0.152.0)\n\nUpdates `oxc_ast_visit` from 0.151.0 to 0.152.0\n- [Release notes](https://github.com/oxc-project/oxc/releases)\n- [Changelog](https://github.com/oxc-project/oxc/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc/compare/crates_v0.151.0...crates_v0.152.0)\n\nUpdates `oxc_codegen` from 0.151.0 to 0.152.0\n- [Release notes](https://github.com/oxc-project/oxc/releases)\n- [Changelog](https://github.com/oxc-project/oxc/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc/compare/crates_v0.151.0...crates_v0.152.0)\n\nUpdates `oxc_parser` from 0.151.0 to 0.152.0\n- [Release notes](https://github.com/oxc-project/oxc/releases)\n- [Changelog](https://github.com/oxc-project/oxc/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc/compare/crates_v0.151.0...crates_v0.152.0)\n\nUpdates `oxc_semantic` from 0.151.0 to 0.152.0\n- [Release notes](https://github.com/oxc-project/oxc/releases)\n- [Changelog](https://github.com/oxc-project/oxc/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc/compare/crates_v0.151.0...crates_v0.152.0)\n\nUpdates `oxc_span` from 0.151.0 to 0.152.0\n- [Release notes](https://github.com/oxc-project/oxc/releases)\n- [Changelog](https://github.com/oxc-project/oxc/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc/compare/crates_v0.151.0...crates_v0.152.0)\n\nUpdates `oxc_syntax` from 0.151.0 to 0.152.0\n- [Release notes](https://github.com/oxc-project/oxc/releases)\n- [Changelog](https://github.com/oxc-project/oxc/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc/compare/crates_v0.151.0...crates_v0.152.0)\n\nUpdates `oxc_transformer` from 0.151.0 to 0.152.0\n- [Release notes](https://github.com/oxc-project/oxc/releases)\n- [Changelog](https://github.com/oxc-project/oxc/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc/compare/crates_v0.151.0...crates_v0.152.0)\n\nUpdates `oxc_traverse` from 0.151.0 to 0.152.0\n- [Release notes](https://github.com/oxc-project/oxc/releases)\n- [Changelog](https://github.com/oxc-project/oxc/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc/compare/crates_v0.151.0...crates_v0.152.0)\n\nUpdates `oxc_sourcemap` from 8.1.2 to 9.0.0\n- [Release notes](https://github.com/oxc-project/oxc-sourcemap/releases)\n- [Changelog](https://github.com/oxc-project/oxc-sourcemap/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/oxc-project/oxc-sourcemap/compare/v8.1.2...v9.0.0)\n\n---\nupdated-dependencies:\n- dependency-name: oxc_allocator\n  dependency-version: 0.152.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: oxc\n- dependency-name: oxc_ast\n  dependency-version: 0.152.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: oxc\n- dependency-name: oxc_ast_visit\n  dependency-version: 0.152.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: oxc\n- dependency-name: oxc_codegen\n  dependency-version: 0.152.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: oxc\n- dependency-name: oxc_parser\n  dependency-version: 0.152.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: oxc\n- dependency-name: oxc_semantic\n  dependency-version: 0.152.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: oxc\n- dependency-name: oxc_span\n  dependency-version: 0.152.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: oxc\n- dependency-name: oxc_syntax\n  dependency-version: 0.152.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: oxc\n- dependency-name: oxc_transformer\n  dependency-version: 0.152.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: oxc\n- dependency-name: oxc_traverse\n  dependency-version: 0.152.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: oxc\n- dependency-name: oxc_sourcemap\n  dependency-version: 9.0.0\n  dependency-type: direct:production\n  update-type: version-update:semver-major\n  dependency-group: oxc\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-07T15:38:55+02:00",
+          "tree_id": "7073a5781208b4bc842042a38a917f9e40e4fe54",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/2a631a7ff9ec61301918acb197c6f91bd687de99"
+        },
+        "date": 1791380480094,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92444816,
             "unit": "bytes"
           }
         ]
