@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791380480808,
+  "lastUpdate": 1791457123862,
   "repoUrl": "https://github.com/fallow-rs/oxc-coverage-instrument",
   "entries": {
     "oxc-coverage-instrument Binary Size": [
@@ -2604,6 +2604,35 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/2a631a7ff9ec61301918acb197c6f91bd687de99"
         },
         "date": 1791380480094,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Binary Size (oxc-coverage-instrument CLI)",
+            "value": 92444816,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3f61b5afe041f4e91b1f6f06f4e7954ce1b03a0f",
+          "message": "chore(deps-dev): bump @napi-rs/cli from 3.9.0 to 3.10.5 in napi-toolchain (#251)\n\n* chore(deps-dev): bump @napi-rs/cli\n\nBumps the napi-toolchain group with 1 update in the /crates/oxc_coverage_instrument_napi directory: [@napi-rs/cli](https://github.com/napi-rs/napi-rs).\n\n\nUpdates `@napi-rs/cli` from 3.9.0 to 3.10.5\n- [Release notes](https://github.com/napi-rs/napi-rs/releases)\n- [Commits](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.9.0...@napi-rs/cli@3.10.5)\n\n---\nupdated-dependencies:\n- dependency-name: \"@napi-rs/cli\"\n  dependency-version: 3.10.5\n  dependency-type: direct:development\n  update-type: version-update:semver-minor\n  dependency-group: napi-toolchain\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\n\n* fix(napi): stamp wasm32-wasi binding target on renamed loaders\n\n---------\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>\nCo-authored-by: Bart Waardenburg <bart@waardenburg.dev>",
+          "timestamp": "2026-10-08T12:55:27+02:00",
+          "tree_id": "145b07ec7a584b28ce9b8d40969447ac78061d92",
+          "url": "https://github.com/fallow-rs/oxc-coverage-instrument/commit/3f61b5afe041f4e91b1f6f06f4e7954ce1b03a0f"
+        },
+        "date": 1791457123395,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
