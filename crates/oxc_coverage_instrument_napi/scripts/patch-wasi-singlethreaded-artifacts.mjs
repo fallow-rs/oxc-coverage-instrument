@@ -30,10 +30,16 @@ const wasip1Renames = [
   ['coverage-instrument.wasip1-browser.js', 'coverage-instrument.wasi-browser.js'],
 ];
 
+// The renamed loaders ship as the `wasm32-wasi` package, and the root loader
+// stamps that name on the binding it loads. A loader that still stamps
+// `wasm32-wasip1` makes the root loader throw ERR_NAPI_BINDING_TARGET_CONFLICT.
+const bindingTargetPattern = /(const __napiBindingTarget = )'wasm32-wasip1'/;
+
 export function renameWasip1References(source) {
   return source
     .replaceAll('coverage-instrument.wasm32-wasip1.', 'coverage-instrument.wasm32-wasi.')
-    .replaceAll('@oxc-coverage-instrument/binding-wasm32-wasip1', threadedPackage);
+    .replaceAll('@oxc-coverage-instrument/binding-wasm32-wasip1', threadedPackage)
+    .replace(bindingTargetPattern, "$1'wasm32-wasi'");
 }
 
 // Move the napi-rs 3.9 `wasip1` outputs to the file names that this repo

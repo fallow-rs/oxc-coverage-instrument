@@ -69,7 +69,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.0 || ^8.0.0",
     "@jridgewell/gen-mapping": "^0.3.13",
-    "@napi-rs/cli": "3.9.0",
+    "@napi-rs/cli": "3.10.5",
     "emnapi": "2.0.0-alpha.5",
     "istanbul-lib-coverage": "^3.2.2",
     "istanbul-lib-instrument": "^6.0.3",
@@ -81,7 +81,7 @@
     "patch-shim": "node scripts/patch-wasi-browser-shim.mjs && node scripts/patch-browser-loader.mjs",
     "prepublishOnly": "napi prepublish -t npm",
     "artifacts": "napi artifacts",
-    "test": "node test.mjs && node scripts/patch-wasi-browser-shim.test.mjs",
+    "test": "node test.mjs && node scripts/patch-wasi-browser-shim.test.mjs && node scripts/patch-wasi-singlethreaded-artifacts.test.mjs",
     "test:browser-loader": "node scripts/browser-loader.test.mjs"
   },
   "overrides": {
